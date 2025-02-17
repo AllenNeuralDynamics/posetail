@@ -17,7 +17,7 @@ from easydict import EasyDict as edict
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 
-from datasets.utils import extract_name, extract_num
+from posetail.datasets.utils import extract_name, extract_num
 
 
 def custom_collate_2d(batch):

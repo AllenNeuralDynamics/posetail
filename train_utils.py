@@ -22,8 +22,8 @@ from einops import rearrange
 from pytorch_memlab import MemReporter, LineProfiler, profile
 from tqdm import trange, tqdm
 
-from datasets.datasets import Rat7mDataset
-from tracker.losses import get_vis_true, unroll_batch
+from posetail.datasets.datasets import Rat7mDataset
+from posetail.posetail.losses import get_vis_true, unroll_batch
 
 
 def set_seeds(seed = 3, set_backends = True):

@@ -14,11 +14,11 @@ from frozendict import frozendict, deepfreeze
 from pytorch_memlab import MemReporter, LineProfiler, profile
 from tqdm import tqdm
 
-from tracker.cube import UnprojectViews, project_volumes
-from tracker.transformer import TimeSpaceTransformer, MLP
-from tracker.networks import (ResidualFeatureExtractor, 
+from posetail.posetail.cube import UnprojectViews, project_volumes
+from posetail.posetail.transformer import TimeSpaceTransformer, MLP
+from posetail.posetail.networks import (ResidualFeatureExtractor, 
     TriplaneFeatureExtractor, FeatureExtractor)  
-from tracker.utils import get_pos_encoding, get_fourier_encoding
+from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
 
 class Tracker(nn.Module): 

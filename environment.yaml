@@ -8,14 +8,13 @@ dependencies:
   - python=3.10.12
   - pytorch=2.0.1
   - pytorch-cuda=11.8
-  - tensorflow-gpu<=2.12.0
+#  - tensorflow-gpu<=2.12.0
   - numpy=1.26.4
   - pandas=2.2.2
   - scikit-learn=1.5.1
   - scipy=1.14.1
   - seaborn=0.13.2
   - tqdm=4.67.1
-  - mamba
   - jupyter
   - notebook
   - pip

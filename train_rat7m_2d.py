@@ -23,9 +23,9 @@ from torch.utils.data import DataLoader
 from tqdm import trange, tqdm
 from tqdm.notebook import trange, tqdm
 
-from datasets.datasets import custom_collate_2d, custom_collate_3d
-from tracker.losses import *
-from tracker.tracker import Tracker
+from posetail.datasets.datasets import custom_collate_2d, custom_collate_3d
+from posetail.posetail.losses import *
+from posetail.posetail.tracker import Tracker
 from train_utils import * 
 
 
