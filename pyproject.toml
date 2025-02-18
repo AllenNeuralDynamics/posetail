@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "posetail"
+version = "0.8.0"
+dependencies = [
+    "aniposelib>=0.7.0",
+    "easydict==1.13",
+    "einops==0.7.0",
+    "frozendict==2.4.6",
+    "opencv-python==4.9.0.80",
+    "pytorch-memlab==0.3.0",
+    "toml==0.10.2",
+    "wandb==0.19.5",
+    "wget==3.2"
+]
+requires-python = ">=3.8"
+description = "a model for tracking 2d or 3d animal pose through time"
+readme = "README.md"
+license = {text = "BSD-3-Clause"}
+keywords = ["3d point tracking", "2d point tracking", "multi-view tracking", "pose estimation"]
+classifiers = [
+    'Intended Audience :: Science/Research',
+    'Topic :: Scientific/Engineering :: Image Recognition',
+    'License :: OSI Approved :: BSD License',
+    'Programming Language :: Python :: 3'
+]
+
+[project.optional-dependencies]
+gpu = [
+  "torch==2.0.1+cu118"
+]
+
+[project.urls]
+Repository = "https://github.com/AllenNeuralDynamics/posetail"
+

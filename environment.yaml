@@ -19,7 +19,7 @@ dependencies:
   - notebook
   - pip
   - pip:
-    - aniposelib
+    - aniposelib>=0.7.0
     - easydict==1.13
     - einops==0.7.0
     - frozendict==2.4.6
