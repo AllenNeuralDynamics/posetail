@@ -1,9 +1,9 @@
-import argparse 
+import argparse
 import glob
-import os 
+import os
 import shutil
-import wget 
-import zipfile 
+import zipfile
+import wget
 
 
 def parse_args(): 

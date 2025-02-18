@@ -1,23 +1,16 @@
-import cv2
-import glob
 import itertools
-import toml
-import torch
 
-import numpy as np
+import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
-from aniposelib.cameras import CameraGroup
 from einops import rearrange
 from frozendict import frozendict, deepfreeze
 from pytorch_memlab import MemReporter, LineProfiler, profile
-from tqdm import tqdm
 
 from posetail.posetail.cube import UnprojectViews, project_volumes
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
-from posetail.posetail.networks import (ResidualFeatureExtractor, 
-    TriplaneFeatureExtractor, FeatureExtractor)  
+from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
 

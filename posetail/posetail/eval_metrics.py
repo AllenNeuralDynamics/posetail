@@ -1,13 +1,5 @@
-
 import torch
 import numpy as np
-
-import torch.nn as nn
-import torch.nn.functional as F
-
-from einops import rearrange
-
-
 
 def get_eval_metrics(vis_pred, vis_true, coords_pred, 
                      coords_true, thresholds, prefix = 'eval/'):

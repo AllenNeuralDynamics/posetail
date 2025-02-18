@@ -1,21 +1,13 @@
-import cv2
 import glob
-import os 
+import cv2
 import scipy
-import time
-import torch
-import torchvision
 import numpy as np
 
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import torchvision.transforms as transforms
+import torch
+from torch.utils.data import Dataset, IterableDataset
 
 from aniposelib.cameras import CameraGroup, Camera
 from easydict import EasyDict as edict
-from sklearn.preprocessing import StandardScaler
-from torch.utils.data import DataLoader, Dataset, IterableDataset
 
 from posetail.datasets.utils import extract_name, extract_num
 
@@ -55,7 +47,7 @@ def custom_collate_3d(batch):
     return batch
     
 
-class MultiviewDataset(Dataset): 
+class MultiviewDataset(Dataset):
 
     def __init__(self, video_paths, coords_path, 
                  n_frames, n_kpts, transform = None): 

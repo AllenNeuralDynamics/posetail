@@ -1,32 +1,18 @@
 import argparse
-import glob
-import json
-import os 
-import re
-import time
-import toml
-import torch
-import torchvision
+import os
 import wandb
-import yaml
 
-import numpy as np
-import torch.nn as nn
-import torch.nn.functional as F
+import torch
 import torch.optim as optim
-import torchvision.transforms as transforms
 from torch.cuda.amp import GradScaler
-
-from einops import rearrange
-from pytorch_memlab import MemReporter, LineProfiler, profile
 from torch.utils.data import DataLoader
-from tqdm import trange, tqdm
-from tqdm.notebook import trange, tqdm
 
-from posetail.datasets.datasets import custom_collate_2d, custom_collate_3d
+from pytorch_memlab import MemReporter, LineProfiler, profile
+
+from posetail.datasets.datasets import custom_collate_2d
 from posetail.posetail.losses import *
 from posetail.posetail.tracker import Tracker
-from train_utils import * 
+from train_utils import *
 
 
 def parse_args(): 

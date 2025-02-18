@@ -1,26 +1,16 @@
-import glob
 import os
-import json 
-import re
-import time
+import json
 import toml
 import torch
-import torchvision
 import yaml
 
 import numpy as np
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import torchvision.transforms as transforms
 
 from torch.cuda.amp import GradScaler
-from torch.utils.data import Dataset, IterableDataset, DataLoader
+from torch.utils.data import Dataset, IterableDataset
 
 from easydict import EasyDict
-from einops import rearrange
 from pytorch_memlab import MemReporter, LineProfiler, profile
-from tqdm import trange, tqdm
 
 from posetail.datasets.datasets import Rat7mDataset
 from posetail.posetail.losses import get_vis_true, unroll_batch
@@ -43,7 +33,7 @@ def set_seeds(seed = 3, set_backends = True):
         torch.backends.cudnn.benchmark = False
 
 
-def get_dataset(dataset_name, **kwargs): 
+def get_dataset(dataset_name, **kwargs):
 
     if dataset_name == 'rat7m':
         dataset = Rat7mDataset(**kwargs)
