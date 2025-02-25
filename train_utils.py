@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import toml
 import torch
 import yaml
@@ -7,8 +8,10 @@ import yaml
 import numpy as np
 
 from torch.cuda.amp import GradScaler
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, IterableDataset
 
+from datetime import timedelta
 from easydict import EasyDict
 from pytorch_memlab import MemReporter, LineProfiler, profile
 
@@ -83,7 +86,7 @@ def save_config(exp_dir, config_name = 'config.toml'):
     config_path = os.path.join(exp_dir, config_name)
 
     with open(config_path, 'w') as toml_file:
-        toml.dump(config, toml_file)
+        toml.dump(config_path, toml_file)
 
 
 def write_json(json_path, results): 
@@ -97,10 +100,10 @@ def write_json(json_path, results):
 def save_checkpoint(model, optimizer, criterion, prefix, epoch): 
 
     checkpoint_path = os.path.join(prefix, 'checkpoints', 
-        f'{checkpoint}_{str(i).zfill(6)}.pth')
+        f'checkpoint_{str(epoch).zfill(6)}.pth')
     
     state_dict = {
-        'epoch': i,
+        'epoch': epoch,
         'model_state': model.state_dict(),
         'optimizer_state': optimizer.state_dict(),
         'criterion_state': criterion.state_dict(),
@@ -124,7 +127,7 @@ def print_memory(device):
     return memory_alloc, memory_res, memory_total
 
 
-def get_steps_per_epoch(dataset, dataloader):
+def get_batches_per_epoch(dataset, dataloader):
 
     steps_per_epoch = 0 
 
@@ -143,8 +146,12 @@ def train_epoch(model, dataloader, optimizer, loss,
 
     device = model.device
     model.train()
+    start_time = time.time()
 
     grad_scaler = GradScaler(enabled = use_amp)
+
+    n_batches = 0
+    n_frames = 0
 
     for j, batch in enumerate(dataloader):
 
@@ -181,6 +188,8 @@ def train_epoch(model, dataloader, optimizer, loss,
                 total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
 
             grad_scaler.scale(total_loss).backward()
+            clip_grad_norm_(model.parameters(), 1.0)
+
             grad_scaler.step(optimizer)
             grad_scaler.update()
             optimizer.zero_grad(set_to_none = True)
@@ -197,12 +206,27 @@ def train_epoch(model, dataloader, optimizer, loss,
             # report = reporter.report()
 
             total_loss.backward()
+            clip_grad_norm_(model.parameters(), 1.0)
+
             optimizer.step()
             optimizer.zero_grad()
 
-    loss_summary = loss.collapse_history(prefix = prefix)
+        n_batches += 1
+        n_frames += coords.shape[1]
 
-    return loss_summary
+    loss_dict = loss.collapse_history(prefix = prefix)
+
+    # track time of training loop
+    elapsed_time = time.time() - start_time
+    readable_time = str(timedelta(seconds = elapsed_time)).split('.')[0]
+
+    train_dict = {f'{prefix}batches_per_epoch': n_batches,
+                  f'{prefix}frames_per_epoch': n_frames,
+                  f'{prefix}elapsed_time': elapsed_time,
+                  f'{prefix}readable_time': readable_time}
+    train_dict.update(loss_dict)
+
+    return train_dict
 
 
 def eval_epoch(model, dataloader,
@@ -210,6 +234,7 @@ def eval_epoch(model, dataloader,
 
     device = model.device
     model.eval()
+    start_time = time.time()
 
     for j, batch in enumerate(dataloader):
 
@@ -249,12 +274,21 @@ def eval_epoch(model, dataloader,
             thresholds = thresholds
         )
 
-        eval_matrics = {
+        # TODO: testing
+        metrics_dict = {
             f'{prefix}occlusion_accuracy': occlusion_acc,
             f'{prefix}mjpje': mpjpe,
             f'{prefix}delta_x_avg': delta_x_avg,
         }
 
-        eval_metrics.update(delta_x_dict)
+        metrics_dict.update(delta_x_dict)
 
-    return eval_metrics
+     # track time of evaluation loop
+    elapsed_time = time.time() - start_time
+    readable_time = str(timedelta(seconds = elapsed_time)).split('.')[0]
+
+    eval_dict = {f'{prefix}elapsed_time': elapsed_time,
+                 f'{prefix}readable_time': readable_time}
+    eval_dict.update(metrics_dict)
+
+    return eval_dict

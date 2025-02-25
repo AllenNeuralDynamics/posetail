@@ -85,7 +85,7 @@ def main(config):
 
         result_dict = {'epoch': i}
 
-        loss_summary = train_epoch(
+        train_dict = train_epoch(
             model = model,
             dataloader = train_loader, 
             optimizer = optimizer,
@@ -93,18 +93,18 @@ def main(config):
             debug_ix = config.training.debug_ix, 
             use_amp = config.training.use_half_precision # TODO: bug fix
         )
-        result_dict.update(loss_summary)
+        result_dict.update(train_dict)
 
 
         # if i % config.training.eval_freq == 0: 
 
-        #     metrics_summary = eval_epoch(
+        #     eval_dict = eval_epoch(
         #         model = model, 
         #         dataloader = val_loader,
         #         prefix = 'val/'
         #         debug_ix = self.training.debug_ix)
 
-        #     result_dict.update(metrics_summary)
+        #     result_dict.update(eval_dict)
         #     torch.cuda.empty_cache()
 
         # if i % config.training.checkpoint_freq == 0: 
