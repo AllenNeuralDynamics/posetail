@@ -1,6 +1,12 @@
 import os
 import re
 
+def safe_make(path): 
+
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    return path
 
 def extract_name(fname, pattern):
     '''

@@ -11,12 +11,15 @@ from torch.cuda.amp import GradScaler
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, IterableDataset
 
-from datetime import timedelta
+from datetime import datetime, timezone, timedelta
 from easydict import EasyDict
 from pytorch_memlab import MemReporter, LineProfiler, profile
 
-from posetail.datasets.datasets import Rat7mDataset
+from posetail.datasets.datasets import Rat7mIterableDataset
+from posetail.datasets.utils import safe_make
+from posetail.posetail.eval_metrics import get_eval_metrics
 from posetail.posetail.losses import get_vis_true, unroll_batch
+from posetail.posetail.tracker import Tracker 
 
 
 def set_seeds(seed = 3, set_backends = True):
@@ -39,13 +42,13 @@ def set_seeds(seed = 3, set_backends = True):
 def get_dataset(dataset_name, **kwargs):
 
     if dataset_name == 'rat7m':
-        dataset = Rat7mDataset(**kwargs)
+        dataset = Rat7mIterableDataset(**kwargs)
     else:
         raise ValueError(f'no functionality for dataset named {dataset}')
 
     return dataset
 
-def load_config(config_path): 
+def load_config(config_path, easy = True): 
     ''' 
     loads and returns the toml configuration file in which
     keys can be accessed.like.this
@@ -53,7 +56,8 @@ def load_config(config_path):
     with open(config_path, 'r') as toml_file:
         config = toml.load(toml_file)
 
-    config = EasyDict(config)
+    if easy: 
+        config = EasyDict(config)
 
     return config
 
@@ -81,14 +85,14 @@ def load_config(config_path):
 #     return config
 
 
-def save_config(exp_dir, config_name = 'config.toml'):
+def save_config(config_path, new_config_path):
 
-    config_path = os.path.join(exp_dir, config_name)
+    config = load_config(config_path, easy = False)
 
-    with open(config_path, 'w') as toml_file:
-        toml.dump(config_path, toml_file)
-
-
+    with open(new_config_path, 'w') as toml_file:
+        toml.dump(config, toml_file)
+        
+        
 def write_json(json_path, results): 
     '''
     appends results to a json file
@@ -97,19 +101,38 @@ def write_json(json_path, results):
         json_file.write(json.dumps(results) + '\n')
 
 
-def save_checkpoint(model, optimizer, criterion, prefix, epoch): 
+def save_checkpoint(model, optimizer, prefix, epoch): 
 
-    checkpoint_path = os.path.join(prefix, 'checkpoints', 
+    checkpoint_dir = safe_make(os.path.join(prefix, 'checkpoints'))
+
+    checkpoint_path = os.path.join(checkpoint_dir, 
         f'checkpoint_{str(epoch).zfill(6)}.pth')
     
     state_dict = {
         'epoch': epoch,
         'model_state': model.state_dict(),
         'optimizer_state': optimizer.state_dict(),
-        'criterion_state': criterion.state_dict(),
     }
 
     torch.save(state_dict, checkpoint_path)
+
+
+def load_checkpoint(config_path, checkpoint_path):
+
+    config = load_config(config_path) 
+
+    device = torch.device(config.devices.device)
+
+    if not torch.cuda.is_available(): 
+        device = torch.device('cpu')
+
+    model = Tracker(device = device, **config.model) 
+    model.to(device)
+
+    param_dict = torch.load(checkpoint_path, map_location = device)['model_state']
+    model.load_state_dict(param_dict)
+
+    return model
 
 
 def print_memory(device): 
@@ -127,7 +150,7 @@ def print_memory(device):
     return memory_alloc, memory_res, memory_total
 
 
-def get_batches_per_epoch(dataset, dataloader):
+def get_steps_per_epoch(dataset, dataloader):
 
     steps_per_epoch = 0 
 
@@ -139,6 +162,14 @@ def get_batches_per_epoch(dataset, dataloader):
 
     return steps_per_epoch
 
+def get_timestamp(): 
+
+    tz = timezone(timedelta(hours = -8))
+    timestamp = datetime.now(tz)
+    timestamp_fmt = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
+    return timestamp_fmt 
+
 # @profile
 def train_epoch(model, dataloader, optimizer, loss, 
                 use_amp = False, amp_type = torch.float16, 
@@ -146,7 +177,9 @@ def train_epoch(model, dataloader, optimizer, loss,
 
     device = model.device
     model.train()
+
     start_time = time.time()
+    timestamp = get_timestamp()
 
     grad_scaler = GradScaler(enabled = use_amp)
 
@@ -173,7 +206,7 @@ def train_epoch(model, dataloader, optimizer, loss,
             stride = model.S, 
             stride_overlap = model.stride_overlap
         )
-                                   
+
         # get model predictions
         if use_amp:
 
@@ -214,27 +247,31 @@ def train_epoch(model, dataloader, optimizer, loss,
         n_batches += 1
         n_frames += coords.shape[1]
 
+    print_memory(device)
+
     loss_dict = loss.collapse_history(prefix = prefix)
 
     # track time of training loop
     elapsed_time = time.time() - start_time
-    readable_time = str(timedelta(seconds = elapsed_time)).split('.')[0]
+    elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
 
-    train_dict = {f'{prefix}batches_per_epoch': n_batches,
-                  f'{prefix}frames_per_epoch': n_frames,
+    train_dict = {f'{prefix}timestamp': timestamp,
                   f'{prefix}elapsed_time': elapsed_time,
-                  f'{prefix}readable_time': readable_time}
+                  f'{prefix}elapsed_time_hms': elapsed_time_hms,
+                  f'{prefix}batches_per_epoch': n_batches,
+                  f'{prefix}frames_per_epoch': n_frames}
     train_dict.update(loss_dict)
 
     return train_dict
 
 
-def eval_epoch(model, dataloader,
-               prefix = 'test/', debug_ix = -1): 
+def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1): 
 
     device = model.device
     model.eval()
+
     start_time = time.time()
+    timestamp = get_timestamp()
 
     for j, batch in enumerate(dataloader):
 
@@ -243,7 +280,10 @@ def eval_epoch(model, dataloader,
     
         views = [view.to(device) for view in batch.views]
         coords = batch['coords'].to(device)
-        cgroup = batch.cgroup
+        cgroup = None 
+        
+        if 'cgroup' in batch: 
+            cgroup = batch.cgroup
 
         vis = get_vis_true(coords)
 
@@ -255,40 +295,41 @@ def eval_epoch(model, dataloader,
         )
                                    
         # get model predictions
-        coords_pred, vis_pred, *_ = model(
-                views = views, 
-                coords = coords[:, 0, ...], 
-                camera_group = cgroup, 
-                offset_dict = None
-            )
+        with torch.no_grad():
+            outputs = model(
+                    views = views, 
+                    coords = coords[:, 0, ...], 
+                    camera_group = cgroup, 
+                    offset_dict = None
+                )
+        
+        if loss is not None:
+            total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
 
-        # calculate evaluation metrics
-        occlusion_acc = get_occlusion_accuracy(vis_pred, vis_true)
+        # thresholds = [1, 2, 4, 8, 16]
 
-        mpjpe = get_mpjpe(coords_pred, coords_true, vis_pred, vis_true)
+        # metrics_dict = get_eval_metrics(
+        #     vis_pred = outputs[1], 
+        #     vis_true = vis_true, 
+        #     coords_pred = outputs[0], 
+        #     coords_true = coords_true,
+        #     thresholds = thresholds, 
+        #     prefix = 'eval/'
+        # )
 
-        thresholds = [1, 2, 4, 8, 16]
-        delta_x_avg, delta_x_dict = get_delta_x_avg(
-            coords_pred, coords_true, 
-            vis_pred, vis_true, 
-            thresholds = thresholds
-        )
-
-        # TODO: testing
-        metrics_dict = {
-            f'{prefix}occlusion_accuracy': occlusion_acc,
-            f'{prefix}mjpje': mpjpe,
-            f'{prefix}delta_x_avg': delta_x_avg,
-        }
-
-        metrics_dict.update(delta_x_dict)
+        # TODO: average metrics over all items in batch
 
      # track time of evaluation loop
     elapsed_time = time.time() - start_time
-    readable_time = str(timedelta(seconds = elapsed_time)).split('.')[0]
+    elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
 
-    eval_dict = {f'{prefix}elapsed_time': elapsed_time,
-                 f'{prefix}readable_time': readable_time}
-    eval_dict.update(metrics_dict)
+    eval_dict = {f'{prefix}timestamp': timestamp,
+                 f'{prefix}elapsed_time': elapsed_time,
+                 f'{prefix}elapsed_time_hms': elapsed_time_hms}
+    # eval_dict.update(metrics_dict)
+
+    if loss is not None:
+        loss_dict = loss.collapse_history(prefix = prefix)
+        eval_dict.update(loss_dict)
 
     return eval_dict

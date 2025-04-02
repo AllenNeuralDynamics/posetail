@@ -1,4 +1,6 @@
 import glob
+import os 
+
 import cv2
 import scipy
 import numpy as np
@@ -19,11 +21,14 @@ def custom_collate_2d(batch):
     the default collate function
     '''
     batch = list(zip(*batch))
+    
     views = [torch.stack(batch[0], dim = 0)]
     coords = torch.stack(batch[1], axis = 0)
+    fnums = torch.stack(batch[2], axis = 0)
 
     batch = edict({'views': views, 
-                   'coords': coords})
+                   'coords': coords, 
+                   'fnums': fnums})
 
     return batch
 
@@ -38,10 +43,12 @@ def custom_collate_3d(batch):
 
     views = [torch.stack(v, dim = 0) for v in zip(*list(batch[0]))]
     coords = torch.stack(batch[1], axis = 0)
-    cgroup = batch[2][0]
+    fnums = torch.stack(batch[2], axis = 0)
+    cgroup = batch[3][0]
 
     batch = edict({'views': views, 
-                   'coords': coords, 
+                   'coords': coords,
+                   'fnums': fnums, 
                    'cgroup': cgroup})
 
     return batch
@@ -127,8 +134,172 @@ class MultiviewDataset(Dataset):
         return max_frame
 
 
+def load_pose3d(fname):
 
-class Rat7mDataset(IterableDataset): 
+    mat = scipy.io.loadmat(fname)
+    d = dict(zip(mat['mocap'].dtype.names, mat['mocap'].item()))
+    bodyparts = mat['mocap'].dtype.names
+
+    arr = []
+    for bp in bodyparts:
+        arr.append(d[bp])
+
+    arr = np.array(arr)
+    pose3d = arr.swapaxes(0, 1) # (time, bodyparts, 3)
+
+    return {'pose': pose3d, 'bodyparts': bodyparts}
+
+
+def make_M(rvec, tvec):
+
+    out = np.zeros((4,4))
+    # rotmat, _ = cv2.Rodrigues(np.array(rvec))
+    out[:3,:3] = rvec
+    out[:3, 3] = np.array(tvec).flatten()
+    out[3, 3] = 1
+
+    return out
+
+def load_calibration(calib_file):
+
+    mat = scipy.io.loadmat(calib_file)
+
+    intrinsics = []
+    extrinsics = []
+    distortions = []
+
+    names = [x.lower() for x in mat['cameras'].dtype.names]
+    cam_order = [0, 1, 4, 2, 3, 5]
+
+    cam_objs = []
+
+    for i, cam in enumerate(cam_order):
+        
+        intrin = mat['cameras'].item()[cam]['IntrinsicMatrix'].item().transpose()
+
+        extrin = make_M(mat['cameras'].item()[cam]['rotationMatrix'].item().transpose(),
+                                mat['cameras'].item()[cam]['translationVector'].item())
+
+        rotmat = mat['cameras'].item()[cam]['rotationMatrix'].item().transpose()
+
+        distort = [mat['cameras'].item()[cam]['RadialDistortion'].item()[0,0],
+                mat['cameras'].item()[cam]['RadialDistortion'].item()[0,1],
+                mat['cameras'].item()[cam]['TangentialDistortion'].item()[0,0],
+                mat['cameras'].item()[cam]['TangentialDistortion'].item()[0,1], 0.0]
+
+        intrinsics.append(intrin)
+        extrinsics.append(extrin)
+        distortions.append(distort)
+
+        rvec = cv2.Rodrigues(rotmat)[0].T[0]
+        tvec = mat['cameras'].item()[cam]['translationVector'].item()[0]
+
+        cam_obj = Camera(matrix = intrin,
+                        dist = distort,
+                        rvec = rvec, 
+                        tvec = tvec,
+                        name = names[cam])
+
+        cam_objs.append(cam_obj)
+
+    cgroup = CameraGroup(cam_objs)
+
+    return cgroup
+
+
+class Rat7mDataset(Dataset): 
+
+    def __init__(self, video_path, data_path, n_frames): 
+
+        self.video_path = video_path
+        self.data_path = data_path
+        self.n_frames = n_frames
+
+        self.subject, self.cam, self.start_frame = self._parse_video_name()
+
+        self.cgroup = load_calibration(self.data_path)
+        self.cap = cv2.VideoCapture(self.video_path)
+        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        self.coords2d = self._load_coords()
+        self.start_ixs = self._get_start_ixs()
+
+
+    def _parse_video_name(self):
+
+        video_name = os.path.splitext(os.path.basename(self.video_path))[0]
+        subject, camera_name, start_frame = video_name.rsplit('-', 2)
+
+        start_frame = int(start_frame)
+        cam_num = int(camera_name.lstrip('camera')) - 1
+
+        # cam_dict = dict(zip(range(len(cam_order)), cam_order))
+        # cam = cam_dict[cam_num]
+
+        return subject, cam_num, start_frame
+
+
+    def _load_coords(self): 
+
+        coords3d = load_pose3d(self.data_path)['pose']
+        n_time, n_kpts, _ = coords3d.shape 
+
+        coords2d = self.cgroup.project(coords3d)
+        n_cameras = coords2d.shape[0]
+        coords2d = coords2d.reshape(n_cameras, n_time, n_kpts, -1)
+
+        coords2d = coords2d[self.cam, self.start_frame: self.start_frame + self.total_frames, :]
+
+        return coords2d
+
+
+    def _get_start_ixs(self):
+
+        safe = 0
+        start_ixs = []
+
+        for i in range(len(self.coords2d)): 
+
+            if safe > 0:
+                safe = safe - 1 
+                continue
+
+            coords_subset = self.coords2d[i:i + self.n_frames, :, :]
+            enough_frames = coords_subset.shape[0] == self.n_frames
+            no_nans = np.sum(~np.isfinite(coords_subset)) == 0
+
+            if no_nans and enough_frames: 
+                start_ixs.append(i)
+                safe = self.n_frames - 1
+
+        return start_ixs
+
+
+    def __len__(self):
+        return len(self.start_ixs)
+
+
+    def __getitem__(self, idx): 
+
+        views = []
+        start_frame = self.start_ixs[idx]
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+        for _ in range(self.n_frames):
+            ret, frame = self.cap.read()
+            views.append(torch.tensor(np.array(frame), dtype = torch.float32))
+
+        views = torch.stack(views, axis = 0)
+
+        coords = self.coords2d[start_frame:start_frame + self.n_frames, :, :]
+        coords = torch.tensor(coords, dtype = torch.float32)
+
+        fnums = torch.arange(start_frame, start_frame + self.n_frames)
+
+        return views, coords, fnums
+
+
+class Rat7mIterableDataset(IterableDataset): 
 
     def __init__(self, prefix, n_frames, project_2d = False, 
                 sub_pattern = r's([0-5])-d([1-2])', 
@@ -142,78 +313,7 @@ class Rat7mDataset(IterableDataset):
         self.sub_pattern = sub_pattern
         self.cam_pattern = camera_pattern
         self.fnum_pattern = fnum_pattern
-
-    def load_pose3d(self, fname):
-
-        mat = scipy.io.loadmat(fname)
-        d = dict(zip(mat['mocap'].dtype.names, mat['mocap'].item()))
-        bodyparts = mat['mocap'].dtype.names
     
-        arr = []
-        for bp in bodyparts:
-            arr.append(d[bp])
-
-        arr = np.array(arr)
-        pose3d = arr.swapaxes(0, 1) # (time, bodyparts, 3)
-    
-        return {'pose': pose3d, 'bodyparts': bodyparts}
-    
- 
-    def make_M(self, rvec, tvec):
-
-        out = np.zeros((4,4))
-        # rotmat, _ = cv2.Rodrigues(np.array(rvec))
-        out[:3,:3] = rvec
-        out[:3, 3] = np.array(tvec).flatten()
-        out[3, 3] = 1
-
-        return out
-
-    def load_calibration(self, calib_file):
-
-        mat = scipy.io.loadmat(calib_file)
-    
-        intrinsics = []
-        extrinsics = []
-        distortions = []
-    
-        names = [x.lower() for x in mat['cameras'].dtype.names]
-        cam_order = [0, 1, 4, 2, 3, 5]
-
-        cam_objs = []
-    
-        for i, cam in enumerate(cam_order):
-            
-            intrin = mat['cameras'].item()[cam]['IntrinsicMatrix'].item().transpose()
-    
-            extrin = self.make_M(mat['cameras'].item()[cam]['rotationMatrix'].item().transpose(),
-                                 mat['cameras'].item()[cam]['translationVector'].item())
-    
-            rotmat = mat['cameras'].item()[cam]['rotationMatrix'].item().transpose()
-    
-            distort = [mat['cameras'].item()[cam]['RadialDistortion'].item()[0,0],
-                    mat['cameras'].item()[cam]['RadialDistortion'].item()[0,1],
-                    mat['cameras'].item()[cam]['TangentialDistortion'].item()[0,0],
-                    mat['cameras'].item()[cam]['TangentialDistortion'].item()[0,1], 0.0]
-    
-            intrinsics.append(intrin)
-            extrinsics.append(extrin)
-            distortions.append(distort)
-    
-            rvec = cv2.Rodrigues(rotmat)[0].T[0]
-            tvec = mat['cameras'].item()[cam]['translationVector'].item()[0]
-
-            cam_obj = Camera(matrix = intrin,
-                            dist = distort,
-                            rvec = rvec, 
-                            tvec = tvec,
-                            name = names[cam])
-    
-            cam_objs.append(cam_obj)
-    
-        cgroup = CameraGroup(cam_objs)
-    
-        return cgroup
 
     def get_video_groups_2d(self, subject_files, sub):
 
@@ -267,13 +367,13 @@ class Rat7mDataset(IterableDataset):
         for sub in subjects: 
 
             data_path = glob.glob(f'{self.prefix}/*/mocap-{sub}.mat')[0]
-            cgroup = self.load_calibration(data_path)
+            cgroup = load_calibration(data_path)
 
             camera_names = cgroup.get_names()
             n_cameras = len(camera_names)
             camera_dict = dict(zip(camera_names, range(n_cameras)))
 
-            coords3d = self.load_pose3d(data_path)['pose']
+            coords3d = load_pose3d(data_path)['pose']
             n_time, n_kpts, _ = coords3d.shape 
 
             coords2d = cgroup.project(coords3d)
@@ -309,12 +409,19 @@ class Rat7mDataset(IterableDataset):
                             coords = coords2d[camera_ix, fnum - self.n_frames:fnum, :, :]
                             coords = torch.tensor(coords, dtype = torch.float32)
 
-                            yield views, coords
+                            visible_kpts_mask = torch.isfinite(torch.sum(coords, dim = (0, 2)))
+                            coords_masked = coords[:, visible_kpts_mask, :]
+
+                            fnums = torch.arange(fnum - self.n_frames, fnum) + 1
+                            
+                            if coords_masked.shape[1] > 0: 
+                                yield views, coords_masked, fnums
 
                             views = []
 
                     break # TODO: remove later, just for testing on one video
                 break
+
 
     def generate3d(self):
 
@@ -364,11 +471,17 @@ class Rat7mDataset(IterableDataset):
                         coords = torch.tensor(coords, dtype = torch.float32)
                         views = [torch.stack(list(v), axis = 0) for v in zip(*views)]
 
+                        visible_kpts_mask = torch.isfinite(torch.sum(coords, dim = (0, 2)))
+                        coords_masked = coords[:, visible_kpts_mask, :]
+
+                        fnums = torch.arange(fnum - self.n_frames, fnum) + 1
+
                         camera_sizes = [v[0].shape[1:] for v in views]
                         for i, cam in enumerate(cgroup.cameras): 
                             cam.set_size(camera_sizes[i])
 
-                        yield views, coords, cgroup
+                        if coords_masked.shape[1] > 0: 
+                            yield views, coords_masked, fnums, cgroup
         
                         views = []
 

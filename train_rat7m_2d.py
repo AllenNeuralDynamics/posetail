@@ -30,7 +30,9 @@ def parse_args():
     return args
 
 
-def main(config): 
+def main(config_path): 
+
+    config = load_config(config_path)
 
     set_seeds(config.training.seed)
 
@@ -56,15 +58,24 @@ def main(config):
     exp_dir = wandb.run.dir
     json_path = os.path.join(exp_dir, 'results.json')
 
+    wandb_config_path = os.path.join(exp_dir, 'config.toml')
+    save_config(config_path, wandb_config_path)
+    wandb.save(wandb_config_path, base_path = exp_dir)
+
     device = torch.device(config.devices.device)
     model = Tracker(device = device, **config.model) 
     model.to(device)
 
-    # profiler = LineProfiler(train_epoch, model, model.forward, model.forward_iteration, model.__init__)
-    # profiler.enable()
+    profiler = LineProfiler(
+        train_epoch, model, model.forward, 
+        model.forward_iteration, model.cnn.forward, 
+        model.corr_mlp.forward, model.tsformer.forward
+    )
+    profiler.enable()
 
-    # reporter = MemReporter(model)
-    # #profiler.add_function(train_epoch)
+    reporter = MemReporter(model)
+    print(reporter.report())
+    print('')
 
     optimizer = torch.optim.AdamW(
         model.parameters(), 
@@ -79,7 +90,8 @@ def main(config):
         **config.training.scheduler
     )
 
-    loss = TotalLoss(**config.training.losses)
+    train_loss = TotalLoss(**config.training.losses)
+    val_loss = TotalLoss(**config.training.losses)
  
     for i in range(config.training.n_epochs): 
 
@@ -89,13 +101,13 @@ def main(config):
             model = model,
             dataloader = train_loader, 
             optimizer = optimizer,
-            loss = loss, 
+            loss = train_loss, 
             debug_ix = config.training.debug_ix, 
-            use_amp = config.training.use_half_precision # TODO: bug fix
+            use_amp = config.training.use_half_precision 
         )
         result_dict.update(train_dict)
 
-
+        # print(reporter.report())
         # if i % config.training.eval_freq == 0: 
 
         #     eval_dict = eval_epoch(
@@ -107,12 +119,14 @@ def main(config):
         #     result_dict.update(eval_dict)
         #     torch.cuda.empty_cache()
 
-        # if i % config.training.checkpoint_freq == 0: 
-        #     save_checkpoint(model, optimizer, criterion, 
-        #         prefix = exp_dir, epoch = i)
+        checkpoint_cond = ((i % config.training.checkpoint_freq == 0) or
+                           (i + 1 == config.training.n_epochs))
+        if checkpoint_cond: 
+            save_checkpoint(model, optimizer, prefix = exp_dir, epoch = i)
 
         # log to wandb 
         wandb.log(result_dict)
+        profiler.print_stats()
 
         # save losses and evaluation metrics to json
         write_json(json_path, result_dict)
@@ -121,8 +135,10 @@ def main(config):
         if i % config.training.print_freq == 0:
             print(result_dict)
             
-        loss.reset_history()
-        # profiler.print_stats()
+        train_loss.reset_history()
+        val_loss.reset_history()
+
+        scheduler.step()
 
     wandb.finish()
 
@@ -130,5 +146,4 @@ def main(config):
 if __name__ == '__main__':
 
     args = parse_args()
-    config = load_config(args.config_path)
-    main(config)
+    main(args.config_path)

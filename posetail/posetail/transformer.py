@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from einops import rearrange
+# from xformers.ops import memory_efficient_attention
+
 
 class TimeSpaceTransformer(nn.Module): 
 
@@ -135,7 +137,7 @@ class Attention(nn.Module):
         self.k_transf = nn.Linear(self.context_dim, self.embedding_dim)
         self.v_transf = nn.Linear(self.context_dim, self.embedding_dim)
 
-    def _stack_params(self, params, b, n):
+    def reshape_attn(self, params, b, n):
 
         params = rearrange(
             params, 
@@ -154,9 +156,15 @@ class Attention(nn.Module):
         B, N, H = x.shape
         B2, N2, H2 = context.shape
 
-        qs = self._stack_params(self.q_transf(x), B, N)
-        ks = self._stack_params(self.k_transf(context), B2, N2)
-        vs = self._stack_params(self.v_transf(context), B2, N2)
+        qs = self.reshape_attn(self.q_transf(x), B, N)
+        ks = self.reshape_attn(self.k_transf(context), B2, N2)
+        vs = self.reshape_attn(self.v_transf(context), B2, N2)
+
+        # out = memory_efficient_attention(
+        #     query = qs,
+        #     key = ks,
+        #     value = vs,
+        #     p = 0.0)
 
         similarities = torch.div(
             torch.matmul(qs, ks.transpose(-2, -1)),

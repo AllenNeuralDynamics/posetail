@@ -6,17 +6,15 @@ import torch.nn.functional as F
 
 from einops import rearrange
 from frozendict import frozendict, deepfreeze
-from pytorch_memlab import MemReporter, LineProfiler, profile
 
 from posetail.posetail.cube import UnprojectViews, project_volumes
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
-from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor
+from posetail.posetail.networks import FeatureExtractor, ResidualFeatureExtractor, TriplaneFeatureExtractor
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
 
 class Tracker(nn.Module): 
 
-    # @profile
     def __init__(self, track_3d = True, stride_length = 8, 
                  stride_overlap = None, downsample_factor = 4, 
                  cube_dim = 20, cube_extent = 200, 
@@ -90,6 +88,11 @@ class Tracker(nn.Module):
             downsample_factor = self.downsample_factor,
             spatial_res_factor = 2 
         )
+        # self.cnn = FeatureExtractor(
+        #     in_channels = 3, # RGB 
+        #     out_channels = self.latent_dim, 
+        #     downsample_factor = self.downsample_factor
+        # )
 
         if self.R == 3: 
 
@@ -421,7 +424,6 @@ class Tracker(nn.Module):
         
         return coords_pred, vis_pred, conf_pred
 
-    # @profile
     def forward(self, views, coords, camera_group = None, 
                 offset_dict = None):
         '''

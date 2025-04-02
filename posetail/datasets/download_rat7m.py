@@ -5,6 +5,8 @@ import shutil
 import zipfile
 import wget
 
+from posetail.datasets.utils import safe_make
+
 
 def parse_args(): 
 
@@ -16,14 +18,6 @@ def parse_args():
     args = parser.parse_args()
 
     return args
-
-
-def safe_make(path): 
-
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    return path
 
 
 def download_zip(url, dest):        
