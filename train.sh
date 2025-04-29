@@ -16,7 +16,7 @@ CONDA_PATH="/allen/aind/scratch/katie.rupp/miniforge3"
 CONDA_ENV_NAME="posetail118"
 TEMP_DIR="/scratch/fast"
 DATA_DIR="/allen/aind/scratch/katie.rupp/data/rat7m"
-CONFIG_PATH="configs/config_coords.toml"
+CONFIG_PATH="configs/config_hpc.toml"
 
 # gpu specs
 nvidia-smi

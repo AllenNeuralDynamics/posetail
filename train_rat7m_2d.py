@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 
 from pytorch_memlab import MemReporter, LineProfiler, profile
 
-from posetail.datasets.datasets import custom_collate_2d
+from posetail.datasets.datasets import custom_collate_2d, custom_collate_3d
 from posetail.posetail.losses import *
 from posetail.posetail.tracker import Tracker
 from train_utils import *
@@ -41,7 +41,7 @@ def main(config_path):
     train_loader = DataLoader(
         train_dataset, 
         batch_size = config.dataset.batch_size, 
-        collate_fn = custom_collate_2d, # TODO: dynamically specify collate function
+        collate_fn = custom_collate_3d if config.model.track_3d else custom_collate_2d
     )
 
     if config.training.scheduler.steps_per_epoch == -1:
@@ -66,16 +66,16 @@ def main(config_path):
     model = Tracker(device = device, **config.model) 
     model.to(device)
 
-    profiler = LineProfiler(
-        train_epoch, model, model.forward, 
-        model.forward_iteration, model.cnn.forward, 
-        model.corr_mlp.forward, model.tsformer.forward
-    )
-    profiler.enable()
+    # profiler = LineProfiler(
+    #     train_epoch, model, model.forward, 
+    #     model.forward_iteration, model.cnn.forward, 
+    #     model.corr_mlp.forward, model.tsformer.forward
+    # )
+    # profiler.enable()
 
-    reporter = MemReporter(model)
-    print(reporter.report())
-    print('')
+    # reporter = MemReporter(model)
+    # print(reporter.report())
+    # print('')
 
     optimizer = torch.optim.AdamW(
         model.parameters(), 
@@ -101,13 +101,13 @@ def main(config_path):
             model = model,
             dataloader = train_loader, 
             optimizer = optimizer,
-            loss = train_loss, 
+            loss = train_loss,
+            scheduler = scheduler, 
             debug_ix = config.training.debug_ix, 
             use_amp = config.training.use_half_precision 
         )
         result_dict.update(train_dict)
 
-        # print(reporter.report())
         # if i % config.training.eval_freq == 0: 
 
         #     eval_dict = eval_epoch(
@@ -126,7 +126,8 @@ def main(config_path):
 
         # log to wandb 
         wandb.log(result_dict)
-        profiler.print_stats()
+        # profiler.print_stats()
+        # print_memory(device)
 
         # save losses and evaluation metrics to json
         write_json(json_path, result_dict)
@@ -137,8 +138,6 @@ def main(config_path):
             
         train_loss.reset_history()
         val_loss.reset_history()
-
-        scheduler.step()
 
     wandb.finish()
 

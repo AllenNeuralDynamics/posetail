@@ -171,7 +171,7 @@ def get_timestamp():
     return timestamp_fmt 
 
 # @profile
-def train_epoch(model, dataloader, optimizer, loss, 
+def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
                 use_amp = False, amp_type = torch.float16, 
                 prefix = 'train/', debug_ix = -1): 
 
@@ -182,6 +182,7 @@ def train_epoch(model, dataloader, optimizer, loss,
     timestamp = get_timestamp()
 
     grad_scaler = GradScaler(enabled = use_amp)
+    learning_rate = optimizer.param_groups[0]['lr']
 
     n_batches = 0
     n_frames = 0
@@ -249,6 +250,10 @@ def train_epoch(model, dataloader, optimizer, loss,
 
     print_memory(device)
 
+    if scheduler: 
+        scheduler.step()
+        learning_rate = scheduler.get_last_lr()[0]
+
     loss_dict = loss.collapse_history(prefix = prefix)
 
     # track time of training loop
@@ -259,7 +264,8 @@ def train_epoch(model, dataloader, optimizer, loss,
                   f'{prefix}elapsed_time': elapsed_time,
                   f'{prefix}elapsed_time_hms': elapsed_time_hms,
                   f'{prefix}batches_per_epoch': n_batches,
-                  f'{prefix}frames_per_epoch': n_frames}
+                  f'{prefix}frames_per_epoch': n_frames, 
+                  f'{prefix}learning_rate': learning_rate}
     train_dict.update(loss_dict)
 
     return train_dict

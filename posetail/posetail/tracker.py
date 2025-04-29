@@ -25,7 +25,7 @@ class Tracker(nn.Module):
                  latent_dim = 128, encoding_dim = 64,
                  n_virtual = 64, n_heads = 8, 
                  n_time_space_blocks = 6, embedding_factor = 4,
-                 device = None, version = 1): 
+                 device = None): 
         super().__init__()
 
         self.device = device
@@ -415,11 +415,11 @@ class Tracker(nn.Module):
             # update coords, vis, and conf
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
             coords = coords + delta_coords # b s n 3
-            vis = vis + delta_vis # b s n 1
-            conf = conf + delta_conf # b s n 1
+            vis = torch.sigmoid(vis + delta_vis) # b s n 1 
+            conf = torch.sigmoid(conf + delta_conf) # b s n 1 
  
-            coords_pred.append(coords * self.downsample_factor)
-            vis_pred.append(vis)
+            coords_pred.append(coords)
+            vis_pred.append(vis) 
             conf_pred.append(conf)
         
         return coords_pred, vis_pred, conf_pred
@@ -437,7 +437,7 @@ class Tracker(nn.Module):
         coords.to(self.device)
 
         B, N, R = coords.shape
-        B, T, C, H, W = views[0].shape
+        B, T, H, W, C = views[0].shape
 
         assert R == self.R
 
@@ -585,14 +585,18 @@ class Tracker(nn.Module):
             vis_pred[:, ix:ix + self.S, ...] = vis_pred_updates[-1]
             conf_pred[:, ix:ix + self.S, ...] = conf_pred_updates[-1]
 
-            coords_pred_iters.append(coords_pred_updates)
+            coords_pred_iters.append([coords * self.downsample_factor for coords in coords_pred_updates])
             vis_pred_iters.append(vis_pred_updates)
             conf_pred_iters.append(conf_pred_updates)
-            # vis_pred_iters.append([torch.sigmoid(vis) for vis in vis_pred_updates])
-            # conf_pred_iters.append([torch.sigmoid(conf) for conf in conf_pred_updates])
 
-        # sigmoid for final vis and conf predictions
+        #     vis_pred_iters.append([torch.sigmoid(vis) for vis in vis_pred_updates])
+        #     conf_pred_iters.append([torch.sigmoid(conf) for conf in conf_pred_updates])
+
+        # # sigmoid for final vis and conf predictions
         # vis_pred = torch.sigmoid(vis_pred)
         # conf_pred = torch.sigmoid(conf_pred)
+
+        # adjust coordinates to match original scale
+        # coords_pred = coords_pred * self.downsample_factor 
 
         return coords_pred, vis_pred, conf_pred, coords_pred_iters, vis_pred_iters, conf_pred_iters

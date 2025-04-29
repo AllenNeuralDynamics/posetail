@@ -11,7 +11,7 @@ from torch.utils.data import Dataset, IterableDataset
 from aniposelib.cameras import CameraGroup, Camera
 from easydict import EasyDict as edict
 
-from posetail.datasets.utils import extract_name, extract_num
+from posetail.datasets.utils import extract_name, extract_num, scale_coords
 
 
 def custom_collate_2d(batch):
@@ -233,8 +233,7 @@ class Rat7mDataset(Dataset):
         start_frame = int(start_frame)
         cam_num = int(camera_name.lstrip('camera')) - 1
 
-        # cam_dict = dict(zip(range(len(cam_order)), cam_order))
-        # cam = cam_dict[cam_num]
+        # TODO
 
         return subject, cam_num, start_frame
 
@@ -304,7 +303,8 @@ class Rat7mIterableDataset(IterableDataset):
     def __init__(self, prefix, n_frames, project_2d = False, 
                 sub_pattern = r's([0-5])-d([1-2])', 
                 camera_pattern = r'camera([0-6])', 
-                fnum_pattern = r'-(\d+).mp4'): 
+                fnum_pattern = r'-(\d+).mp4', 
+                max_res = None): 
 
         self.prefix = prefix
         self.n_frames = n_frames
@@ -313,7 +313,11 @@ class Rat7mIterableDataset(IterableDataset):
         self.sub_pattern = sub_pattern
         self.cam_pattern = camera_pattern
         self.fnum_pattern = fnum_pattern
-    
+        
+        self.max_res = max_res
+
+        self.camera_size_dict = {}
+
 
     def get_video_groups_2d(self, subject_files, sub):
 
@@ -357,6 +361,22 @@ class Rat7mIterableDataset(IterableDataset):
         
         return video_groups
         
+    def store_camera_size(self, cap, ix):
+
+        if ix not in self.camera_size_dict:
+
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+            current_max_res = max(height, width)
+            scale = self.max_res / current_max_res
+
+            new_res = (round(width * scale), round(height * scale))
+
+            self.camera_size_dict[ix] = {'orig_res': (width, height),
+                                         'scale': scale,
+                                         'new_res': new_res}
+
 
     def generate2d(self):
 
@@ -392,12 +412,19 @@ class Rat7mIterableDataset(IterableDataset):
                     cap = cv2.VideoCapture(video_path)
                     ret = True
 
+                    # store original camera size
+                    self.store_camera_size(cap, camera_ix)
+
                     while ret:
 
                         ret, frame = cap.read()
                         
                         if not ret: 
                             break
+
+                        if self.max_res is not None:
+                            new_res = self.camera_size_dict[camera_ix]['new_res']
+                            frame = cv2.resize(frame, dsize = new_res)
 
                         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         views.append(torch.tensor(np.array(frame), dtype = torch.float32))
@@ -409,14 +436,22 @@ class Rat7mIterableDataset(IterableDataset):
                             coords = coords2d[camera_ix, fnum - self.n_frames:fnum, :, :]
                             coords = torch.tensor(coords, dtype = torch.float32)
 
+                            # scale coordinates
+                            orig_res = self.camera_size_dict[camera_ix]['orig_res']
+                            scale = self.camera_size_dict[camera_ix]['scale']
+                            coords = coords * scale
+
+                            # mask coordinates
                             visible_kpts_mask = torch.isfinite(torch.sum(coords, dim = (0, 2)))
                             coords_masked = coords[:, visible_kpts_mask, :]
 
-                            fnums = torch.arange(fnum - self.n_frames, fnum) + 1
+                            # get the corresponding fnums
+                            fnums = torch.arange(fnum - self.n_frames, fnum)
                             
                             if coords_masked.shape[1] > 0: 
                                 yield views, coords_masked, fnums
 
+                            # reset for next span of frames
                             views = []
 
                     break # TODO: remove later, just for testing on one video
@@ -432,8 +467,8 @@ class Rat7mIterableDataset(IterableDataset):
         for sub in subjects: 
 
             data_path = glob.glob(f'{self.prefix}/*/mocap-{sub}.mat')[0]
-            cgroup = self.load_calibration(data_path)
-            coords3d = self.load_pose3d(data_path)['pose']
+            cgroup = load_calibration(data_path)
+            coords3d = load_pose3d(data_path)['pose']
 
             subject_files = glob.glob(f'{self.prefix}/*/{sub}/{sub}*.mp4', recursive = True)
             video_groups = self.get_video_groups_3d(subject_files, sub)
@@ -445,6 +480,10 @@ class Rat7mIterableDataset(IterableDataset):
                 caps = [cv2.VideoCapture(path) for path in video_paths]
                 ret = True
 
+                # store original camera size
+                for i in range(len(caps)):
+                    self.store_camera_size(caps[i], i)
+
                 while ret:
 
                     frames = []
@@ -455,6 +494,10 @@ class Rat7mIterableDataset(IterableDataset):
                         
                         if not ret: 
                             break
+
+                        if self.max_res is not None:
+                            new_res = self.camera_size_dict[i]['new_res']
+                            frame = cv2.resize(frame, dsize = new_res)
 
                         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         frames.append(frame)
@@ -476,14 +519,19 @@ class Rat7mIterableDataset(IterableDataset):
 
                         fnums = torch.arange(fnum - self.n_frames, fnum) + 1
 
-                        camera_sizes = [v[0].shape[1:] for v in views]
                         for i, cam in enumerate(cgroup.cameras): 
-                            cam.set_size(camera_sizes[i])
+
+                            orig_res = self.camera_size_dict[i]['orig_res']
+                            scale = self.camera_size_dict[i]['scale']
+
+                            cam.set_size(orig_res)
+                            cam.resize_camera(scale)
 
                         if coords_masked.shape[1] > 0: 
                             yield views, coords_masked, fnums, cgroup
         
                         views = []
+
 
     def generate(self): 
         ''' 
