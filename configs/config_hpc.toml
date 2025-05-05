@@ -4,7 +4,7 @@ path = '/allen/aind/scratch/katie.rupp'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
-batch_size = 1
+batch_size = 8
 
 [dataset.train]
 dataset_name = 'rat7m'
@@ -74,6 +74,7 @@ embedding_factor = 4 # 1
 [training]
 seed = 3
 n_epochs = 20
+use_scheduler = false
 use_half_precision = true
 checkpoint_freq = 20
 print_freq = 1
@@ -81,7 +82,7 @@ eval_freq = 1
 debug_ix = 100
 
 [training.optimizer]
-learning_rate = 0.00001
+learning_rate = 0.000001
 weight_decay = 0.00001
 
 [training.scheduler]

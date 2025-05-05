@@ -83,12 +83,14 @@ def main(config_path):
         weight_decay = config.training.optimizer.weight_decay
     )
 
-    scheduler = optim.lr_scheduler.OneCycleLR(
-        optimizer = optimizer,
-        max_lr = config.training.optimizer.learning_rate,
-        epochs = config.training.n_epochs,
-        **config.training.scheduler
-    )
+    scheduler = None
+    if config.training.use_scheduler: 
+        scheduler = optim.lr_scheduler.OneCycleLR(
+            optimizer = optimizer,
+            max_lr = config.training.optimizer.learning_rate,
+            epochs = config.training.n_epochs,
+            **config.training.scheduler
+        )
 
     train_loss = TotalLoss(**config.training.losses)
     val_loss = TotalLoss(**config.training.losses)
