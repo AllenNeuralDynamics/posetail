@@ -304,7 +304,7 @@ class Rat7mIterableDataset(IterableDataset):
                 sub_pattern = r's([0-5])-d([1-2])', 
                 camera_pattern = r'camera([0-6])', 
                 fnum_pattern = r'-(\d+).mp4', 
-                max_res = None): 
+                max_res = -1): 
 
         self.prefix = prefix
         self.n_frames = n_frames
@@ -369,7 +369,11 @@ class Rat7mIterableDataset(IterableDataset):
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 
             current_max_res = max(height, width)
-            scale = self.max_res / current_max_res
+
+            if self.max_res != -1:
+                scale = self.max_res / current_max_res
+            else: 
+                scale = 1
 
             new_res = (round(width * scale), round(height * scale))
 
@@ -422,7 +426,7 @@ class Rat7mIterableDataset(IterableDataset):
                         if not ret: 
                             break
 
-                        if self.max_res is not None:
+                        if self.max_res != -1:
                             new_res = self.camera_size_dict[camera_ix]['new_res']
                             frame = cv2.resize(frame, dsize = new_res)
 
@@ -495,7 +499,7 @@ class Rat7mIterableDataset(IterableDataset):
                         if not ret: 
                             break
 
-                        if self.max_res is not None:
+                        if self.max_res != -1:
                             new_res = self.camera_size_dict[i]['new_res']
                             frame = cv2.resize(frame, dsize = new_res)
 
