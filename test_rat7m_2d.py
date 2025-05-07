@@ -2,15 +2,16 @@ import argparse
 import os
 import cv2 
 
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns 
 
 from easydict import EasyDict
 
+import torch
 from torch.utils.data import DataLoader
 
-from posetail.datasets.datasets import Rat7mDataset, custom_collate_2d
+from posetail.datasets.datasets import Rat7mDataset, Rat7mIterableDataset, custom_collate_2d
 from train_utils import *
 
 

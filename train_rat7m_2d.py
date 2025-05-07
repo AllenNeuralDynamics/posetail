@@ -94,6 +94,9 @@ def main(config_path):
 
     train_loss = TotalLoss(**config.training.losses)
     val_loss = TotalLoss(**config.training.losses)
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(total_params)
  
     for i in range(config.training.n_epochs): 
 

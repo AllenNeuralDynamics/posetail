@@ -231,11 +231,13 @@ class Rat7mDataset(Dataset):
         subject, camera_name, start_frame = video_name.rsplit('-', 2)
 
         start_frame = int(start_frame)
-        cam_num = int(camera_name.lstrip('camera')) - 1
+        cam_num = int(camera_name.lstrip('camera'))
 
-        # TODO
+        cam_order = [0, 1, 4, 2, 3, 5]
+        cam_dict = dict(zip(range(1, len(cam_order) + 1), cam_order))
+        cam = cam_dict[cam_num]
 
-        return subject, cam_num, start_frame
+        return subject, cam, start_frame
 
 
     def _load_coords(self): 
