@@ -209,11 +209,12 @@ def load_calibration(calib_file):
 
 class Rat7mDataset(Dataset): 
 
-    def __init__(self, video_path, data_path, n_frames): 
+    def __init__(self, video_path, data_path, n_frames, max_res = -1): 
 
         self.video_path = video_path
         self.data_path = data_path
         self.n_frames = n_frames
+        self.max_res = max_res
 
         self.subject, self.cam, self.start_frame = self._parse_video_name()
 
@@ -223,6 +224,7 @@ class Rat7mDataset(Dataset):
 
         self.coords2d = self._load_coords()
         self.start_ixs = self._get_start_ixs()
+        self.orig_res, self.new_res, self.scale = self._get_new_res()
 
 
     def _parse_video_name(self):
@@ -275,6 +277,23 @@ class Rat7mDataset(Dataset):
 
         return start_ixs
 
+    def _get_new_res(self):
+
+        height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+        current_max_res = max(height, width)
+
+        if self.max_res != -1:
+            scale = self.max_res / current_max_res
+        else: 
+            scale = 1
+
+        orig_res = (width, height)
+        new_res = (round(width * scale), round(height * scale))
+        xy_scale = (orig_res[0] / new_res[0], orig_res[1] / new_res[1])
+
+        return orig_res, new_res, xy_scale
 
     def __len__(self):
         return len(self.start_ixs)
@@ -288,12 +307,15 @@ class Rat7mDataset(Dataset):
 
         for _ in range(self.n_frames):
             ret, frame = self.cap.read()
+            frame = cv2.resize(frame, dsize = self.new_res)
             views.append(torch.tensor(np.array(frame), dtype = torch.float32))
 
         views = torch.stack(views, axis = 0)
 
         coords = self.coords2d[start_frame:start_frame + self.n_frames, :, :]
         coords = torch.tensor(coords, dtype = torch.float32)
+        coords[..., 0] = coords[..., 0] / self.scale[0]
+        coords[..., 1] = coords[..., 1] / self.scale[1]
 
         fnums = torch.arange(start_frame, start_frame + self.n_frames)
 
@@ -377,11 +399,14 @@ class Rat7mIterableDataset(IterableDataset):
             else: 
                 scale = 1
 
+            orig_res = (width, height)
             new_res = (round(width * scale), round(height * scale))
+            xy_scale = (orig_res[0] / new_res[0], orig_res[1] / new_res[1])
 
-            self.camera_size_dict[ix] = {'orig_res': (width, height),
+            self.camera_size_dict[ix] = {'orig_res': orig_res,
+                                         'new_res': new_res, 
                                          'scale': scale,
-                                         'new_res': new_res}
+                                         'xy_scale': xy_scale}
 
 
     def generate2d(self):
@@ -445,7 +470,7 @@ class Rat7mIterableDataset(IterableDataset):
                             # scale coordinates
                             orig_res = self.camera_size_dict[camera_ix]['orig_res']
                             scale = self.camera_size_dict[camera_ix]['scale']
-                            coords = coords * scale
+                            coords = coords * scale # TODO: scale x and y coords independently
 
                             # mask coordinates
                             visible_kpts_mask = torch.isfinite(torch.sum(coords, dim = (0, 2)))

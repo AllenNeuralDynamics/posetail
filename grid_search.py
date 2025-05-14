@@ -1,11 +1,18 @@
 import argparse 
 import itertools 
 import os 
+import subprocess
 
 import numpy as np 
 import pandas as pd 
 
 from train_utils import *
+
+''' 
+example script submission 
+
+python grid_search.py --auto-submit
+'''
 
 
 def parse_args(): 
@@ -15,6 +22,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--config-path', default = './configs/config_default.toml')
+    parser.add_argument('--auto-submit', action = 'store_true', help = 'auto submits job to slurm')
     
     args = parser.parse_args()
 
@@ -65,19 +73,21 @@ def update_config(default_config, param_dict):
         
         d[keys[-1]] = v
 
-    return default_confi
+    return default_config
 
 
 def main(args): 
 
     default_config = load_config(args.config_path)
+    prefix =  os.path.dirname(args.config_path)
 
     # list of parameter combinations to test 
-    param_dict = {'dataset.batch_size': [1, 1, 1, 1, 1, 1], 
-                'dataset.train.max_res': [256, 256, 256, 256, 256, 256], 
-                'training.use_scheduler': [True, True, True, False, False, False],
-                'training.optimizer.learning_rate': [0.0001, 0.0001, 0.005, 0.000001, 0.000001, 0.0000005], 
-                'training.optimizer.weight_decay': [0.00001, 0.000001, 0.00001, 0.00001, 0.000001, 0.000005]}
+    param_dict = {'dataset.train.max_res': [512, 512, -1, -1], 
+                'model.latent_dim': [64, 64, 64, 64],
+                'training.optimizer.learning_rate': [0.00001, 0.00001, 0.00001, 0.00001], 
+                'training.losses.coords_loss_weight': [0.5, 5, 0.5, 5], 
+                'training.use_half_precision': [True, True, True, True], 
+                'training.losses.use_huber': [False, False, False, False]}
 
     # update default config with new params
     config_paths = []
@@ -85,16 +95,19 @@ def main(args):
 
     for i, param_dict in enumerate(param_dicts):     
         new_config = update_config(default_config, param_dict)
-        outpath = os.path.join(config_path, f'config{i}.toml')
+        outpath = os.path.join(prefix, f'config{i}.toml')
         save_config(new_config, outpath)
         config_paths.append(outpath)
+        print(f'creating config {outpath}')
+
+    return config_paths
 
 
 if __name__ == '__main__':
 
     args = parse_args()
-    main(args)
+    config_paths = main(args)
 
-    # !cd /home/katie.rupp/posetail
-    # for config_path in config_paths: 
-    #     !sbatch train.sh {config_path}
+    if args.auto_submit:
+        for config_path in config_paths:
+            result = subprocess.run(['sbatch', 'train.sh', config_path])

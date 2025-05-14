@@ -41,10 +41,9 @@ def main(config_path):
     train_loader = DataLoader(
         train_dataset, 
         batch_size = config.dataset.batch_size, 
-        collate_fn = custom_collate_3d if config.model.track_3d else custom_collate_2d
-    )
+        collate_fn = custom_collate_3d if config.model.track_3d else custom_collate_2d)
 
-    if config.training.scheduler.steps_per_epoch == -1:
+    if 'steps_per_epoch' in config.training.scheduler and config.training.scheduler.steps_per_epoch == -1:
         steps_per_epoch = get_steps_per_epoch(train_dataset, train_loader)
         config.training.scheduler.steps_per_epoch = steps_per_epoch
 
@@ -52,8 +51,7 @@ def main(config_path):
         project = config.wandb.project_name,  
         dir = config.wandb.path, 
         mode = config.wandb.mode, 
-        config = config
-    )
+        config = config)
 
     exp_dir = wandb.run.dir
     json_path = os.path.join(exp_dir, 'results.json')
@@ -80,17 +78,20 @@ def main(config_path):
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr = config.training.optimizer.learning_rate, 
-        weight_decay = config.training.optimizer.weight_decay
-    )
+        weight_decay = config.training.optimizer.weight_decay)
 
     scheduler = None
-    if config.training.use_scheduler: 
+    if config.training.scheduler_type == 'onecyclelr': 
         scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer = optimizer,
             max_lr = config.training.optimizer.learning_rate,
             epochs = config.training.n_epochs,
-            **config.training.scheduler
-        )
+            **config.training.scheduler)
+
+    elif config.training.scheduler_type == 'multisteplr': 
+        scheduler = optim.lr_scheduler.MultiStepLR(
+            optimizer = optimizer, 
+            **config.training.scheduler)
 
     train_loss = TotalLoss(**config.training.losses)
     val_loss = TotalLoss(**config.training.losses)
@@ -109,8 +110,8 @@ def main(config_path):
             loss = train_loss,
             scheduler = scheduler, 
             debug_ix = config.training.debug_ix, 
-            use_amp = config.training.use_half_precision 
-        )
+            use_amp = config.training.use_half_precision)
+
         result_dict.update(train_dict)
 
         # if i % config.training.eval_freq == 0: 

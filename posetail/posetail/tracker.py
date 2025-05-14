@@ -581,7 +581,7 @@ class Tracker(nn.Module):
                 conf_pred_updates = [update[:, :-n_pad, ...] for update in conf_pred_updates]
 
             # store all iterative updates
-            coords_pred[:, ix:ix + self.S, ...] = coords_pred_updates[-1]
+            coords_pred[:, ix:ix + self.S, ...] = coords_pred_updates[-1] 
             vis_pred[:, ix:ix + self.S, ...] = vis_pred_updates[-1]
             conf_pred[:, ix:ix + self.S, ...] = conf_pred_updates[-1]
 
@@ -589,14 +589,7 @@ class Tracker(nn.Module):
             vis_pred_iters.append(vis_pred_updates)
             conf_pred_iters.append(conf_pred_updates)
 
-        #     vis_pred_iters.append([torch.sigmoid(vis) for vis in vis_pred_updates])
-        #     conf_pred_iters.append([torch.sigmoid(conf) for conf in conf_pred_updates])
-
-        # # sigmoid for final vis and conf predictions
-        # vis_pred = torch.sigmoid(vis_pred)
-        # conf_pred = torch.sigmoid(conf_pred)
-
         # adjust coordinates to match original scale
-        # coords_pred = coords_pred * self.downsample_factor 
+        coords_pred = coords_pred * self.downsample_factor 
 
         return coords_pred, vis_pred, conf_pred, coords_pred_iters, vis_pred_iters, conf_pred_iters
