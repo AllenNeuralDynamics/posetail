@@ -9,19 +9,25 @@ import subprocess
 import numpy as np 
 import pandas as pd 
 
-from pathlib import Path
-
 from train_utils import *
 
 ''' 
 example script submission 
 
-python grid_search.py --auto-submit
+python grid_search.py --config-path configs/config_default.toml --auto-submit
 '''
 
 BASE_DIR = '/home/katie.rupp/posetail/'
 TMP_DIR = '/allen/aind/scratch/katie.rupp/tmp'
 
+# list of parameter combinations to test 
+PARAM_DICT = {'dataset.train.max_res': [512, 512, -1, -1], 
+            'model.latent_dim': [64, 64, 64, 64],
+            'training.optimizer.learning_rate': [0.00001, 0.00001, 0.00001, 0.00001], 
+            'training.losses.coords_loss_weight': [0.5, 5, 0.5, 5], 
+            'training.use_half_precision': [True, True, True, True], 
+            'training.losses.use_huber': [False, False, False, False]}
+# PARAM_DICT = None
 
 def parse_args(): 
     '''
@@ -106,24 +112,21 @@ def main(args):
     default_config = load_config(args.config_path)
     prefix =  os.path.dirname(args.config_path)
 
-    # list of parameter combinations to test 
-    param_dict = {'dataset.train.max_res': [512, 512, -1, -1], 
-                'model.latent_dim': [64, 64, 64, 64],
-                'training.optimizer.learning_rate': [0.00001, 0.00001, 0.00001, 0.00001], 
-                'training.losses.coords_loss_weight': [0.5, 5, 0.5, 5], 
-                'training.use_half_precision': [True, True, True, True], 
-                'training.losses.use_huber': [False, False, False, False]}
+    if PARAM_DICT is not None:
 
-    # update default config with new params
-    config_paths = []
-    param_dicts = get_combinations_simple(param_dict)
+        # update default config with new params
+        config_paths = []
+        param_dicts = get_combinations_simple(PARAM_DICT)
 
-    for i, param_dict in enumerate(param_dicts):     
-        new_config = update_config(default_config, param_dict)
-        outpath = os.path.join(prefix, f'config{i}.toml')
-        save_config(new_config, outpath)
-        config_paths.append(outpath)
-        print(f'creating config {outpath}')
+        for i, param_dict in enumerate(param_dicts):     
+            new_config = update_config(default_config, param_dict)
+            outpath = os.path.join(prefix, f'config{i}.toml')
+            save_config(new_config, outpath)
+            config_paths.append(outpath)
+            print(f'creating config {outpath}')
+
+    else: 
+        config_paths = [args.config_path]
 
     return config_paths
 
