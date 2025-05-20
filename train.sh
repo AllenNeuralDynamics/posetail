@@ -19,6 +19,7 @@ DATA_DIR="/allen/aind/scratch/katie.rupp/data/rat7m"
 
 CONFIG_PATH=${1:-"configs/config_hpc_2d.toml"} 
 echo "using config $CONFIG_PATH"
+echo "pwd: $PWD"
 
 # gpu specs
 nvidia-smi
@@ -41,4 +42,9 @@ wandb login $WANDB
 # run training script 
 echo "starting training..."
 python train_rat7m.py --config-path "${CONFIG_PATH}"
+echo "done!"
+
+# clean up the submission dir
+echo "cleaning up submission dir..."
+rm -rf "$SLURM_SUBMIT_DIR"
 echo "done!"

@@ -27,7 +27,7 @@ PARAM_DICT = {'dataset.train.max_res': [512, 512, -1, -1],
             'training.losses.coords_loss_weight': [0.5, 5, 0.5, 5], 
             'training.use_half_precision': [True, True, True, True], 
             'training.losses.use_huber': [False, False, False, False]}
-# PARAM_DICT = None
+PARAM_DICT = None
 
 def parse_args(): 
     '''
