@@ -1,10 +1,15 @@
 import argparse 
 import itertools 
 import os 
+import random
+import shutil
+import string
 import subprocess
 
 import numpy as np 
 import pandas as pd 
+
+from pathlib import Path
 
 from train_utils import *
 
@@ -13,6 +18,9 @@ example script submission
 
 python grid_search.py --auto-submit
 '''
+
+BASE_DIR = '/home/katie.rupp/posetail/'
+TMP_DIR = '/allen/aind/scratch/katie.rupp/tmp'
 
 
 def parse_args(): 
@@ -34,6 +42,23 @@ def save_config(config, outpath):
     '''
     with open(outpath, 'w') as toml_file:
         toml.dump(config, toml_file)
+
+def safe_make(path): 
+
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    return path
+
+def generate_uuid(n = 24):
+    ''' 
+    generates a unique id of the given length
+    '''
+    alphabet = string.ascii_lowercase + string.ascii_uppercase + string.digits
+    uuid = [random.choice(alphabet) for _ in range(n)]
+    uuid = ''.join(uuid)
+
+    return uuid
 
 def get_combinations(param_dict): 
     ''' 
@@ -109,5 +134,26 @@ if __name__ == '__main__':
     config_paths = main(args)
 
     if args.auto_submit:
+
+        # ensure we are in the main codebase
+        os.chdir(BASE_DIR)
+        print(f'running from {os.getcwd()}')
+
         for config_path in config_paths:
+
+            # generate uuid and create temp dir
+            uuid = generate_uuid(n = 24)
+            temp_dir = safe_make(os.path.join(TMP_DIR, f'posetail_{uuid}'))
+            print(f'\ncreated new uuid: {uuid}')
+
+            # copy codebase to the temp dir
+            print(f'copying {BASE_DIR} to {temp_dir}')
+            shutil.copytree(BASE_DIR, temp_dir, dirs_exist_ok = True)
+
+            # change to temp dir 
+            os.chdir(temp_dir)
+            print(f'moved to {os.getcwd()}')
+
+            # run the submission script from the temp dir
+            print(f'submitting job with config {config_path}')
             result = subprocess.run(['sbatch', 'train.sh', config_path])

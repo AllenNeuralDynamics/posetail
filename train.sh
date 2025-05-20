@@ -17,7 +17,7 @@ CONDA_ENV_NAME="posetail118"
 TEMP_DIR="/scratch/fast"
 DATA_DIR="/allen/aind/scratch/katie.rupp/data/rat7m"
 
-CONFIG_PATH=${1:-"configs/config_hpc.toml"} 
+CONFIG_PATH=${1:-"configs/config_hpc_2d.toml"} 
 echo "using config $CONFIG_PATH"
 
 # gpu specs
@@ -40,5 +40,5 @@ wandb login $WANDB
 
 # run training script 
 echo "starting training..."
-python train_rat7m_2d.py --config-path "${CONFIG_PATH}"
+python train_rat7m.py --config-path "${CONFIG_PATH}"
 echo "done!"
