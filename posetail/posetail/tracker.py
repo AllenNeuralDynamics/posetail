@@ -1,4 +1,5 @@
 import itertools
+import timm
 
 import torch
 import torch.nn as nn 
@@ -17,6 +18,7 @@ class Tracker(nn.Module):
 
     def __init__(self, track_3d = True, stride_length = 8, 
                  stride_overlap = None, downsample_factor = 4, 
+                 pretrained_resnet = None, n_pretrained_layers = None, 
                  cube_dim = 20, cube_extent = 200, 
                  upsample_factor = 1, corr_levels = 4, 
                  corr_radius = 3, corr_hidden_dim = 384,
@@ -45,6 +47,8 @@ class Tracker(nn.Module):
             self.stride_overlap = stride_overlap 
         
         # cnn params
+        self.pretrained_resnet = pretrained_resnet
+        self.n_pretrained_layers = n_pretrained_layers
         self.downsample_factor = downsample_factor
         self.latent_dim = latent_dim 
 
@@ -80,14 +84,23 @@ class Tracker(nn.Module):
         # print(f'transformer input dimension: {self.input_dim}') 
 
         # networks
-        self.cnn = ResidualFeatureExtractor(
-            input_dim = 3, # RGB 
-            output_dim = self.latent_dim,
-            n_blocks = 4,
-            kernel_size = 3,
-            downsample_factor = self.downsample_factor,
-            spatial_res_factor = 2 
-        )
+        if self.pretrained_resnet is None: 
+            self.cnn = ResidualFeatureExtractor(
+                input_dim = 3, # RGB 
+                output_dim = self.latent_dim,
+                n_blocks = 4,
+                kernel_size = 3,
+                downsample_factor = self.downsample_factor,
+                spatial_res_factor = 2 
+            )
+        else: 
+            resnet = timm.create_model(self.pretrained_resnet, features_only = True, pretrained = True)
+            layers = list(resnet.children())
+            self.cnn = nn.Sequential(*layers[:self.n_pretrained_layers])
+            self.cnn.eval()
+            self.cnn.requires_grad_(False)
+
+
         # self.cnn = FeatureExtractor(
         #     in_channels = 3, # RGB 
         #     out_channels = self.latent_dim, 
@@ -467,7 +480,13 @@ class Tracker(nn.Module):
 
         # normalize frames
         for i, frames in enumerate(views): 
-            frames = 2 * (frames / 255.0) - 1
+            #frames = 2 * (frames / 255.0) - 1
+            frames = frames / 255.0 
+            mean = torch.tensor([0.485, 0.456, 0.406], device = frames.device)
+            std = torch.tensor([0.229, 0.224, 0.225], device = frames.device)
+
+            # normalize per channel: B x T x H x W x C
+            frames = (frames - mean[None, None, None, None, :]) / std[None, None, None, None, :]
             views[i] = rearrange(frames, 'b t h w c -> b t c h w').to(self.device)
 
         # determine number of strides
@@ -481,9 +500,6 @@ class Tracker(nn.Module):
                 last_frame = frames[:, -1:, ...].repeat((1, n_pad, 1, 1, 1))
                 frames = torch.cat((frames, last_frame), dim = 1)
                 views[i] = frames
-
-        # adjust coordinates according to the cnn downsampling factor
-        coords = coords / self.downsample_factor
 
         # extract image features and downsize
         feature_maps = []
@@ -499,6 +515,14 @@ class Tracker(nn.Module):
                 '(b t) d h2 w2 -> b t d h2 w2',
                 b = B, t = T + n_pad)
             )
+
+        # adjust coordinates according to the cnn downsampling 
+        # factor to match new image size
+        if self.pretrained_resnet: 
+            self.downsample_factor = H / H2
+
+        coords = coords / self.downsample_factor
+
 
         # NOTE: this can be put in the forward loop if its too memory 
         # intensive up front 

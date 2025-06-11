@@ -44,12 +44,17 @@ def custom_collate_3d(batch):
     views = [torch.stack(v, dim = 0) for v in zip(*list(batch[0]))]
     coords = torch.stack(batch[1], axis = 0)
     fnums = torch.stack(batch[2], axis = 0)
-    cgroup = batch[3][0]
 
-    batch = edict({'views': views, 
-                   'coords': coords,
-                   'fnums': fnums, 
-                   'cgroup': cgroup})
+    if len(batch) == 3:
+        batch = edict({'views': views, 
+                       'coords': coords,
+                       'fnums': fnums})
+    else: 
+        cgroup = batch[3][0]
+        batch = edict({'views': views, 
+                       'coords': coords,
+                       'fnums': fnums, 
+                       'cgroup': cgroup})
 
     return batch
     
@@ -207,39 +212,165 @@ def load_calibration(calib_file):
     return cgroup
 
 
+# class Rat7mDataset(Dataset): 
+
+#     def __init__(self, video_path, data_path, n_frames, max_res = -1): 
+
+#         self.video_path = video_path
+#         self.data_path = data_path
+#         self.n_frames = n_frames
+#         self.max_res = max_res
+
+#         self.subject, self.cam, self.start_frame = self._parse_video_name()
+
+#         self.cgroup = load_calibration(self.data_path)
+#         self.cap = cv2.VideoCapture(self.video_path)
+#         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+#         self.coords2d = self._load_coords()
+#         self.start_ixs = self._get_start_ixs()
+#         self.orig_res, self.new_res, self.scale = self._get_new_res()
+
+
+#     def _parse_video_name(self):
+
+#         video_name = os.path.splitext(os.path.basename(self.video_path))[0]
+#         subject, camera_name, start_frame = video_name.rsplit('-', 2)
+
+#         start_frame = int(start_frame)
+#         cam_num = int(camera_name.lstrip('camera'))
+
+#         cam_order = [0, 1, 4, 2, 3, 5]
+#         cam_dict = dict(zip(range(1, len(cam_order) + 1), cam_order))
+#         cam = cam_dict[cam_num]
+
+#         return subject, cam, start_frame
+
+
+#     def _load_coords(self): 
+
+#         coords3d = load_pose3d(self.data_path)['pose']
+#         n_time, n_kpts, _ = coords3d.shape 
+
+#         coords2d = self.cgroup.project(coords3d)
+#         n_cameras = coords2d.shape[0]
+#         coords2d = coords2d.reshape(n_cameras, n_time, n_kpts, -1)
+
+#         coords2d = coords2d[self.cam, self.start_frame: self.start_frame + self.total_frames, :]
+
+#         return coords2d
+
+
+#     def _get_start_ixs(self):
+
+#         safe = 0
+#         start_ixs = []
+
+#         for i in range(len(self.coords2d)): 
+
+#             if safe > 0:
+#                 safe = safe - 1 
+#                 continue
+
+#             coords_subset = self.coords2d[i:i + self.n_frames, :, :]
+#             enough_frames = coords_subset.shape[0] == self.n_frames
+#             no_nans = np.sum(~np.isfinite(coords_subset)) == 0
+
+#             if no_nans and enough_frames: 
+#                 start_ixs.append(i)
+#                 safe = self.n_frames - 1
+
+#         return start_ixs
+
+#     def _get_new_res(self):
+
+#         height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+#         width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+#         current_max_res = max(height, width)
+
+#         if self.max_res != -1:
+#             scale = self.max_res / current_max_res
+#         else: 
+#             scale = 1
+
+#         orig_res = (width, height)
+#         new_res = (round(width * scale), round(height * scale))
+#         xy_scale = (orig_res[0] / new_res[0], orig_res[1] / new_res[1])
+
+#         return orig_res, new_res, xy_scale
+
+#     def __len__(self):
+#         return len(self.start_ixs)
+
+
+#     def __getitem__(self, idx): 
+
+#         views = []
+#         start_frame = self.start_ixs[idx]
+#         self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+#         for _ in range(self.n_frames):
+#             ret, frame = self.cap.read()
+#             frame = cv2.resize(frame, dsize = self.new_res)
+#             views.append(torch.tensor(np.array(frame), dtype = torch.float32))
+
+#         views = torch.stack(views, axis = 0)
+
+#         coords = self.coords2d[start_frame:start_frame + self.n_frames, :, :]
+#         coords = torch.tensor(coords, dtype = torch.float32)
+#         coords[..., 0] = coords[..., 0] / self.scale[0]
+#         coords[..., 1] = coords[..., 1] / self.scale[1]
+
+#         fnums = torch.arange(start_frame, start_frame + self.n_frames)
+
+#         return views, coords, fnums
+
 class Rat7mDataset(Dataset): 
 
-    def __init__(self, video_path, data_path, n_frames, max_res = -1): 
+    def __init__(self, video_paths, data_path, n_frames, max_res = -1): 
 
-        self.video_path = video_path
+        self.video_paths = video_paths
         self.data_path = data_path
         self.n_frames = n_frames
         self.max_res = max_res
 
-        self.subject, self.cam, self.start_frame = self._parse_video_name()
+        self.cams, self.start_frame = self._parse_video_names()
 
         self.cgroup = load_calibration(self.data_path)
-        self.cap = cv2.VideoCapture(self.video_path)
-        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.caps = self._load_videos()
+        self.total_frames = int(min([cap.get(cv2.CAP_PROP_FRAME_COUNT) for cap in self.caps]))
 
-        self.coords2d = self._load_coords()
+        self.coords = self._load_coords()
         self.start_ixs = self._get_start_ixs()
-        self.orig_res, self.new_res, self.scale = self._get_new_res()
 
+    def _parse_video_names(self):
 
-    def _parse_video_name(self):
+        # cam order is specific to rat7m, based on how the data is stored
+        cam_order = [0, 1, 4, 2, 3, 5] 
+        self.cam_dict = dict(zip(range(1, len(cam_order) + 1), cam_order))
 
-        video_name = os.path.splitext(os.path.basename(self.video_path))[0]
-        subject, camera_name, start_frame = video_name.rsplit('-', 2)
+        cams = []
+        start_frames = []
+        subjects = []
 
-        start_frame = int(start_frame)
-        cam_num = int(camera_name.lstrip('camera'))
+        for video_path in self.video_paths: 
 
-        cam_order = [0, 1, 4, 2, 3, 5]
-        cam_dict = dict(zip(range(1, len(cam_order) + 1), cam_order))
-        cam = cam_dict[cam_num]
+            video_name = os.path.splitext(os.path.basename(video_path))[0]
+            subject, camera_name, start_frame = video_name.rsplit('-', 2)
+            subjects.append(subject)
 
-        return subject, cam, start_frame
+            start_frame = int(start_frame)
+            start_frames.append(start_frame)
+
+            cam_num = int(camera_name.lstrip('camera'))
+            cams.append(self.cam_dict[cam_num])
+            
+        # ensure that this is a matching camera group
+        assert len(np.unique(start_frames)) == 1 and len(np.unique(subjects)) == 1
+        start_frame = np.unique(start_frames)[0]
+
+        return cams, start_frame
 
 
     def _load_coords(self): 
@@ -247,40 +378,23 @@ class Rat7mDataset(Dataset):
         coords3d = load_pose3d(self.data_path)['pose']
         n_time, n_kpts, _ = coords3d.shape 
 
-        coords2d = self.cgroup.project(coords3d)
-        n_cameras = coords2d.shape[0]
-        coords2d = coords2d.reshape(n_cameras, n_time, n_kpts, -1)
+        # return 2d or 3d coords depending on the number of videos provided
+        if len(self.video_paths) == 1: 
+            coords2d = self.cgroup.project(coords3d)
+            n_cameras = coords2d.shape[0]
+            coords2d = coords2d.reshape(n_cameras, n_time, n_kpts, -1)
+            coords = coords2d[self.cams[0], self.start_frame: self.start_frame + self.total_frames, :]
+            self.project_2d = True
+        else: 
+            coords = coords3d[self.start_frame: self.start_frame + self.total_frames, :, :]
+            self.project_2d = False
 
-        coords2d = coords2d[self.cam, self.start_frame: self.start_frame + self.total_frames, :]
+        return coords
 
-        return coords2d
+    def store_camera_size(self, cap, ix):
 
-
-    def _get_start_ixs(self):
-
-        safe = 0
-        start_ixs = []
-
-        for i in range(len(self.coords2d)): 
-
-            if safe > 0:
-                safe = safe - 1 
-                continue
-
-            coords_subset = self.coords2d[i:i + self.n_frames, :, :]
-            enough_frames = coords_subset.shape[0] == self.n_frames
-            no_nans = np.sum(~np.isfinite(coords_subset)) == 0
-
-            if no_nans and enough_frames: 
-                start_ixs.append(i)
-                safe = self.n_frames - 1
-
-        return start_ixs
-
-    def _get_new_res(self):
-
-        height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 
         current_max_res = max(height, width)
 
@@ -293,7 +407,130 @@ class Rat7mDataset(Dataset):
         new_res = (round(width * scale), round(height * scale))
         xy_scale = (orig_res[0] / new_res[0], orig_res[1] / new_res[1])
 
-        return orig_res, new_res, xy_scale
+        self.camera_size_dict[ix] = {'orig_res': orig_res,
+                                     'new_res': new_res, 
+                                     'scale': scale,
+                                     'xy_scale': xy_scale}
+
+    def _load_videos(self): 
+
+        self.camera_size_dict = {}
+        caps = [cv2.VideoCapture(path) for path in self.video_paths]
+
+        for i, cap in enumerate(caps): 
+            self.store_camera_size(cap, self.cams[i])
+
+        return caps
+
+
+    def _get_start_ixs(self):
+
+        safe = 0
+        start_ixs = []
+
+        for i in range(len(self.coords)): 
+
+            if safe > 0:
+                safe = safe - 1 
+                continue
+
+            coords_subset = self.coords[i:i + self.n_frames, :, :]
+            enough_frames = coords_subset.shape[0] == self.n_frames
+            no_nans = np.sum(~np.isfinite(coords_subset)) == 0
+
+            if no_nans and enough_frames: 
+                start_ixs.append(i)
+                safe = self.n_frames - 1
+
+        return start_ixs
+
+
+    def _get_item_2d(self, idx): 
+
+        # set caps to the corresponding index
+        start_frame = self.start_ixs[idx]
+
+        for i in range(len(self.caps)):
+            self.caps[i].set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+        # collate n frames from each view
+        views = []
+
+        for i in range(self.n_frames):
+
+            frames = []
+
+            for j in range(len(self.caps)):
+
+                ret, frame = self.caps[j].read()
+
+                if self.max_res != -1:
+                    new_res = self.camera_size_dict[self.cams[j]]['new_res']
+                    frame = cv2.resize(frame, dsize = new_res)
+
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames.append(frame)
+
+            views.append(torch.tensor(np.array(frames), dtype = torch.float32))
+
+        views = [torch.stack(list(v), axis = 0) for v in zip(*views)]
+
+        coords = self.coords[start_frame:start_frame + self.n_frames, :, :]
+        coords = torch.tensor(coords, dtype = torch.float32)
+
+        scale = self.camera_size_dict[self.cams[0]]['xy_scale']
+        coords[..., 0] = coords[..., 0] / scale[0]
+        coords[..., 1] = coords[..., 1] / scale[1]
+
+        fnums = torch.arange(start_frame, start_frame + self.n_frames)
+
+        return views, coords, fnums
+
+
+    def _get_item_3d(self, idx): 
+
+        # set caps to the corresponding index
+        start_frame = self.start_ixs[idx]
+
+        for i in range(len(self.caps)):
+            self.caps[i].set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+        # collate n frames from each view
+        views = []
+
+        for i in range(self.n_frames):
+
+            frames = []
+
+            for j in range(len(self.caps)):
+
+                ret, frame = self.caps[j].read()
+
+                if self.max_res != -1:
+                    new_res = self.camera_size_dict[self.cams[j]]['new_res']
+                    frame = cv2.resize(frame, dsize = new_res)
+
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames.append(frame)
+
+        views.append(torch.tensor(np.array(frames), dtype = torch.float32))
+        views = [torch.stack(list(v), axis = 0) for v in zip(*views)]
+
+        coords = self.coords[start_frame:start_frame + self.n_frames, :, :]
+        coords = torch.tensor(coords, dtype = torch.float32)
+
+        for i, cam in enumerate(self.cgroup.cameras): 
+
+            orig_res = self.camera_size_dict[self.cams[i]]['orig_res']
+            scale = self.camera_size_dict[self.cams[i]]['scale']
+
+            cam.set_size(orig_res)
+            cam.resize_camera(scale)
+
+        fnums = torch.arange(start_frame, start_frame + self.n_frames)
+
+        return views, coords, fnums, self.cgroup
+
 
     def __len__(self):
         return len(self.start_ixs)
@@ -301,25 +538,10 @@ class Rat7mDataset(Dataset):
 
     def __getitem__(self, idx): 
 
-        views = []
-        start_frame = self.start_ixs[idx]
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-
-        for _ in range(self.n_frames):
-            ret, frame = self.cap.read()
-            frame = cv2.resize(frame, dsize = self.new_res)
-            views.append(torch.tensor(np.array(frame), dtype = torch.float32))
-
-        views = torch.stack(views, axis = 0)
-
-        coords = self.coords2d[start_frame:start_frame + self.n_frames, :, :]
-        coords = torch.tensor(coords, dtype = torch.float32)
-        coords[..., 0] = coords[..., 0] / self.scale[0]
-        coords[..., 1] = coords[..., 1] / self.scale[1]
-
-        fnums = torch.arange(start_frame, start_frame + self.n_frames)
-
-        return views, coords, fnums
+        if self.project_2d: 
+            return self._get_item_2d(idx)
+        else: 
+            return self._get_item_3d(idx)
 
 
 class Rat7mIterableDataset(IterableDataset): 
@@ -470,7 +692,7 @@ class Rat7mIterableDataset(IterableDataset):
                             # scale coordinates
                             orig_res = self.camera_size_dict[camera_ix]['orig_res']
                             scale = self.camera_size_dict[camera_ix]['scale']
-                            coords = coords * scale # TODO: scale x and y coords independently
+                            coords = coords * scale
 
                             # mask coordinates
                             visible_kpts_mask = torch.isfinite(torch.sum(coords, dim = (0, 2)))
@@ -562,6 +784,9 @@ class Rat7mIterableDataset(IterableDataset):
                             yield views, coords_masked, fnums, cgroup
         
                         views = []
+
+                break 
+            break
 
 
     def generate(self): 

@@ -5,7 +5,7 @@
 #SBATCH -N 1                                                    # number of nodes requested
 #SBATCH --mem=64G                                               # cpu memory 
 #SBATCH --ntasks-per-node=1                                     # number of tasks to run on each node
-#SBATCH --time=20:00:00                                          # time limit hrs:min:sec
+#SBATCH --time=16:00:00                                          # time limit hrs:min:sec
 #SBATCH --gres=gpu:a100:1                                       # gpu(s) requested
 #SBATCH --output=/allen/aind/scratch/katie.rupp/slurm/%j.log    # standard output and error log
 #SBATCH --partition aind                                        # partition used for processing

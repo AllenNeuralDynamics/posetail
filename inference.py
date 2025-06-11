@@ -12,7 +12,7 @@ from easydict import EasyDict
 import torch
 from torch.utils.data import DataLoader
 
-from posetail.datasets.datasets import Rat7mDataset, Rat7mIterableDataset, custom_collate_2d
+from posetail.datasets.datasets import Rat7mDataset, Rat7mIterableDataset, custom_collate_2d, custom_collate_3d
 from train_utils import *
 
 
@@ -23,7 +23,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--run-ids', nargs = '+', default = [])
-    parser.add_argument('--video-path')
+    parser.add_argument('--video-paths', nargs = '+', default = [])
     parser.add_argument('--data-path')
 
     args = parser.parse_args()
@@ -134,7 +134,8 @@ def get_video_predictions(video_path, model, dataloader, outdir, debug_ix = -1):
 
 
 def generate_video(video_path, results_path, outpath, run_id, scale): 
-
+    
+    # TODO: get camera group and project coords
     device = (torch.device('cuda') if torch.cuda.is_available() else 'cpu')
     (coords_pred, vis_pred, conf_pred, coords_true, 
     vis_true, fnums, video_path) = load_predictions(results_path, device)
@@ -189,7 +190,7 @@ def generate_video(video_path, results_path, outpath, run_id, scale):
     return video_outpath
 
 
-def main(run_ids, video_path, data_path): 
+def main(run_ids, video_paths, data_path): 
 
     outpath = safe_make('results')
     figpath = safe_make('figures')
@@ -206,7 +207,7 @@ def main(run_ids, video_path, data_path):
         set_seeds(config.training.seed)
 
         dataset = Rat7mDataset(
-            video_path = video_path, 
+            video_paths = video_paths, 
             data_path = data_path, 
             n_frames = config.dataset.test.n_frames, 
             max_res = config.dataset.train.max_res) # TODO: add to config and change to test
@@ -214,19 +215,22 @@ def main(run_ids, video_path, data_path):
         dataloader = DataLoader(
             dataset, 
             batch_size = config.dataset.batch_size, 
-            collate_fn = custom_collate_2d)
+            collate_fn = custom_collate_3d)
 
-        results_path = get_video_predictions(video_path, 
+        results_path = get_video_predictions(video_paths[0], 
             model, dataloader, outpath, debug_ix = -1)
             
         print(f'predictions saved to {results_path}')
 
+        cam = dataloader.dataset.cams[0]
+        scale = dataloader.dataset.camera_size_dict[cam]['xy_scale']
+
         video_outpath = generate_video(
-            video_path = video_path, 
+            video_path = video_paths[0], 
             results_path = results_path, 
             outpath = figpath, 
             run_id = run_id, 
-            scale = dataloader.dataset.scale)
+            scale = scale)
 
         print(f'video saved to {video_outpath}\n')
 
@@ -240,10 +244,16 @@ if __name__ == '__main__':
     # video_path = args.video_path
     # data_path = args.data_path
     
-    run_ids = ['run-20250512_103400-x4ehk6ng', 'run-20250512_103343-g2gvwprc', 
-               'run-20250512_103342-ykwoxm66', 'run-20250512_103342-oji10kgu']
+    run_ids = ['run-20250524_103531-wskk408w', 'run-20250524_103610-ox137272', 'run-20250524_103610-rd7vt8f4']
+    run_ids = ['run-20250519_132345-9tfbv179', 'run-20250519_132635-gypmzigu', 'run-20250519_134252-odly2nct'][1:]
 
-    video_path = '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4'
+    video_paths = ['/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4']
+    video_paths = ['/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4',
+                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera2-0.mp4',
+                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera3-0.mp4',
+                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera4-0.mp4',
+                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera5-0.mp4',
+                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera6-0.mp4']
     data_path = '/allen/aind/scratch/katie.rupp/data/rat7m/data/mocap-s5-d2.mat'
 
-    main(run_ids, video_path, data_path)
+    main(run_ids, video_paths, data_path)
