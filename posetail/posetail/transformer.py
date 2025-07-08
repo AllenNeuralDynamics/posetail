@@ -27,8 +27,8 @@ class TimeSpaceTransformer(nn.Module):
 
         # initialize virtual tracks
         self.n_virtual = n_virtual
-        self.virtual_tracks = torch.randn((1, 1, self.n_virtual, self.embedding_dim),
-                                          device = device)
+        self.virtual_tracks = nn.Parameter(torch.randn((1, 1, 
+            self.n_virtual, self.embedding_dim), device = device))
 
         # linear layers
         self.embedding = nn.Linear(self.input_dim, self.embedding_dim)
@@ -42,9 +42,9 @@ class TimeSpaceTransformer(nn.Module):
 
         # initialize attention blocks
         self.time_blocks = self.init_attn_blocks(cross_attn = False)
-        self.space_blocks_vxp = self.init_attn_blocks(cross_attn = True)
         self.space_blocks_vxv = self.init_attn_blocks(cross_attn = False)
         self.space_blocks_pxv = self.init_attn_blocks(cross_attn = True)
+        self.space_blocks_vxp = self.init_attn_blocks(cross_attn = True)
 
         # initialize weights for linear layer 
         self.apply(self.init_weights)
@@ -76,6 +76,11 @@ class TimeSpaceTransformer(nn.Module):
             if module.bias is not None: 
                 nn.init.constant_(module.bias, 0)
 
+        torch.nn.init.trunc_normal_(self.mlp_head.weight, std = 0.001)
+
+        if self.vc_head: 
+            torch.nn.init.trunc_normal_(self.vc_head.weight, std = 0.001)
+ 
     def forward(self, x): 
 
         z = self.embedding(x)
@@ -134,8 +139,10 @@ class Attention(nn.Module):
         self.head_dim = self.embedding_dim // self.n_heads
 
         self.q_transf = nn.Linear(self.query_dim, self.embedding_dim)
+        # self.kv_transf = nn.Linear(self.context_dim, self.embedding_dim * 2)
         self.k_transf = nn.Linear(self.context_dim, self.embedding_dim)
         self.v_transf = nn.Linear(self.context_dim, self.embedding_dim)
+        self.out_transf = nn.Linear(self.embedding_dim, self.query_dim)
 
     def reshape_attn(self, params, b, n):
 
@@ -157,8 +164,12 @@ class Attention(nn.Module):
         B2, N2, H2 = context.shape
 
         qs = self.reshape_attn(self.q_transf(x), B, N)
+        # kvs = self.kv_transf(x)
+        # ks, vs =  torch.split(kvs, kvs.shape[-1] // 2, dim = -1) 
         ks = self.reshape_attn(self.k_transf(context), B2, N2)
         vs = self.reshape_attn(self.v_transf(context), B2, N2)
+        # ks = self.reshape_attn(ks, B2, N2)
+        # vs = self.reshape_attn(vs, B2, N2)
 
         # out = memory_efficient_attention(
         #     query = qs,
@@ -178,6 +189,8 @@ class Attention(nn.Module):
         out = rearrange(out, 'b n_heads n head_dim -> b n (n_heads head_dim)', 
                         n_heads = self.n_heads, head_dim = self.head_dim)
 
+        out = self.out_transf(out) 
+
         return out
 
 
@@ -193,14 +206,19 @@ class AttentionBlock(nn.Module):
 
         super().__init__()
 
-        if context_dim is None: 
-            context_dim = embedding_dim
+        self.cross_attn = cross_attn
 
         self.layernorm1 = nn.LayerNorm(
             normalized_shape = embedding_dim, 
             eps = 1e-06, 
             elementwise_affine = False
         )
+
+        if context_dim is None: 
+            context_dim = embedding_dim
+        
+        if self.cross_attn:
+            self.context_layernorm1 = nn.LayerNorm(embedding_dim)
 
         self.attention = Attention(
             query_dim = embedding_dim,
@@ -222,9 +240,13 @@ class AttentionBlock(nn.Module):
             **activation_kwargs
         )
 
-    def forward(self, x, mask = None):
+    def forward(self, x, context = None):
 
-        x = x + self.attention(self.layernorm1(x))
+        if self.cross_attn:
+            x = x + self.attention(self.layernorm1(x), context = self.context_layernorm1(context))
+        else: 
+            x = x + self.attention(self.layernorm1(x))
+
         x = x + self.mlp(self.layernorm2(x))
 
         return x 

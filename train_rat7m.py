@@ -17,6 +17,12 @@ from posetail.posetail.tracker import Tracker
 from train_utils import *
 
 
+''' 
+python train_rat7m.py --config-path configs/config_default_2d.toml
+python train_rat7m.py --config-path configs/config_default_3d.toml
+
+'''
+
 def parse_args(): 
     '''
     parse command line arguments
@@ -98,12 +104,14 @@ def main(config_path):
     train_loss = TotalLoss(**config.training.losses)
     val_loss = TotalLoss(**config.training.losses)
 
-    total_params = sum(p.numel() for p in model.parameters())
-    print(total_params)
+    # total_params = sum(p.numel() for p in model.parameters())
+    # print(total_params)
  
-    for i in range(config.training.n_epochs): 
+    for i in range(config.training.n_epochs):
 
         result_dict = {'epoch': i}
+
+        evaluate = i % config.training.eval_freq == 0
 
         train_dict = train_epoch(
             model = model,
@@ -112,7 +120,8 @@ def main(config_path):
             loss = train_loss,
             scheduler = scheduler, 
             debug_ix = config.training.debug_ix, 
-            use_amp = config.training.use_half_precision)
+            use_amp = config.training.use_half_precision, 
+            evaluate = evaluate)
 
         result_dict.update(train_dict)
 
@@ -125,7 +134,6 @@ def main(config_path):
         #         debug_ix = self.training.debug_ix)
 
         #     result_dict.update(eval_dict)
-        #     torch.cuda.empty_cache()
 
         checkpoint_cond = ((i % config.training.checkpoint_freq == 0) or
                            (i + 1 == config.training.n_epochs))

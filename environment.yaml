@@ -28,6 +28,7 @@ dependencies:
     - frozendict==2.4.6
     - opencv-python==4.9.0.80
     - pytorch-memlab==0.3.0
+    - rerun-sdk==0.22.1
     - timm==1.0.15
     - toml==0.10.2
     - torch==2.0.1

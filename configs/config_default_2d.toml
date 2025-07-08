@@ -1,29 +1,30 @@
 [wandb]
 project_name = '2d-tracker-test'
-path = '/root/capsule/scratch'
-mode = 'disabled' # 'online', 'offline', 'disabled'
+path = '/allen/aind/scratch/katie.rupp'
+mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
-batch_size = 2
+batch_size = 1
 
 [dataset.train]
 dataset_name = 'rat7m'
-prefix = '/root/capsule/data/rat7m'
+prefix = '/scratch/fast/rat7m'
 sub_pattern = 's([5])-d([2])'
-n_frames = 16 # 8
+n_frames = 16
+n_videos = 1
 project_2d = true
 max_res = 256
 
 [dataset.val]
 dataset_name = 'rat7m'
-prefix = '/root/capsule/data/rat7m'
+prefix = '/scratch/fast/rat7m'
 sub_pattern = 's([5])-d([2])'
 n_frames = 16
 project_2d = true
 
 [dataset.test]
 dataset_name = 'rat7m'
-prefix = '/root/capsule/data/rat7m'
+prefix = '/scratch/fast/rat7m'
 sub_pattern = 's([5])-d([2])'
 n_frames = 16
 project_2d = true
@@ -42,8 +43,10 @@ device = 'cuda'
 track_3d = false
 
 # processing
-stride_length = 8 # 4
-stride_overlap = 4 # 2
+stride_length = 8
+stride_overlap = 4
+
+# resnet
 downsample_factor = 2
 
 # cube (only used for 3d)
@@ -51,10 +54,10 @@ cube_dim = 20
 cube_extent = 200
 
 # correlation
-corr_levels = 4 # 2
+corr_levels = 4
 corr_radius = 3
-corr_hidden_dim = 384 # 64
-corr_output_dim = 256 # 32
+corr_hidden_dim = 384 
+corr_output_dim = 256
 
 # triplane 
 upsample_factor = 1
@@ -62,38 +65,41 @@ upsample_factor = 1
 # transformer
 max_freq = 10
 n_iters = 4
-embedding_dim = 256 # 64
-latent_dim = 64 # 128
+embedding_dim = 384
+latent_dim = 128
 encoding_dim = 64
 n_virtual = 64 
-n_heads = 8 # 2
-n_time_space_blocks = 6 # 2
-embedding_factor = 4 # 1
+n_heads = 8
+n_time_space_blocks = 3 
+embedding_factor = 4 
 
 
 [training]
 seed = 3
-n_epochs = 10
+n_epochs = 250
+scheduler_type = 'multisteplr' # or 'onecyclelr' or null
 use_half_precision = true
 checkpoint_freq = 20
+eval_freq = 20
 print_freq = 1
-eval_freq = 1
-debug_ix = 20
+debug_ix = -1
 
 [training.optimizer]
 learning_rate = 0.00001
 weight_decay = 0.00001
 
 [training.scheduler]
-steps_per_epoch = 218
-pct_start = 0.05
-cycle_momentum = false
+milestones = [100, 200]
+gamma = 0.1
+# steps_per_epoch = 218
+# pct_start = 0.05
+# cycle_momentum = false
 
 [training.losses]
 gamma = 0.8
 pixel_thresh = 12
 delta = 6
-use_huber = true
+use_huber = false
 
 # weights for computing total loss 
 vis_loss_weight = 2

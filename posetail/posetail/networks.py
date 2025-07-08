@@ -53,9 +53,8 @@ class ResUnit(nn.Module):
             self.conv1_branch2 = nn.Conv2d(
                 in_channels = self.input_dim, 
                 out_channels = self.output_dim, 
-                kernel_size = self.kernel_size, 
-                stride = self.spatial_res_factor, 
-                padding = self.padding
+                kernel_size = 1,
+                stride = self.spatial_res_factor 
             )
 
             self.norm1_branch2 = self.norm_class(num_features = self.output_dim,
@@ -71,7 +70,7 @@ class ResUnit(nn.Module):
 
         if self.spatial_res_factor > 1: 
             x_res = self.norm1_branch2(self.conv1_branch2(x_res))
-        
+
         x = self.act(x + x_res)
 
         return x

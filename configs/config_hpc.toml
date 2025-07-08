@@ -11,6 +11,7 @@ dataset_name = 'rat7m'
 prefix = '/scratch/fast/rat7m'
 sub_pattern = 's([5])-d([2])'
 n_frames = 16 # 8
+n_videos = 1
 project_2d = true
 max_res = 256
 

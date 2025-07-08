@@ -3,11 +3,11 @@ import re
 
 import numpy as np
 
-def safe_make(path): 
-
-    if not os.path.exists(path):
-        os.makedirs(path)
-
+def safe_make(path, exist_ok = True): 
+    '''
+    safely makes a directory and returns the path
+    '''
+    os.makedirs(path, exist_ok = exist_ok)
     return path
 
 def scale_coords(coords, orig_res, new_res):

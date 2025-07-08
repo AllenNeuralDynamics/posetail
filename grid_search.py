@@ -15,17 +15,23 @@ from train_utils import *
 example script submission 
 
 python grid_search.py --config-path configs/config_default.toml --auto-submit
+python grid_search.py --config-path configs/config_default_3d.toml --auto-submit
 '''
 
 BASE_DIR = '/home/katie.rupp/posetail/'
 TMP_DIR = '/allen/aind/scratch/katie.rupp/tmp'
 
 # list of parameter combinations to test 
-PARAM_DICT = {'dataset.train.max_res': [256, 512, -1], 
-            'model.latent_dim': [64, 64, 64],
-            'training.optimizer.learning_rate': [0.00001, 0.00001, 0.00001], 
-            'training.losses.pixel_thresh': [3, 6, 6], 
-            'training.losses.use_huber': [False, False, False]}
+PARAM_DICT = {'dataset.train.max_res': [256, 512], 
+              'training.losses.pixel_thresh': [3, 6], 
+              'model.latent_dim': [128, 128]}
+
+# PARAM_DICT = {'dataset.train.max_res': [256, 512], 
+#               'training.losses.pixel_thresh': [3, 3], 
+#               'training.optimizer.learning_rate': [0.0001, 0.0001],
+#              'training.optimizer.weight_decay': [0.000001, 0.000001],
+#               'model.cube_dim': [60, 60], 
+#               'training.losses.coords_loss_weight': [0.1, 0.15]}
 # PARAM_DICT = None
 
 def parse_args(): 
@@ -69,7 +75,7 @@ def get_combinations(param_dict):
     ''' 
     gets a list of dictionaries of all possible parameter combinations
     '''
-    get_combinations = list(itertools.product(*param_dict.values()))
+    combinations = list(itertools.product(*param_dict.values()))
     param_dicts = [dict(zip(param_dict.keys(), c)) for c in combinations]
     print(len(param_dicts))
 
@@ -117,7 +123,8 @@ def main(args):
         config_paths = []
         param_dicts = get_combinations_simple(PARAM_DICT)
 
-        for i, param_dict in enumerate(param_dicts):     
+        for i, param_dict in enumerate(param_dicts): 
+
             new_config = update_config(default_config, param_dict)
             outpath = os.path.join(prefix, f'config{i}.toml')
             save_config(new_config, outpath)

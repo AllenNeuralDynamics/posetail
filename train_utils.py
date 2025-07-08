@@ -13,7 +13,7 @@ from torch.utils.data import Dataset, IterableDataset
 
 from datetime import datetime, timezone, timedelta
 from easydict import EasyDict
-from pytorch_memlab import MemReporter, LineProfiler, profile
+# from pytorch_memlab import MemReporter, LineProfiler, profile
 
 from posetail.datasets.datasets import Rat7mIterableDataset
 from posetail.datasets.utils import safe_make
@@ -173,7 +173,7 @@ def get_timestamp():
 # @profile
 def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
                 use_amp = False, amp_type = torch.float16, 
-                prefix = 'train/', debug_ix = -1): 
+                prefix = 'train/', debug_ix = -1, evaluate = False): 
 
     device = model.device
     model.train()
@@ -186,6 +186,8 @@ def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
 
     n_batches = 0
     n_frames = 0
+
+    metric_dicts = []
 
     for j, batch in enumerate(dataloader):
 
@@ -219,11 +221,14 @@ def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
                     camera_group = cgroup, 
                     offset_dict = None
                 )
+
                 total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
 
             grad_scaler.scale(total_loss).backward()
             clip_grad_norm_(model.parameters(), 1.0)
-
+            # for name, param in model.cnn.named_parameters():
+            #     print(name, param.grad)
+            
             grad_scaler.step(optimizer)
             grad_scaler.update()
             optimizer.zero_grad(set_to_none = True)
@@ -236,7 +241,7 @@ def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
                 offset_dict = None
             )
                 
-            total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
+            total_loss = loss(outputs, coords_true, vis, device = outputs[0].device)
             # report = reporter.report()
 
             total_loss.backward()
@@ -244,6 +249,16 @@ def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
 
             optimizer.step()
             optimizer.zero_grad()
+        
+        if evaluate:
+            metrics_dict = get_eval_metrics(
+                vis_pred = outputs[1], 
+                vis_true = vis, 
+                coords_pred = outputs[0], 
+                coords_true = coords,
+                prefix = prefix
+            ) 
+            metric_dicts.append(metrics_dict)
 
         n_batches += 1
         n_frames += coords.shape[1]
@@ -268,6 +283,19 @@ def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
                   f'{prefix}learning_rate': learning_rate}
     train_dict.update(loss_dict)
 
+    # average evaluation metrics if we evaluated
+    if evaluate: 
+
+        avg_metrics_dict = {}
+        metrics = list(metric_dicts[0].keys())
+
+        for metric in metrics: 
+            metric_list = [metric_dict[metric] for metric_dict in metric_dicts]
+            avg_metrics_dict[f'{metric}_avg'] = np.sum(metric_list)
+            avg_metrics_dict[f'{metric}_std'] = np.std(metric_list)
+            
+        train_dict.update(avg_metrics_dict)
+
     return train_dict
 
 
@@ -278,6 +306,11 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
 
     start_time = time.time()
     timestamp = get_timestamp()
+
+    metric_dicts = []
+
+    n_batches = 0
+    n_frames = 0
 
     for j, batch in enumerate(dataloader):
 
@@ -312,30 +345,42 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
         if loss is not None:
             total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
 
-        # thresholds = [1, 2, 4, 8, 16]
 
-        # metrics_dict = get_eval_metrics(
-        #     vis_pred = outputs[1], 
-        #     vis_true = vis_true, 
-        #     coords_pred = outputs[0], 
-        #     coords_true = coords_true,
-        #     thresholds = thresholds, 
-        #     prefix = 'eval/'
-        # )
+        metrics_dict = get_eval_metrics(
+            vis_pred = outputs[1], 
+            vis_true = vis, 
+            coords_pred = outputs[0], 
+            coords_true = coords,
+            prefix = prefix
+        ) 
+        metric_dicts.append(metrics_dict)
 
-        # TODO: average metrics over all items in batch
+        n_batches += 1
+        n_frames += coords.shape[1]
 
-     # track time of evaluation loop
+    # track time of evaluation loop
     elapsed_time = time.time() - start_time
     elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
 
+    # collate evaluation data
     eval_dict = {f'{prefix}timestamp': timestamp,
                  f'{prefix}elapsed_time': elapsed_time,
-                 f'{prefix}elapsed_time_hms': elapsed_time_hms}
-    # eval_dict.update(metrics_dict)
+                 f'{prefix}elapsed_time_hms': elapsed_time_hms, 
+                 f'{prefix}batches_per_epoch': n_batches,
+                 f'{prefix}frames_per_epoch': n_frames}
 
     if loss is not None:
         loss_dict = loss.collapse_history(prefix = prefix)
         eval_dict.update(loss_dict)
+
+    avg_metrics_dict = {}
+    metrics = list(metric_dicts[0].keys())
+
+    for metric in metrics: 
+        metric_list = [metric_dict[metric] for metric_dict in metric_dicts]
+        avg_metrics_dict[f'{metric}_avg'] = np.sum(metric_list)
+        avg_metrics_dict[f'{metric}_std'] = np.std(metric_list)
+
+    eval_dict.update(avg_metrics_dict)
 
     return eval_dict

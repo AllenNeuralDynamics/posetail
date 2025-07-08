@@ -14,11 +14,20 @@ from posetail.posetail.networks import FeatureExtractor, ResidualFeatureExtracto
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
 
+def replace_norm(model):
+    
+    for name, child in model.named_children():
+        if isinstance(child, nn.BatchNorm2d):
+            instance_norm = nn.InstanceNorm2d(child.num_features)
+            setattr(model, name, instance_norm)
+        else:
+            replace_norm(child)
+
+
 class Tracker(nn.Module): 
 
     def __init__(self, track_3d = True, stride_length = 8, 
                  stride_overlap = None, downsample_factor = 4, 
-                 pretrained_resnet = None, n_pretrained_layers = None, 
                  cube_dim = 20, cube_extent = 200, 
                  upsample_factor = 1, corr_levels = 4, 
                  corr_radius = 3, corr_hidden_dim = 384,
@@ -47,8 +56,6 @@ class Tracker(nn.Module):
             self.stride_overlap = stride_overlap 
         
         # cnn params
-        self.pretrained_resnet = pretrained_resnet
-        self.n_pretrained_layers = n_pretrained_layers
         self.downsample_factor = downsample_factor
         self.latent_dim = latent_dim 
 
@@ -79,33 +86,19 @@ class Tracker(nn.Module):
         self.activation_kwargs = {'approximate': 'tanh'}
 
         # add up the dimensions for transformer input
-        self.input_dim = (2 + 4 * self.R * self.max_freq +
+        self.input_dim = (2 + 2 * self.R + 4 * self.R * self.max_freq +
                           self.corr_levels * self.corr_output_dim)
         # print(f'transformer input dimension: {self.input_dim}') 
 
         # networks
-        if self.pretrained_resnet is None: 
-            self.cnn = ResidualFeatureExtractor(
-                input_dim = 3, # RGB 
-                output_dim = self.latent_dim,
-                n_blocks = 4,
-                kernel_size = 3,
-                downsample_factor = self.downsample_factor,
-                spatial_res_factor = 2 
-            )
-        else: 
-            resnet = timm.create_model(self.pretrained_resnet, features_only = True, pretrained = True)
-            layers = list(resnet.children())
-            self.cnn = nn.Sequential(*layers[:self.n_pretrained_layers])
-            self.cnn.eval()
-            self.cnn.requires_grad_(False)
-
-
-        # self.cnn = FeatureExtractor(
-        #     in_channels = 3, # RGB 
-        #     out_channels = self.latent_dim, 
-        #     downsample_factor = self.downsample_factor
-        # )
+        self.cnn = ResidualFeatureExtractor(
+            input_dim = 3, # RGB 
+            output_dim = self.latent_dim,
+            n_blocks = 4,
+            kernel_size = 3,
+            downsample_factor = self.downsample_factor,
+            spatial_res_factor = 2 
+        )
 
         if self.R == 3: 
 
@@ -420,7 +413,7 @@ class Tracker(nn.Module):
             flow_encoding = get_fourier_encoding(coord_flow, min_freq = 0, max_freq = self.max_freq)
 
             # transformer time
-            x = (torch.cat([vis, conf, corr_features, flow_encoding], dim = -1) 
+            x = (torch.cat([vis, conf, corr_features, coord_flow, flow_encoding], dim = -1) 
                            + self.time_encoding)  
 
             updates = self.tsformer(x) # b s n d
@@ -480,19 +473,13 @@ class Tracker(nn.Module):
 
         # normalize frames
         for i, frames in enumerate(views): 
-            #frames = 2 * (frames / 255.0) - 1
-            frames = frames / 255.0 
-            mean = torch.tensor([0.485, 0.456, 0.406], device = frames.device)
-            std = torch.tensor([0.229, 0.224, 0.225], device = frames.device)
-
-            # normalize per channel: B x T x H x W x C
-            frames = (frames - mean[None, None, None, None, :]) / std[None, None, None, None, :]
+            frames = 2 * (frames / 255.0) - 1
             views[i] = rearrange(frames, 'b t h w c -> b t c h w').to(self.device)
 
         # determine number of strides
         stride_remainder = self.S - self.stride_overlap
-        n_windows = T // (stride_remainder)
-        n_pad = self.stride_overlap - T % (stride_remainder)
+        n_windows = ((T - stride_remainder - 1) // stride_remainder) + 1
+        n_pad = (self.S - T % self.S) % self.S
 
         # frames for each camera view
         if n_pad > 0: 
@@ -516,11 +503,6 @@ class Tracker(nn.Module):
                 b = B, t = T + n_pad)
             )
 
-        # adjust coordinates according to the cnn downsampling 
-        # factor to match new image size
-        if self.pretrained_resnet: 
-            self.downsample_factor = H / H2
-
         coords = coords / self.downsample_factor
 
 
@@ -529,13 +511,14 @@ class Tracker(nn.Module):
         if self.R == 3: 
 
             # unproject views into volumes, get average volume, then project
-            with torch.no_grad():
+            #with torch.no_grad():
+            volumes = cgroup.unproject_to_volume(feature_maps) # (G, B, S, D, V1, V2, V3)
+            # torch.save(feature_maps, f'/home/katie.rupp/posetail/volumes/feature_maps.pt')
+            # torch.save(volumes, f'/home/katie.rupp/posetail/volumes/volumes_iter.pt')
+            volumes_avg = torch.mean(volumes, dim = 0) 
 
-                volumes = cgroup.unproject_to_volume(feature_maps) # (G, B, S, D, V1, V2, V3)
-                volumes_avg = torch.mean(volumes, dim = 0) 
-
-                xy_planes, xz_planes, yz_planes = project_volumes(volumes_avg)
-                planes = torch.cat((xy_planes, xz_planes, yz_planes), dim = -3) 
+            xy_planes, xz_planes, yz_planes = project_volumes(volumes_avg)
+            planes = torch.cat((xy_planes, xz_planes, yz_planes), dim = -3) 
 
             # extract features from planes 
             feature_planes = self.triplane_cnn(
