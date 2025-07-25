@@ -287,6 +287,22 @@ class FeatureExtractor(nn.Module):
 
         self.relu = nn.ReLU()
 
+        self._init_weights()
+
+    def _init_weights(self): 
+
+        for layer in self.modules():
+
+            if isinstance(layer, nn.Conv2d): 
+                nn.init.kaiming_uniform_(layer.weight, 
+                    mode = 'fan_out', nonlinearity = 'relu')
+            
+            elif isinstance(layer, nn.InstanceNorm2d): 
+                if layer.weight is not None and layer.bias is not None: 
+                    nn.init.constant_(m.weight, 1)
+                    nn.init.constant_(m.bias, 0)
+
+
     def forward(self, x):
 
         x = self.conv1(x)

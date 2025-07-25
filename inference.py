@@ -93,8 +93,11 @@ if __name__ == '__main__':
     # video_path = args.video_path
     # data_path = args.data_path
 
-    run_ids = ['run-20250626_004534-k3d1yefb']
-    # run_ids = ['run-20250624_132312-366rk9iq']
+    # run-20250717_162810-2bxgzkoy
+    run_ids = ['run-20250719_135301-pnscusdl', 
+               'run-20250719_135329-x27vkwdb', 
+               'run-20250720_050005-g7yrnvuo']
+    run_ids = ['run-20250724_200413-pfcy4n9z']
 
     # video_paths = ['/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4']
     video_paths = ['/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4',

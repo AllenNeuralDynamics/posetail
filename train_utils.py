@@ -172,7 +172,7 @@ def get_timestamp():
 
 # @profile
 def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
-                use_amp = False, amp_type = torch.float16, 
+                use_amp = False, amp_type = torch.float16, max_grad_norm = 1,
                 prefix = 'train/', debug_ix = -1, evaluate = False): 
 
     device = model.device
@@ -225,10 +225,8 @@ def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
                 total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
 
             grad_scaler.scale(total_loss).backward()
-            clip_grad_norm_(model.parameters(), 1.0)
-            # for name, param in model.cnn.named_parameters():
-            #     print(name, param.grad)
-            
+            clip_grad_norm_(model.parameters(), max_norm = max_grad_norm)
+
             grad_scaler.step(optimizer)
             grad_scaler.update()
             optimizer.zero_grad(set_to_none = True)
@@ -240,12 +238,17 @@ def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
                 camera_group = cgroup, 
                 offset_dict = None
             )
-                
-            total_loss = loss(outputs, coords_true, vis, device = outputs[0].device)
+
+            coords_pred = outputs[0]
+            vis_pred = outputs[1]
+            conf_pred = outputs[2]
+
+            total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
+
             # report = reporter.report()
 
             total_loss.backward()
-            clip_grad_norm_(model.parameters(), 1.0)
+            clip_grad_norm_(model.parameters(), max_norm = max_grad_norm)
 
             optimizer.step()
             optimizer.zero_grad()
@@ -263,7 +266,7 @@ def train_epoch(model, dataloader, optimizer, loss, scheduler = None,
         n_batches += 1
         n_frames += coords.shape[1]
 
-    print_memory(device)
+    # print_memory(device)
 
     if scheduler: 
         scheduler.step()

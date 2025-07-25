@@ -139,7 +139,6 @@ class Attention(nn.Module):
         self.head_dim = self.embedding_dim // self.n_heads
 
         self.q_transf = nn.Linear(self.query_dim, self.embedding_dim)
-        # self.kv_transf = nn.Linear(self.context_dim, self.embedding_dim * 2)
         self.k_transf = nn.Linear(self.context_dim, self.embedding_dim)
         self.v_transf = nn.Linear(self.context_dim, self.embedding_dim)
         self.out_transf = nn.Linear(self.embedding_dim, self.query_dim)
@@ -164,12 +163,8 @@ class Attention(nn.Module):
         B2, N2, H2 = context.shape
 
         qs = self.reshape_attn(self.q_transf(x), B, N)
-        # kvs = self.kv_transf(x)
-        # ks, vs =  torch.split(kvs, kvs.shape[-1] // 2, dim = -1) 
         ks = self.reshape_attn(self.k_transf(context), B2, N2)
         vs = self.reshape_attn(self.v_transf(context), B2, N2)
-        # ks = self.reshape_attn(ks, B2, N2)
-        # vs = self.reshape_attn(vs, B2, N2)
 
         # out = memory_efficient_attention(
         #     query = qs,

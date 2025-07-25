@@ -226,6 +226,14 @@ class Rat7mDataset(Dataset):
         for i, cap in enumerate(caps): 
             self.store_camera_size(cap, self.cams[i])
 
+        for i, cam in enumerate(self.cgroup.cameras): 
+
+            orig_res = self.camera_size_dict[self.cams[i]]['orig_res']
+            scale = self.camera_size_dict[self.cams[i]]['scale']
+
+            cam.set_size(orig_res)
+            cam.resize_camera(scale)
+
         return caps
 
 
@@ -324,14 +332,6 @@ class Rat7mDataset(Dataset):
         views = [torch.stack(list(v), axis = 0) for v in zip(*views)]
         coords = self.coords[start_frame:start_frame + self.n_frames, :, :]
         coords = torch.tensor(coords, dtype = torch.float32)
-
-        for i, cam in enumerate(self.cgroup.cameras): 
-
-            orig_res = self.camera_size_dict[self.cams[i]]['orig_res']
-            scale = self.camera_size_dict[self.cams[i]]['scale']
-
-            cam.set_size(orig_res)
-            cam.resize_camera(scale)
 
         fnums = torch.arange(start_frame, start_frame + self.n_frames)
 
@@ -533,7 +533,6 @@ class Rat7mIterableDataset(IterableDataset):
         for sub in subjects: 
 
             data_path = glob.glob(f'{self.prefix}/*/mocap-{sub}.mat')[0]
-            cgroup = load_calibration(data_path)
             coords3d = load_pose3d(data_path)['pose']
 
             subject_files = glob.glob(f'{self.prefix}/*/{sub}/{sub}*.mp4', recursive = True)
@@ -550,6 +549,18 @@ class Rat7mIterableDataset(IterableDataset):
                 # store original camera size
                 for i in range(len(caps)):
                     self.store_camera_size(caps[i], i)
+
+                # load calibration
+                cgroup = load_calibration(data_path)
+
+                # resize cameras accordingly
+                for i, cam in enumerate(cgroup.cameras): 
+
+                    orig_res = self.camera_size_dict[i]['orig_res']
+                    scale = self.camera_size_dict[i]['scale']
+
+                    cam.set_size(orig_res)
+                    cam.resize_camera(scale)
 
                 while ret:
 
@@ -585,14 +596,6 @@ class Rat7mIterableDataset(IterableDataset):
                         coords_masked = coords[:, visible_kpts_mask, :]
 
                         fnums = torch.arange(fnum - self.n_frames, fnum) + 1
-
-                        for i, cam in enumerate(cgroup.cameras): 
-
-                            orig_res = self.camera_size_dict[i]['orig_res']
-                            scale = self.camera_size_dict[i]['scale']
-
-                            cam.set_size(orig_res)
-                            cam.resize_camera(scale)
 
                         if coords_masked.shape[1] > 0: 
                             yield views, coords_masked, fnums, cgroup

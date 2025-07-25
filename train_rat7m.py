@@ -119,6 +119,7 @@ def main(config_path):
             optimizer = optimizer,
             loss = train_loss,
             scheduler = scheduler, 
+            max_grad_norm = config.training.max_grad_norm,
             debug_ix = config.training.debug_ix, 
             use_amp = config.training.use_half_precision, 
             evaluate = evaluate)

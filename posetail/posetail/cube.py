@@ -11,7 +11,7 @@ from einops import rearrange
 def project_volumes(volumes): 
     ''' 
     project volume to get the xy, xz, and yz planes 
-    '''
+    ''' 
     xy_planes = torch.sum(volumes, dim = -1)
     xz_planes = torch.sum(volumes, dim = -2)
     yz_planes = torch.sum(volumes, dim = -3)
@@ -24,7 +24,7 @@ class UnprojectViews:
     def __init__(self, 
                  camera_group, 
                  cube_dim = 64, 
-                 cube_extent = None, 
+                 cube_extent = None,
                  offset_dict = None, 
                  downsample_factor = 2, 
                  device = None):
@@ -36,7 +36,7 @@ class UnprojectViews:
         self.device = device
 
         self.cube_center, self.cube_extent = self.get_cgroup_box()
- 
+
         if cube_extent is not None: 
             self.cube_extent = cube_extent
 

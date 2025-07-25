@@ -14,21 +14,11 @@ from posetail.posetail.networks import FeatureExtractor, ResidualFeatureExtracto
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
 
-def replace_norm(model):
-    
-    for name, child in model.named_children():
-        if isinstance(child, nn.BatchNorm2d):
-            instance_norm = nn.InstanceNorm2d(child.num_features)
-            setattr(model, name, instance_norm)
-        else:
-            replace_norm(child)
-
-
 class Tracker(nn.Module): 
 
     def __init__(self, track_3d = True, stride_length = 8, 
                  stride_overlap = None, downsample_factor = 4, 
-                 cube_dim = 20, cube_extent = 200, 
+                 cube_dim = 20, cube_extent = None,
                  upsample_factor = 1, corr_levels = 4, 
                  corr_radius = 3, corr_hidden_dim = 384,
                  corr_output_dim = 256, max_freq = 10, 
@@ -87,7 +77,7 @@ class Tracker(nn.Module):
 
         # add up the dimensions for transformer input
         self.input_dim = (2 + 2 * self.R + 4 * self.R * self.max_freq +
-                          self.corr_levels * self.corr_output_dim)
+                          self.corr_levels * self.corr_output_dim * len(self.plane_ixs))
         # print(f'transformer input dimension: {self.input_dim}') 
 
         # networks
@@ -350,8 +340,11 @@ class Tracker(nn.Module):
 
                 corr_features.append(self.corr_mlp(corr_features_4d))
 
+            # TODO: remove sum
             # sum xy, xz, and yz correlation features
-            cf = torch.sum(torch.stack(corr_features, dim = -1), dim = -1)
+            # cf = torch.sum(torch.stack(corr_features, dim = -1), dim = -1)
+            cf = torch.stack(corr_features, dim = -1)
+            cf = rearrange(cf, 'bsn d sr -> bsn (d sr)')
             corr_features_levels.append(cf)
 
         corr_features = rearrange(
@@ -359,7 +352,7 @@ class Tracker(nn.Module):
             '(b s n) d -> b s n d', 
             b = B, s = S, n = N
         )
-
+        
         return corr_features
 
 
@@ -430,6 +423,18 @@ class Tracker(nn.Module):
         
         return coords_pred, vis_pred, conf_pred
 
+
+    def unscale(self, coords): 
+
+        if self.R == 3: 
+            scale = (2 * self.cube_extent) / (self.cube_dim * self.upsample_factor)
+            coords_unscaled = scale * coords + (self.cube_center - self.cube_extent)
+        else: 
+            coords_unscaled = coords * self.downsample_factor 
+
+        return coords_unscaled
+
+
     def forward(self, views, coords, camera_group = None, 
                 offset_dict = None):
         '''
@@ -456,20 +461,22 @@ class Tracker(nn.Module):
                 cgroup = self.unproject_groups[cgroup_hash]
 
             else:
-                # TODO: check whether this can be created with 
-                # torch.no_grad()
-                # store unproject views for later
+
                 with torch.no_grad():
 
                     cgroup = UnprojectViews(
                         camera_group = camera_group,
                         offset_dict = offset_dict,
                         downsample_factor = self.downsample_factor,
-                        cube_dim = self.cube_dim, 
+                        cube_dim = self.cube_dim,
                         cube_extent = self.cube_extent, 
                         device = self.device) 
 
                     self.unproject_groups[cgroup_hash] = cgroup
+
+            self.cube_extent = cgroup.cube_extent
+            self.cube_center = (torch.from_numpy(cgroup.cube_center)
+                                     .to(dtype = torch.float32, device = self.device))
 
         # normalize frames
         for i, frames in enumerate(views): 
@@ -503,20 +510,14 @@ class Tracker(nn.Module):
                 b = B, t = T + n_pad)
             )
 
-        coords = coords / self.downsample_factor
-
-
         # NOTE: this can be put in the forward loop if its too memory 
         # intensive up front 
         if self.R == 3: 
 
             # unproject views into volumes, get average volume, then project
-            #with torch.no_grad():
             volumes = cgroup.unproject_to_volume(feature_maps) # (G, B, S, D, V1, V2, V3)
-            # torch.save(feature_maps, f'/home/katie.rupp/posetail/volumes/feature_maps.pt')
-            # torch.save(volumes, f'/home/katie.rupp/posetail/volumes/volumes_iter.pt')
             volumes_avg = torch.mean(volumes, dim = 0) 
-
+            
             xy_planes, xz_planes, yz_planes = project_volumes(volumes_avg)
             planes = torch.cat((xy_planes, xz_planes, yz_planes), dim = -3) 
 
@@ -525,14 +526,20 @@ class Tracker(nn.Module):
                 rearrange(planes, 'b t d3 v1 v2 -> (b t) d3 v1 v2')
             )
 
+            # TODO: update the coords according to the conversion
+            coords = ((coords - (self.cube_center - self.cube_extent)) *
+                                (self.cube_dim / (2 * self.cube_extent)) * 
+                                 self.upsample_factor)
+
         else: # 2d case, no triplane
+            coords = coords / self.downsample_factor
             feature_planes = rearrange(feature_maps, '1 b t d h w -> (b t) d h w')
 
         # initialize feature planes and track features for each correlation level
         (feature_planes_levels, 
-         track_features_levels) = self.init_levels(coords = coords, 
-                                                   feature_planes = feature_planes, 
-                                                   dims = (B, T + n_pad))
+        track_features_levels) = self.init_levels(coords = coords, 
+                                                    feature_planes = feature_planes, 
+                                                    dims = (B, T + n_pad))
 
         # track final predictions
         coords_pred = torch.zeros((B, T, N, R), device = self.device)
@@ -592,11 +599,12 @@ class Tracker(nn.Module):
             vis_pred[:, ix:ix + self.S, ...] = vis_pred_updates[-1]
             conf_pred[:, ix:ix + self.S, ...] = conf_pred_updates[-1]
 
-            coords_pred_iters.append([coords * self.downsample_factor for coords in coords_pred_updates])
+            # coords_pred_iters.append([coords * self.downsample_factor for coords in coords_pred_updates])
+            coords_pred_iters.append([self.unscale(coords) for coords in coords_pred_updates])
             vis_pred_iters.append(vis_pred_updates)
             conf_pred_iters.append(conf_pred_updates)
 
         # adjust coordinates to match original scale
-        coords_pred = coords_pred * self.downsample_factor 
+        coords_pred = self.unscale(coords_pred)
 
         return coords_pred, vis_pred, conf_pred, coords_pred_iters, vis_pred_iters, conf_pred_iters

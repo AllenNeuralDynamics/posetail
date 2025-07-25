@@ -22,17 +22,18 @@ BASE_DIR = '/home/katie.rupp/posetail/'
 TMP_DIR = '/allen/aind/scratch/katie.rupp/tmp'
 
 # list of parameter combinations to test 
-PARAM_DICT = {'dataset.train.max_res': [256, 512], 
-              'training.losses.pixel_thresh': [3, 6], 
-              'model.latent_dim': [128, 128]}
-
 # PARAM_DICT = {'dataset.train.max_res': [256, 512], 
-#               'training.losses.pixel_thresh': [3, 3], 
+#               'training.losses.pixel_thresh': [3, 6], 
+#               'model.latent_dim': [128, 128]}
+
+# PARAM_DICT = {'training.losses.pixel_thresh': [9, 9], 
 #               'training.optimizer.learning_rate': [0.0001, 0.0001],
-#              'training.optimizer.weight_decay': [0.000001, 0.000001],
-#               'model.cube_dim': [60, 60], 
-#               'training.losses.coords_loss_weight': [0.1, 0.15]}
-# PARAM_DICT = None
+#               'training.optimizer.weight_decay': [0.000001, 0.000001],
+#               'model.cube_dim': [74, 74], 
+#               'model.cube_extent': [500, 500],
+#               'training.losses.coords_loss_weight': [0.2, 0.2], 
+#               'dataset.train.n_videos': [10, 10]}
+PARAM_DICT = None
 
 def parse_args(): 
     '''
