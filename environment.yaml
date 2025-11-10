@@ -26,6 +26,7 @@ dependencies:
     - easydict==1.13
     - einops==0.7.0
     - frozendict==2.4.6
+    - lightning==
     - opencv-python==4.9.0.80
     - pytorch-memlab==0.3.0
     - rerun-sdk==0.22.1
