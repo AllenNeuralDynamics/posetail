@@ -38,9 +38,8 @@ def load_predictions(data_path, device):
     return coords_pred, vis_pred, conf_pred, coords_true, vis_true, fnums, video_path
 
 
-def get_video_predictions(video_paths, model, dataloader, pred_path, debug_ix = -1):
+def get_video_predictions(video_paths, model, dataloader, pred_path, device, debug_ix = -1):
 
-    device = model.device
     model.eval()
 
     start_time = time.time()

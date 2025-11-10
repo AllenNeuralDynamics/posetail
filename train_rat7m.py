@@ -11,7 +11,8 @@ from torch.utils.data import DataLoader
 
 from pytorch_memlab import MemReporter, LineProfiler, profile
 
-from posetail.datasets.datasets import custom_collate_2d, custom_collate_3d
+# from posetail.datasets.datasets import custom_collate_2d, custom_collate_3d
+from posetail.datasets.posetail_dataset import PosetailDataset, custom_collate
 from posetail.posetail.losses import *
 from posetail.posetail.tracker import Tracker
 from train_utils import *
@@ -20,7 +21,6 @@ from train_utils import *
 ''' 
 python train_rat7m.py --config-path configs/config_default_2d.toml
 python train_rat7m.py --config-path configs/config_default_3d.toml
-
 '''
 
 def parse_args(): 
@@ -44,12 +44,23 @@ def main(config_path):
 
     set_seeds(config.training.seed)
 
-    train_dataset = get_dataset(**config.dataset.train)
+    # train_dataset = get_dataset(**config.dataset.train)
+
+    # train_loader = DataLoader(
+    #     train_dataset, 
+    #     batch_size = config.dataset.batch_size, 
+    #     collate_fn = custom_collate_3d if config.model.track_3d else custom_collate_2d)
+
+    train_dataset = PosetailDataset(
+        data_path = config.dataset.train.prefix, 
+        track_3d = config.model.track_3d,
+        n_frames = config.dataset.train.n_frames,
+        max_res = config.dataset.train.max_res)
 
     train_loader = DataLoader(
         train_dataset, 
         batch_size = config.dataset.batch_size, 
-        collate_fn = custom_collate_3d if config.model.track_3d else custom_collate_2d)
+        collate_fn = custom_collate)
 
     if 'steps_per_epoch' in config.training.scheduler and config.training.scheduler.steps_per_epoch == -1:
         steps_per_epoch = get_steps_per_epoch(train_dataset, train_loader)
@@ -69,7 +80,7 @@ def main(config_path):
     wandb.save(wandb_config_path, base_path = exp_dir)
 
     device = torch.device(config.devices.device)
-    model = Tracker(device = device, **config.model) 
+    model = Tracker(**config.model) 
     model.to(device)
 
     # profiler = LineProfiler(
@@ -118,6 +129,7 @@ def main(config_path):
             dataloader = train_loader, 
             optimizer = optimizer,
             loss = train_loss,
+            device = device,
             scheduler = scheduler, 
             max_grad_norm = config.training.max_grad_norm,
             debug_ix = config.training.debug_ix, 

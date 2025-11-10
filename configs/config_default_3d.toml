@@ -3,36 +3,21 @@ project_name = '3d-tracker-test'
 path = '/allen/aind/scratch/katie.rupp'
 mode = 'online' # 'online', 'offline', 'disabled'
 
+
 [dataset]
 batch_size = 1
 
 [dataset.train]
-dataset_name = 'rat7m'
-prefix = '/scratch/fast/rat7m'
-sub_pattern = 's([5])-d([2])'
+prefix = '/scratch/fast/processed'
 n_frames = 16
-n_videos = 1
-project_2d = false
 max_res = 256
-
-[dataset.val]
-dataset_name = 'rat7m'
-prefix = '/scratch/fast/rat7m'
-sub_pattern = 's([5])-d([2])'
-n_frames = 16
-project_2d = false
 
 [dataset.test]
 dataset_name = 'rat7m'
-prefix = '/scratch/fast/rat7m'
+prefix = '/scratch/fast/processed'
 sub_pattern = 's([5])-d([2])'
 n_frames = 16
 project_2d = false
-
-[distributed] 
-global_rank = 0
-world_size = 8
-# may also need hostname, ip addrs, etc for other machines
 
 
 [devices]
@@ -82,7 +67,7 @@ max_grad_norm = 1
 checkpoint_freq = 25
 eval_freq = 20
 print_freq = 1
-debug_ix = -1
+debug_ix = 10
 
 [training.optimizer]
 learning_rate = 0.00001

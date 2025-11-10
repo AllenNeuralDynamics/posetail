@@ -1,7 +1,11 @@
 import os
+import cv2
 import re
 
+import yaml
+
 import numpy as np
+
 
 def safe_make(path, exist_ok = True): 
     '''
@@ -9,6 +13,7 @@ def safe_make(path, exist_ok = True):
     '''
     os.makedirs(path, exist_ok = exist_ok)
     return path
+
 
 def scale_coords(coords, orig_res, new_res):
         '''
@@ -26,6 +31,7 @@ def scale_coords(coords, orig_res, new_res):
         coords_scaled = coords / scale
 
         return coords_scaled
+
 
 def extract_name(fname, pattern):
     '''
@@ -60,3 +66,38 @@ def extract_num(fname, pattern):
         name = ''
 
     return name
+
+
+def get_dirs(path): 
+
+    dirs = os.listdir(path)
+
+    dirs = [d for d in dirs if os.path.isdir(os.path.join(path, d))
+            and not d.startswith('.')]
+    
+    dirs = sorted(dirs) 
+    
+    return dirs
+
+
+def load_yaml(path): 
+    '''
+    safely loads data from a yaml file
+    '''
+    with open(path, 'r') as f: 
+        data = yaml.safe_load(f)
+
+    return data
+
+
+def disassemble_extrinsics(extrinsics): 
+    ''' 
+    returns the rotation and translation vectors 
+    given the extrinsics matrix
+    '''
+    extrinsics = np.array(extrinsics)
+    rotation_matrix = extrinsics[:3, :3]
+    rvec, _ = cv2.Rodrigues(rotation_matrix)
+    tvec = extrinsics[:3, 3]
+
+    return rvec, tvec

@@ -25,11 +25,8 @@ class Tracker(nn.Module):
                  n_iters = 4, embedding_dim = 256, 
                  latent_dim = 128, encoding_dim = 64,
                  n_virtual = 64, n_heads = 8, 
-                 n_time_space_blocks = 6, embedding_factor = 4,
-                 device = None): 
+                 n_time_space_blocks = 6, embedding_factor = 4): 
         super().__init__()
-
-        self.device = device
 
         if track_3d: 
             self.R = 3 
@@ -109,7 +106,8 @@ class Tracker(nn.Module):
         )
 
         # time embeddings
-        t = torch.arange(self.S, device = self.device)
+        t = torch.arange(self.S)
+        # t = torch.arange(self.S, device = self.device)
 
         self.register_buffer(
             'time_encoding', 
@@ -126,7 +124,7 @@ class Tracker(nn.Module):
             n_virtual = self.n_virtual, 
             embedding_factor = self.embedding_factor, 
             vc_head = True, 
-            device = self.device,
+            # device = self.device,
             **self.activation_kwargs
         )
 
@@ -192,16 +190,17 @@ class Tracker(nn.Module):
 
     
     def get_coord_regions(self, coords):
-
+        
+        device = coords.device
         B, _, N, R = coords.shape
         coords = rearrange(coords, 'b 1 n r -> b n 1 1 r')
 
-        offsets = torch.arange(self.corr_dim, device = self.device) - self.corr_radius
+        offsets = torch.arange(self.corr_dim, device = device) - self.corr_radius
 
-        offset_coords = torch.tensor(list(itertools.product(offsets, offsets)), device = self.device)
+        offset_coords = torch.tensor(list(itertools.product(offsets, offsets)), device = device)
         offset_coords = offset_coords.T.reshape((R - 1, self.corr_dim, self.corr_dim))
 
-        time_offsets = torch.zeros((1, self.corr_dim, self.corr_dim), device = self.device)
+        time_offsets = torch.zeros((1, self.corr_dim, self.corr_dim), device = device)
         offset_coords = torch.cat((offset_coords, time_offsets), dim = 0)
         offset_coords = rearrange(offset_coords, 'r ch cw -> ch cw r')
 
@@ -214,19 +213,20 @@ class Tracker(nn.Module):
     def get_track_features(self, coords, feature_planes, 
                            padding_mode = 'border'): 
 
+        device = coords.device
         _, N, R = coords.shape
         B, S, D, V1, V2 = feature_planes.shape
 
         feature_planes = rearrange(feature_planes, 'b s d vh vw -> b d s vh vw')
 
-        t = torch.arange(B, device = self.device) * torch.ones((N, B), device = self.device) 
+        t = torch.arange(B, device = device) * torch.ones((N, B), device = device) 
         t = rearrange(t, 'n b -> b 1 n 1')
 
         coords = rearrange(coords, 'b n r -> b 1 n r')
         coords = torch.cat((coords, t), dim = -1)
         coord_regions = self.get_coord_regions(coords)
     
-        scale, _ = (torch.max(torch.tensor([V2, V1, S], device = self.device)
+        scale, _ = (torch.max(torch.tensor([V2, V1, S], device = device)
                           .unsqueeze(dim = -1) - 1,
                           dim = 1))
 
@@ -248,10 +248,11 @@ class Tracker(nn.Module):
     def get_corr_features_2d(self, coords, feature_planes, 
                              padding_mode = 'border'): 
 
+        device = coords.device
         _, N, R = coords.shape # B * S, N, R
         B, S, D, V1, V2 = feature_planes.shape
 
-        times = torch.zeros((B * S, N, 1), device = self.device)
+        times = torch.zeros((B * S, N, 1), device = device)
         coords = torch.cat((coords, times), dim = -1)
 
         coord_regions = self.get_coord_regions(coords.unsqueeze(1))
@@ -262,7 +263,7 @@ class Tracker(nn.Module):
             corr1 = self.corr_dim, corr2 = self.corr_dim
         )
 
-        scale, _ = (torch.max(torch.tensor([V2, V1, S], device = self.device)
+        scale, _ = (torch.max(torch.tensor([V2, V1, S], device = device)
                           .unsqueeze(dim = -1) - 1,
                           dim = 1))
         coord_regions = coord_regions * (2 / scale) - 1
@@ -360,6 +361,8 @@ class Tracker(nn.Module):
                           feature_planes_levels, 
                           track_features_levels):
 
+        device = coords.device 
+
         B, S, D, V1, V2, R = feature_planes_levels[0].shape
         B, S, N, R = coords.shape
 
@@ -400,7 +403,7 @@ class Tracker(nn.Module):
             if self.R == 2: 
                 scale = (torch.tensor([V1, V2, V1, V2])
                               .view(1, 1, 1, -1)
-                              .to(self.device))
+                              .to(device))
 
             coord_flow = torch.cat([forward_flow, backward_flow], dim = -1) / scale
             flow_encoding = get_fourier_encoding(coord_flow, min_freq = 0, max_freq = self.max_freq)
@@ -445,7 +448,7 @@ class Tracker(nn.Module):
         W: width of image
         D: latent dimension
         '''
-        coords.to(self.device)
+        device = coords.device
 
         B, N, R = coords.shape
         B, T, H, W, C = views[0].shape
@@ -470,18 +473,18 @@ class Tracker(nn.Module):
                         downsample_factor = self.downsample_factor,
                         cube_dim = self.cube_dim,
                         cube_extent = self.cube_extent, 
-                        device = self.device) 
+                        device = device) 
 
                     self.unproject_groups[cgroup_hash] = cgroup
 
             self.cube_extent = cgroup.cube_extent
             self.cube_center = (torch.from_numpy(cgroup.cube_center)
-                                     .to(dtype = torch.float32, device = self.device))
+                                     .to(dtype = torch.float32, device = device))
 
         # normalize frames
         for i, frames in enumerate(views): 
             frames = 2 * (frames / 255.0) - 1
-            views[i] = rearrange(frames, 'b t h w c -> b t c h w').to(self.device)
+            views[i] = rearrange(frames, 'b t h w c -> b t c h w').to(device)
 
         # determine number of strides
         stride_remainder = self.S - self.stride_overlap
@@ -542,9 +545,9 @@ class Tracker(nn.Module):
                                                     dims = (B, T + n_pad))
 
         # track final predictions
-        coords_pred = torch.zeros((B, T, N, R), device = self.device)
-        vis_pred = torch.zeros((B, T, N, 1), device = self.device)
-        conf_pred = torch.zeros((B, T, N, 1), device = self.device)
+        coords_pred = torch.zeros((B, T, N, R), device = device)
+        vis_pred = torch.zeros((B, T, N, 1), device = device)
+        conf_pred = torch.zeros((B, T, N, 1), device = device)
 
         # track iterative predictions
         coords_pred_iters = []
@@ -563,8 +566,8 @@ class Tracker(nn.Module):
                 # initialize coords with the first frame in the window 
                 # and the visibility of all tracks to 1 
                 coords_init = coords.unsqueeze(1).repeat((1, self.S, 1, 1))
-                vis_init = torch.zeros((B, self.S, N, 1), device = self.device)
-                conf_init = torch.zeros((B, self.S, N, 1), device = self.device)
+                vis_init = torch.zeros((B, self.S, N, 1), device = device)
+                conf_init = torch.zeros((B, self.S, N, 1), device = device)
 
             else: 
                 # copy overlapping coords, vis, and conf predictions from the

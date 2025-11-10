@@ -24,7 +24,7 @@ def parse_args():
     return args
 
 
-def main(run_ids, video_paths, data_path, checkpoint = None): 
+def main(run_ids, video_paths, data_path, device, checkpoint = None): 
 
     results_outpath = safe_make('../results', exist_ok = True)
     video_outpath = safe_make('../videos', exist_ok = True)
@@ -61,7 +61,7 @@ def main(run_ids, video_paths, data_path, checkpoint = None):
             pred_path = os.path.join(results_outpath, f'{video_group_name}_{run_id}_predictions.npz')
 
         pred_path = get_video_predictions(video_paths, 
-            model, dataloader, pred_path, debug_ix = -1)
+            model, dataloader, pred_path, device, debug_ix = -1)
             
         print(f'predictions saved to {pred_path}')
 
@@ -93,11 +93,7 @@ if __name__ == '__main__':
     # video_path = args.video_path
     # data_path = args.data_path
 
-    # run-20250717_162810-2bxgzkoy
-    run_ids = ['run-20250719_135301-pnscusdl', 
-               'run-20250719_135329-x27vkwdb', 
-               'run-20250720_050005-g7yrnvuo']
-    run_ids = ['run-20250724_200413-pfcy4n9z']
+    run_ids = ['run-20250821_150541-cz83i3z0', 'run-20250821_150541-s6fhoo7b']
 
     # video_paths = ['/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4']
     video_paths = ['/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4',
@@ -108,4 +104,5 @@ if __name__ == '__main__':
                     '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera6-0.mp4']
     data_path = '/allen/aind/scratch/katie.rupp/data/rat7m/data/mocap-s5-d2.mat'
 
-    main(run_ids, video_paths, data_path, checkpoint = None)
+    device = (torch.device('cuda') if torch.cuda.is_available() else 'cpu')
+    main(run_ids, video_paths, data_path, device, checkpoint = None)
