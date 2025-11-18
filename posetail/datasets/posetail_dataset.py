@@ -80,7 +80,6 @@ class PosetailDataset(Dataset):
         img_path = row['img_path']
         cam_names = sorted(get_dirs(img_path))
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
-
         views = []
 
         for cam_name in cam_names:
@@ -116,6 +115,30 @@ class PosetailDataset(Dataset):
         return views, coords, fnums, cgroup
 
 
+    def _get_start_ixs(self, coords):
+
+        safe = 0
+        start_ixs = []
+
+        for i in range(coords.shape[1]): 
+
+            if safe > 0:
+                safe = safe - 1 
+                continue
+
+            coords_subset = coords[:, i:i + self.n_frames, :, :]
+            enough_frames = coords_subset.shape[1] == self.n_frames
+            no_nans = np.sum(~np.isfinite(coords_subset)) == 0
+
+            if no_nans and enough_frames: 
+                start_ixs.append(i)
+                safe = self.n_frames - 1
+
+        start_ixs = np.array(start_ixs)
+
+        return start_ixs
+
+
     def _generate_metadata(self, track_3d): 
             
         rows = []
@@ -148,8 +171,11 @@ class PosetailDataset(Dataset):
                     imgs = sorted(os.listdir(os.path.join(img_path, cams[0])))
 
                     # get starting indices 
-                    n_batches = len(imgs) // self.n_frames
-                    start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
+                    coords = np.load(pose_path)[f'pose']
+                    start_ixs = self._get_start_ixs(coords)
+
+                    # n_batches = len(imgs) // self.n_frames
+                    # start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
                     end_ixs = start_ixs + self.n_frames
 
                     # add a row to the metadata that will correspond
