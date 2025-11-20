@@ -26,10 +26,10 @@ dependencies:
     - easydict==1.13
     - einops==0.7.0
     - frozendict==2.4.6
-    - lightning==
-    - opencv-python==4.9.0.80
+    - lightning==2.2.1
+    - opencv-python-headless==4.9.0.80
     - pytorch-memlab==0.3.0
-    - rerun-sdk==0.22.1
+    - rerun-sdk==0.22.1 
     - timm==1.0.15
     - toml==0.10.2
     - torch==2.0.1

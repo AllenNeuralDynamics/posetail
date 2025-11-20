@@ -24,16 +24,18 @@ def custom_collate(batch):
 
     views = [torch.stack(v, dim = 0) for v in zip(*list(batch[0]))]
     coords = torch.stack(batch[1], axis = 0).squeeze(1)
+    mask = torch.isfinite(coords).all(dim = -1).all(dim = 1).all(dim = 0)
+    coords_masked = coords[:, :, mask, :]
     fnums = torch.stack(batch[2], axis = 0)
 
     if len(batch) == 3:
         batch = edict({'views': views, 
-                       'coords': coords,
+                       'coords': coords_masked,
                        'fnums': fnums})
     else: 
         cgroup = batch[3][0]
         batch = edict({'views': views, 
-                       'coords': coords,
+                       'coords': coords_masked,
                        'fnums': fnums, 
                        'cgroup': cgroup})
 
@@ -128,9 +130,13 @@ class PosetailDataset(Dataset):
 
             coords_subset = coords[:, i:i + self.n_frames, :, :]
             enough_frames = coords_subset.shape[1] == self.n_frames
-            no_nans = np.sum(~np.isfinite(coords_subset)) == 0
+            # no_nans = np.sum(~np.isfinite(coords_subset)) == 0
+            
+            mask = np.isfinite(coords_subset)
+            visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
 
-            if no_nans and enough_frames: 
+            # if no_nans and enough_frames: 
+            if np.sum(visible_coords) > 0 and enough_frames:
                 start_ixs.append(i)
                 safe = self.n_frames - 1
 

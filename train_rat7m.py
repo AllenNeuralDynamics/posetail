@@ -6,7 +6,6 @@ import wandb
 
 import torch
 import torch.optim as optim
-from torch.cuda.amp import GradScaler
 from torch.utils.data import DataLoader
 
 from pytorch_memlab import MemReporter, LineProfiler, profile

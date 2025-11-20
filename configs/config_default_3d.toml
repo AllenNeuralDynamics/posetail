@@ -1,6 +1,6 @@
 [wandb]
 project_name = '3d-tracker-test'
-path = '/allen/aind/scratch/katie.rupp'
+path = '/data/results/katie'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 
@@ -8,20 +8,20 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 
 [dataset.train]
-prefix = '/scratch/fast/processed'
+prefix = '/nvme1/data/animal-datasets-processed/posetail-test'
 n_frames = 16
 max_res = 256
 
 [dataset.test]
 dataset_name = 'rat7m'
-prefix = '/scratch/fast/processed'
+prefix = '/nvme1/data/animal-datasets/rat7m'
 sub_pattern = 's([5])-d([2])'
 n_frames = 16
 project_2d = false
 
 
 [devices]
-device = 'cuda'
+device = 'cuda:1'
 
 
 [model]
@@ -67,7 +67,7 @@ max_grad_norm = 1
 checkpoint_freq = 25
 eval_freq = 20
 print_freq = 1
-debug_ix = 10
+debug_ix = -1
 
 [training.optimizer]
 learning_rate = 0.00001

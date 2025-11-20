@@ -49,7 +49,7 @@ class TotalLoss(nn.Module):
         loss_summary = {}
 
         for name, losses in self.loss_history.items():
-            loss_summary[f'{prefix}{name}'] = np.nanmean(losses)
+            loss_summary[f'{prefix}{name}'] = float(np.nanmean(losses))
             
         return loss_summary
 

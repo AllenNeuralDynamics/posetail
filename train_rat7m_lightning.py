@@ -22,8 +22,8 @@ from train_utils_lightning import *
 
 ''' 
 python train_rat7m_lightning.py --config-path configs/config_default_2d.toml
-python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --devices 4
-
+python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --devices 1
+python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --devices 1 2
 '''
 
 def parse_args(): 
@@ -41,9 +41,14 @@ def parse_args():
         help = 'accelerator to use for training: cpu, gpu, tpu, auto')
 
     parser.add_argument('--devices', 
-        type = int,
-        default = 1, 
-        help = 'number of gpus to train the model on')
+        type = int, 
+        nargs = '+',
+        default = [0], 
+        help = 'list of gpu numbers to use')
+    
+    # parser.add_argument('--devices', 
+    #     default = 1, 
+    #     help = 'number of gpus to train the model on')
 
     parser.add_argument('--strategy', 
         default = 'ddp', 
@@ -88,7 +93,7 @@ def run(config_path, fabric):
         train_dataset, 
         batch_size = config.dataset.batch_size, 
         collate_fn = custom_collate)
-
+    
     train_loader = fabric.setup_dataloaders(train_loader)
     
     if 'steps_per_epoch' in config.training.scheduler and config.training.scheduler.steps_per_epoch == -1:
@@ -181,14 +186,19 @@ def run(config_path, fabric):
 
         #     result_dict.update(eval_dict)
 
+        # log to wandb and print to console 
+        if fabric.is_global_zero:
+            wandb.log(result_dict)
+
+            if i % config.training.print_freq == 0:
+                print(result_dict)
+
+        # save a model checkpoint when the condition is met
         checkpoint_cond = ((i % config.training.checkpoint_freq == 0) or
                            (i + 1 == config.training.n_epochs))
 
         if checkpoint_cond and fabric.is_global_zero:
             save_checkpoint(model, optimizer, prefix = exp_dir, epoch = i)
-
-            # log to wandb 
-            wandb.log(result_dict)
 
             # profiler.print_stats()
             # print_memory(device)
@@ -196,9 +206,6 @@ def run(config_path, fabric):
             # save losses and evaluation metrics to json
             write_json(json_path, result_dict)
             wandb.save(json_path, base_path = exp_dir)
-
-        if i % config.training.print_freq == 0 and fabric.is_global_zero:
-            print(result_dict)
             
         train_loss.reset_history()
         val_loss.reset_history()

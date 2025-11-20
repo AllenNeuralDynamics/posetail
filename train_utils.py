@@ -7,7 +7,7 @@ import yaml
 
 import numpy as np
 
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, IterableDataset
 
@@ -181,7 +181,7 @@ def train_epoch(model, dataloader, optimizer, loss, device, scheduler = None,
     start_time = time.time()
     timestamp = get_timestamp()
 
-    grad_scaler = GradScaler(enabled = use_amp)
+    grad_scaler = GradScaler(device = device, enabled = use_amp)
     learning_rate = optimizer.param_groups[0]['lr']
 
     n_batches = 0
@@ -293,9 +293,9 @@ def train_epoch(model, dataloader, optimizer, loss, device, scheduler = None,
         metrics = list(metric_dicts[0].keys())
 
         for metric in metrics: 
-            metric_list = [metric_dict[metric] for metric_dict in metric_dicts]
-            avg_metrics_dict[f'{metric}_avg'] = np.sum(metric_list)
-            avg_metrics_dict[f'{metric}_std'] = np.std(metric_list)
+            metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
+            avg_metrics_dict[f'{metric}_avg'] = float(np.sum(metric_list))
+            avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
             
         train_dict.update(avg_metrics_dict)
 
@@ -380,9 +380,9 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
     metrics = list(metric_dicts[0].keys())
 
     for metric in metrics: 
-        metric_list = [metric_dict[metric] for metric_dict in metric_dicts]
-        avg_metrics_dict[f'{metric}_avg'] = np.sum(metric_list)
-        avg_metrics_dict[f'{metric}_std'] = np.std(metric_list)
+        metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
+        avg_metrics_dict[f'{metric}_avg'] = float(np.sum(metric_list))
+        avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
 
     eval_dict.update(avg_metrics_dict)
 
