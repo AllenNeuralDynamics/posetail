@@ -8,7 +8,7 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 
 [dataset.train]
-prefix = '/nvme1/data/animal-datasets-processed/posetail-test'
+prefix = '/nvme1/data/animal-datasets-processed/posetail-test-3500'
 n_frames = 16
 max_res = 256
 
@@ -38,7 +38,7 @@ cube_extent = 500
 
 # correlation
 corr_levels = 4 
-corr_radius = 3
+corr_radius = 9
 corr_hidden_dim = 384
 corr_output_dim = 256 
 
@@ -59,7 +59,7 @@ embedding_factor = 4
 
 [training]
 seed = 3
-n_epochs = 400
+n_epochs = 500
 scheduler_type = 'multisteplr'
 # scheduler_type = 'onecyclelr'
 use_half_precision = true
@@ -82,7 +82,7 @@ gamma = 0.1
 
 [training.losses]
 gamma = 0.8
-pixel_thresh = 3
+pixel_thresh = 6
 delta = 6
 use_huber = false
 

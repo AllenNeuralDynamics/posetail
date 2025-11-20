@@ -18,8 +18,8 @@ def get_checkpoint(wandb_prefix, run_id, checkpoint = None):
             f'checkpoint_{checkpoint_fmt}.pth')
         
     else:
-        checkpoints = glob.glob(
-            os.path.join(wandb_prefix, run_id, 'files', 'checkpoints', '*.pth'))
+        checkpoints = sorted(glob.glob(
+            os.path.join(wandb_prefix, run_id, 'files', 'checkpoints', '*.pth')))
         checkpoint_path = checkpoints[-1]
 
     return checkpoint_path
