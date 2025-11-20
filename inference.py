@@ -8,6 +8,9 @@ from train_utils import *
 from inference_utils import *
 from viz3d import *
 
+''' 
+python inference.py
+'''
 
 def parse_args():
     '''
@@ -15,26 +18,31 @@ def parse_args():
     ''' 
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--wandb-prefix', type = str)
     parser.add_argument('--run-ids', nargs = '+', default = [])
+
     parser.add_argument('--video-paths', nargs = '+', default = [])
-    parser.add_argument('--data-path')
+    parser.add_argument('--data-path', type = str)
+
+    parser.add_argument('---outpath', type = str, default = '../output')
 
     args = parser.parse_args()
 
     return args
 
 
-def main(run_ids, video_paths, data_path, device, checkpoint = None): 
+def main(wandb_prefix, run_ids, video_paths, data_path, outpath, checkpoint = None): 
 
-    results_outpath = safe_make('../results', exist_ok = True)
-    video_outpath = safe_make('../videos', exist_ok = True)
+    # outpath = safe_make(outpath, exist_ok = True)
+    outpath = safe_make(os.path.join(outpath, 'results'), exist_ok = True)
 
     for run_id in run_ids:
 
-        config_path = f'/allen/aind/scratch/katie.rupp/wandb/{run_id}/files/config.toml'
+        config_path = os.path.join(wandb_prefix, run_id, 'files', 'config.toml')
         config = load_config(config_path)
+        device = (torch.device(config.devices.device) if torch.cuda.is_available() else 'cpu')
 
-        model_path = get_checkpoint(run_id, checkpoint = checkpoint)
+        model_path = get_checkpoint(wandb_prefix, run_id, checkpoint = checkpoint)
         print(f'loading: {model_path}...')
         model = load_checkpoint(config_path, model_path)
         model.eval()
@@ -54,9 +62,13 @@ def main(run_ids, video_paths, data_path, device, checkpoint = None):
 
         video_name = os.path.splitext(os.path.basename(video_paths[0]))[0]
 
-        if config.dataset.train.project_2d: 
+        if config.dataset.test.project_2d: 
+            video_outpath = safe_make(os.path.join(outpath, 'videos'), exist_ok = True)
+            results_outpath = safe_make(os.path.join(outpath, 'results'), exist_ok = True)
             pred_path = os.path.join(results_outpath, f'{video_name}_{run_id}_predictions.npz')
+
         else: 
+            results_outpath = safe_make(os.path.join(outpath, 'results'), exist_ok = True)
             video_group_name = '-'.join(video_name.split('-')[:2] + video_name.split('-')[3:])
             pred_path = os.path.join(results_outpath, f'{video_group_name}_{run_id}_predictions.npz')
 
@@ -69,40 +81,51 @@ def main(run_ids, video_paths, data_path, device, checkpoint = None):
         scale = dataloader.dataset.camera_size_dict[cam]['xy_scale']
 
         # viz for 2d 
-        if config.dataset.train.project_2d: 
+        if config.dataset.test.project_2d:
+
             video_outpath = generate_video_2d(
                 video_path = video_paths[0], 
                 results_path = pred_path, 
-                outpath = video_path, 
+                outpath = results_outpath, 
                 run_id = run_id, 
-                scale = scale)
+                scale = scale,
+                device = device)
 
             print(f'video saved to {video_outpath}\n')
 
         # viz for 3d 
         else: 
-            video_outpath = viz_predictions_3d(pred_path, results_outpath, spawn = False)    
-            print(f'saved 3d predictions to {video_outpath}')
+            rrd_outpath = viz_predictions_3d(pred_path, results_outpath, spawn = False)    
+            print(f'saved 3d predictions to {rrd_outpath}')
 
 
 if __name__ == '__main__':
 
     # args = parse_args()
 
+    # wandb_prefix = args.wandb_prefix
     # run_ids = args.run_ids
     # video_path = args.video_path
     # data_path = args.data_path
+    # outpath = args.outpath
 
-    run_ids = ['run-20250821_150541-cz83i3z0', 'run-20250821_150541-s6fhoo7b']
+    outpath = '/home/ruppk2@hhmi.org/output'
+    wandb_prefix = '/data/results/katie/wandb'
 
-    # video_paths = ['/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4']
-    video_paths = ['/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera1-0.mp4',
-                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera2-0.mp4',
-                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera3-0.mp4',
-                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera4-0.mp4',
-                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera5-0.mp4',
-                    '/allen/aind/scratch/katie.rupp/data/rat7m/videos/s5-d2/s5-d2-camera6-0.mp4']
-    data_path = '/allen/aind/scratch/katie.rupp/data/rat7m/data/mocap-s5-d2.mat'
+    run_ids = ['run-20251119_005700-d6nqqj3q']
 
-    device = (torch.device('cuda') if torch.cuda.is_available() else 'cpu')
-    main(run_ids, video_paths, data_path, device, checkpoint = None)
+    video_paths = ['/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera1-3500.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera2-3500.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera3-3500.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera4-3500.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera5-3500.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera6-3500.mp4']
+    data_path = '/data/animal-datasets/rat7m/data/mocap-s1-d1.mat'
+
+
+    main(wandb_prefix = wandb_prefix, 
+         run_ids = run_ids, 
+         video_paths = video_paths, 
+         data_path = data_path, 
+         outpath = outpath, 
+         checkpoint = None)

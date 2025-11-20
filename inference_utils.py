@@ -9,13 +9,17 @@ from train_utils import *
 
 
 
-def get_checkpoint(run_id, checkpoint = None):
+def get_checkpoint(wandb_prefix, run_id, checkpoint = None):
 
     if checkpoint is not None: 
         checkpoint_fmt = str(checkpoint).zfill(6)
-        checkpoint_path = f'/allen/aind/scratch/katie.rupp/wandb/{run_id}/files/checkpoints/checkpoint_{checkpoint_fmt}.pth'
+        checkpoint_path = os.path.join(
+            wandb_prefix, run_id, 'files', 'checkpoints', 
+            f'checkpoint_{checkpoint_fmt}.pth')
+        
     else:
-        checkpoints = glob.glob(f'/allen/aind/scratch/katie.rupp/wandb/{run_id}/files/checkpoints/*.pth')
+        checkpoints = glob.glob(
+            os.path.join(wandb_prefix, run_id, 'files', 'checkpoints', '*.pth'))
         checkpoint_path = checkpoints[-1]
 
     return checkpoint_path
@@ -107,10 +111,9 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
     return pred_path
 
 
-def generate_video_2d(video_path, results_path, outpath, run_id, scale): 
+def generate_video_2d(video_path, results_path, outpath, run_id, scale, device): 
     
     # TODO: get camera group and project coords
-    device = (torch.device('cuda') if torch.cuda.is_available() else 'cpu')
     (coords_pred, vis_pred, conf_pred, coords_true, 
     vis_true, fnums, video_path) = load_predictions(results_path, device)
 
