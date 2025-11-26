@@ -56,8 +56,8 @@ class PosetailDataset(Dataset):
         self.metadata[['scale_dict', 'res_dict', 'new_res_dict']] = self.metadata.apply(
             self._get_scale, axis = 1, result_type = 'expand')
 
-        self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
-        self.metadata.to_csv(self.metadata_path, index = False)
+        # self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
+        # self.metadata.to_csv(self.metadata_path, index = False)
 
 
     def __len__(self): 
