@@ -56,7 +56,7 @@ class Tracker(nn.Module):
         # tracking, or xy planes for 2d tracking
         #
         if self.track_3d and self.mode_3d == 'minicubes':
-            self.plane_ixs = [(0,1)]
+            self.plane_ixs = [(0,1)] # not used, but this makes input_dim work out later
         else:
             self.plane_ixs = list(itertools.combinations(range(self.R), 2))
         self.upsample_factor = upsample_factor
@@ -374,14 +374,14 @@ class Tracker(nn.Module):
          cube_interval: single float
         
         Returns:
-          volumes: cams bt d k total 
+          volumes: cams bt d k total
         """
         cube_size = self.corr_radius * 2 + 1
         n_cams = len(feature_planes)
         BT, K, _ = cube_centers.shape
         
         # get coordinates of each cube
-        row = (torch.arange(cube_size) - 3) * cube_interval
+        row = (torch.arange(cube_size) - self.corr_radius) * cube_interval
         xyz_s = torch.stack(torch.meshgrid(row, row, row, indexing='ij'))
         xyz = rearrange(xyz_s, 'r x y z -> (x y z) r')
         xyz = torch.as_tensor(xyz, device=cube_centers.device, dtype=cube_centers.dtype)    
@@ -439,7 +439,7 @@ class Tracker(nn.Module):
 
             corr_features = einsum(mv, track_features_levels[i],
                                    'b s t1 n d, b t2 n d -> b s n t1 t2')
-
+            
             corr_features = rearrange(corr_features,
                                       'b s n t1 t2 -> (b s n) (t1 t2)')
 
