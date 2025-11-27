@@ -460,8 +460,8 @@ class Tracker(nn.Module):
         feature_planes_first = [ff[:, 0] for ff in feature_planes]
 
         track_features_levels = []
-        for i in range(model.corr_levels):
-            track_features_cube = model.sample_feature_cubes(
+        for i in range(self.corr_levels):
+            track_features_cube = self.sample_feature_cubes(
                 feature_planes_first, camera_group, 
                 coords, self.cube_scale * (2**i))
             track_features_cube = torch.mean(track_features_cube, dim=0)
