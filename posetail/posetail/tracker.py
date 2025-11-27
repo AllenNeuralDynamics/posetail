@@ -56,7 +56,7 @@ class Tracker(nn.Module):
         # this gives us the indices for xy, xz, and yz planes for 3d 
         # tracking, or xy planes for 2d tracking
         #
-        if self.track_3d and self.mode_3d == 'minicubes':
+        if self.R == 3 and self.mode_3d == 'minicubes':
             self.plane_ixs = [(0,1)] # not used, but this makes input_dim work out later
         else:
             self.plane_ixs = list(itertools.combinations(range(self.R), 2))
@@ -489,7 +489,7 @@ class Tracker(nn.Module):
         for i in range(self.n_iters):
 
             # correlation features for transformer input
-            if self.track_3d and self.mode_3d == 'minicubes':
+            if self.R == 3 and self.mode_3d == 'minicubes':
                 corr_features = self.get_corr_features_minicubes(
                     coords = coords, 
                     feature_planes = feature_planes_levels, 
@@ -541,7 +541,7 @@ class Tracker(nn.Module):
 
             # update coords, vis, and conf
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
-            if self.track_3d and self.mode_3d == 'minicubes':
+            if self.R == 3 and self.mode_3d == 'minicubes':
                 delta_coords = delta_coords * self.cube_scale 
             coords = coords + delta_coords # b s n 3
             vis = torch.sigmoid(vis + delta_vis) # b s n 1 
@@ -676,7 +676,7 @@ class Tracker(nn.Module):
 
         # initialize feature planes and track features for each correlation level
         #
-        if self.track_3d and self.mode_3d == 'minicubes':
+        if self.R == 3 and self.mode_3d == 'minicubes':
             track_features_levels = self.get_track_features_minicubes(
                 coords, feature_planes, camera_group
             )
