@@ -197,6 +197,21 @@ class ResidualFeatureExtractor(nn.Module):
             padding = 0
         )
 
+        self._init_weights()
+
+    def _init_weights(self): 
+
+        for layer in self.modules():
+
+            if isinstance(layer, nn.Conv2d): 
+                nn.init.kaiming_uniform_(layer.weight, 
+                    mode = 'fan_out', nonlinearity = 'relu')
+            
+            elif isinstance(layer, nn.InstanceNorm2d): 
+                if layer.weight is not None and layer.bias is not None: 
+                    nn.init.constant_(layer.weight, 1)
+                    nn.init.constant_(layer.bias, 0)
+
     def _init_res_blocks(self, input_dim, output_dims): 
 
         assert len(output_dims) == self.n_blocks
@@ -299,8 +314,8 @@ class FeatureExtractor(nn.Module):
             
             elif isinstance(layer, nn.InstanceNorm2d): 
                 if layer.weight is not None and layer.bias is not None: 
-                    nn.init.constant_(m.weight, 1)
-                    nn.init.constant_(m.bias, 0)
+                    nn.init.constant_(layer.weight, 1)
+                    nn.init.constant_(layer.bias, 0)
 
 
     def forward(self, x):
@@ -331,6 +346,7 @@ class TriplaneFeatureExtractor(nn.Module):
 
         # hidden layers
         self.hidden_conv_layers = nn.ModuleList()
+        # self.gn_layers = nn.ModuleList()
 
         for i in range(n_hidden_layers): 
 
@@ -343,6 +359,9 @@ class TriplaneFeatureExtractor(nn.Module):
 
             self.hidden_conv_layers.append(hidden_layer)
 
+            # gn = nn.GroupNorm(num_groups = 8, num_channels = input_dim)
+            # self.gn_layers.append(gn)
+
         self.relu = nn.ReLU()
 
         self.conv_out = nn.Conv2d(
@@ -352,6 +371,16 @@ class TriplaneFeatureExtractor(nn.Module):
             padding = padding
         )
 
+        # self._init_weights()
+
+    def _init_weights(self): 
+
+        for layer in self.modules():
+
+            if isinstance(layer, nn.Conv2d): 
+                nn.init.kaiming_uniform_(layer.weight, 
+                    mode = 'fan_out', nonlinearity = 'relu')
+
     def forward(self, x):
 
         if self.upsample_factor > 1:
@@ -359,6 +388,9 @@ class TriplaneFeatureExtractor(nn.Module):
 
         for conv in self.hidden_conv_layers: 
             x = self.relu(conv(x))
+            
+        # for gn, conv in zip(self.gn_layers, self.hidden_conv_layers): 
+        #     x = self.relu(gn(conv(x)))
 
         x = self.conv_out(x)
         

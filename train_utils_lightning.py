@@ -126,7 +126,7 @@ def load_checkpoint(config_path, checkpoint_path):
     if not torch.cuda.is_available(): 
         device = torch.device('cpu')
 
-    model = Tracker(device = device, **config.model) 
+    model = Tracker(**config.model) 
     model.to(device)
 
     param_dict = torch.load(checkpoint_path, map_location = device)['model_state']
