@@ -7,11 +7,12 @@ import torch.nn.functional as F
 from einops import rearrange, einsum
 from frozendict import frozendict, deepfreeze
 
-from posetail.posetail.cube import UnprojectViews, project_volumes
+from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import FeatureExtractor, ResidualFeatureExtractor, TriplaneFeatureExtractor
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
+        
 
 class Tracker(nn.Module): 
 
@@ -555,9 +556,12 @@ class Tracker(nn.Module):
 
     def unscale(self, coords): 
 
-        if self.R == 3: 
-            scale = (2 * self.cube_extent) / (self.cube_dim * self.upsample_factor)
-            coords_unscaled = scale * coords + (self.cube_center - self.cube_extent)
+        if self.R == 3:
+            if self.mode_3d == 'minicubes':
+                coords_unscaled = coords
+            else:
+                scale = (2 * self.cube_extent) / (self.cube_dim * self.upsample_factor)
+                coords_unscaled = scale * coords + (self.cube_center - self.cube_extent)
         else: 
             coords_unscaled = coords * self.downsample_factor 
 
