@@ -113,7 +113,7 @@ class UnprojectViews:
             p3d = cgroup_sub.triangulate(pts)
             p3ds.append(p3d)
 
-        p3ds = np.vstack(p3ds) / self.downsample_factor
+        p3ds = np.vstack(p3ds)
         crange = np.diff(np.percentile(p3ds, [5, 95], axis = 0), axis = 0)
 
         center = np.median(p3ds, axis = 0)
@@ -141,7 +141,7 @@ class UnprojectViews:
 
             for i, (c_name, coords) in enumerate(zip(camera_names, coords_proj)): 
                 xy = np.array(self.offset_dict[c_name])
-                coords_proj[i] = coords - (xy / self.downsample_factor)
+                coords_proj[i] = (coords - xy) / self.downsample_factor
 
         return coords_proj
 
