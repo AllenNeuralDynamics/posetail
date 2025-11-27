@@ -94,8 +94,7 @@ class Tracker(nn.Module):
             spatial_res_factor = 2 
         )
 
-        if self.R == 3: 
-
+        if self.R == 3 and self.mode_3d == 'triplane':
             # triplane features
             self.triplane_cnn = TriplaneFeatureExtractor(
                 input_dim = self.latent_dim * len(self.plane_ixs), 
@@ -418,10 +417,10 @@ class Tracker(nn.Module):
         # for each scale
         # sample_feature_cubes to get cubes from feature planes at coords
         # einsum for correlations
-        B, S, D, H, W = feature_planes[0].shape
+        B, S, D, H, W, R = feature_planes[0].shape
         B, S, N, R = coords.shape
 
-        feature_planes_bs = [rearrange(f, 'b s d h w -> (b s) d h w')
+        feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
                              for f in feature_planes]
         coords_bs = rearrange(coords, 'b s n r -> (b s) n r')
 
