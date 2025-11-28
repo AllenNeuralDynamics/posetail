@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
-from einops import rearrange, einsum
+from einops import rearrange, einsum, reduce
 from frozendict import frozendict, deepfreeze
 
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch
@@ -367,16 +367,18 @@ class Tracker(nn.Module):
         return corr_features
 
     def sample_feature_cubes(self, feature_planes, camera_group,
-                             cube_centers, cube_interval):
+                             cube_centers, cube_interval, corr_radius=None):
         """Inputs:
          feature_planes: cams bt d h w
          cube_centers: bt k 3
          cube_interval: single float
         
         Returns:
-          volumes: cams bt d k total
+          volume: bt d k total
         """
-        cube_size = self.corr_radius * 2 + 1
+        if corr_radius is None:
+            corr_radius = self.corr_radius
+        cube_size = corr_radius * 2 + 1
         n_cams = len(feature_planes)
         BT, K, _ = cube_centers.shape
         
@@ -407,10 +409,25 @@ class Tracker(nn.Module):
                 align_corners=False,
                 padding_mode="zeros")
             all_samples.append(samples) 
-    
+
+        # volumes: cams bt d k total            
         volumes = torch.stack(all_samples)
-        # volumes: cams bt d k total
-        return volumes
+
+        mean_volume = torch.mean(volumes, dim=0)
+
+        # normalize features
+        mv_norms = torch.sqrt(
+                reduce(torch.square(mean_volume),
+                       'bt d k total -> bt 1 k total', 'sum'))
+
+        # handle 0 norm case
+        mv_norms = torch.maximum(
+            mv_norms, torch.tensor(
+                1e-6, device=mv_norms.device, dtype=mv_norms.dtype))
+        
+        mean_volume_normed = mean_volume / mv_norms
+        
+        return mean_volume_normed
 
 
     def get_corr_features_minicubes(self, coords, feature_planes, track_features_levels, camera_group):
@@ -426,13 +443,12 @@ class Tracker(nn.Module):
 
         corr_features_levels = []
         for i in range(self.corr_levels):
-            volumes = self.sample_feature_cubes(
+            mv = self.sample_feature_cubes(
                 feature_planes_bs,
                 camera_group,
                 coords_bs,
                 self.cube_scale * (2**i)
             )
-            mv = torch.mean(volumes, dim=0)
 
             mv = rearrange(mv, '(b s) d n total -> b s total n d',
                            b=B, s=S)
@@ -463,7 +479,6 @@ class Tracker(nn.Module):
             track_features_cube = self.sample_feature_cubes(
                 feature_planes_first, camera_group, 
                 coords, self.cube_scale * (2**i))
-            track_features_cube = torch.mean(track_features_cube, dim=0)
             track_features_cube = rearrange(track_features_cube,
                                             'b d n total -> b total n d')
             track_features_levels.append(track_features_cube)        
@@ -585,32 +600,35 @@ class Tracker(nn.Module):
         assert R == self.R
 
         if self.R == 3:
-            # create a hash of frozen camera group dictionary
-            cgroup_hash = hash(deepfreeze(camera_group.get_dicts()))
-
-            if cgroup_hash in self.unproject_groups:
-                # access stored camera group
-                cgroup = self.unproject_groups[cgroup_hash]
-
+            if self.mode_3d == 'minicubes':
+                self.cube_scale = self.cube_extent / min(H, W)
             else:
+                # create a hash of frozen camera group dictionary
+                cgroup_hash = hash(deepfreeze(camera_group.get_dicts()))
 
-                with torch.no_grad():
+                if cgroup_hash in self.unproject_groups:
+                    # access stored camera group
+                    cgroup = self.unproject_groups[cgroup_hash]
 
-                    cgroup = UnprojectViews(
-                        camera_group = camera_group,
-                        offset_dict = offset_dict,
-                        downsample_factor = self.downsample_factor,
-                        cube_dim = self.cube_dim,
-                        cube_extent = self.cube_extent, 
-                        device = device) 
+                else:
 
-                    self.unproject_groups[cgroup_hash] = cgroup
+                    with torch.no_grad():
 
-            self.cube_extent = cgroup.cube_extent
-            self.cube_center = (torch.from_numpy(cgroup.cube_center)
-                                     .to(dtype = torch.float32, device = device))
+                        cgroup = UnprojectViews(
+                            camera_group = camera_group,
+                            offset_dict = offset_dict,
+                            downsample_factor = self.downsample_factor,
+                            cube_dim = self.cube_dim,
+                            cube_extent = self.cube_extent, 
+                            device = device) 
 
-            self.cube_scale = self.cube_extent / min(H, W)
+                        self.unproject_groups[cgroup_hash] = cgroup
+
+                self.cube_extent = cgroup.cube_extent
+                self.cube_center = (torch.from_numpy(cgroup.cube_center)
+                                         .to(dtype = torch.float32, device = device))
+
+
             
 
         # normalize frames
@@ -639,11 +657,22 @@ class Tracker(nn.Module):
             feature_map = self.cnn(frames)
             _, D, H2, W2 = feature_map.shape
 
-            feature_maps.append(
-                rearrange(feature_map, 
-                '(b t) d h2 w2 -> b t d h2 w2',
-                b = B, t = T + n_pad)
-            )
+            ff = rearrange(feature_map, 
+                           '(b t) d h2 w2 -> b t d h2 w2',
+                           b = B, t = T + n_pad)
+
+            # normalize feature maps for correlation
+            ff_norms = torch.sqrt(
+                reduce(torch.square(ff),
+                       'b s d h w -> b s 1 h w', 'sum'))
+
+            # handle 0 norm case
+            ff_norms = torch.maximum(
+                ff_norms, torch.tensor(
+                    1e-6, device=ff_norms.device, dtype=ff_norms.dtype))
+
+            ffn = ff / ff_norms
+            feature_maps.append(ffn)
 
         # NOTE: this can be put in the forward loop if its too memory 
         # intensive up front 
