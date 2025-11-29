@@ -294,7 +294,7 @@ def train_epoch(model, dataloader, optimizer, loss, device, scheduler = None,
 
         for metric in metrics: 
             metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
-            avg_metrics_dict[f'{metric}_avg'] = float(np.sum(metric_list))
+            avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
             avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
             
         train_dict.update(avg_metrics_dict)
@@ -381,7 +381,7 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
 
     for metric in metrics: 
         metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
-        avg_metrics_dict[f'{metric}_avg'] = float(np.sum(metric_list))
+        avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
         avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
 
     eval_dict.update(avg_metrics_dict)
