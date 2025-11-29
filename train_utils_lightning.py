@@ -219,6 +219,10 @@ def train_epoch(config, model, fabric, dataloader,
 
         total_loss = loss(outputs, coords_true, vis_true, device = coords_pred.device)
 
+        if torch.any(torch.isnan(total_loss)):
+            print('WARNING: nan loss, skipping batch')
+            continue
+        
         # report = reporter.report()
 
         fabric.backward(total_loss)
@@ -270,7 +274,7 @@ def train_epoch(config, model, fabric, dataloader,
 
         for metric in metrics: 
             metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
-            avg_metrics_dict[f'{metric}_avg'] = float(np.sum(metric_list))
+            avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
             avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
             
         train_dict.update(avg_metrics_dict)
@@ -357,7 +361,7 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
 
     for metric in metrics: 
         metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
-        avg_metrics_dict[f'{metric}_avg'] = float(np.sum(metric_list))
+        avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
         avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
 
     eval_dict.update(avg_metrics_dict)
