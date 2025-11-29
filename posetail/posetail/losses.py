@@ -85,7 +85,8 @@ class TotalLoss(nn.Module):
             device = device
         )
 
-        total_loss = vis_loss + conf_loss + coords_loss
+        # total_loss = vis_loss + conf_loss + coords_loss
+        total_loss = coords_loss
 
         self.loss_history['vis_loss'].append(vis_loss.item())
         self.loss_history['conf_loss'].append(conf_loss.item())
