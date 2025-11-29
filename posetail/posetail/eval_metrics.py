@@ -107,7 +107,8 @@ def get_mpjpe(coords_pred, coords_true, vis_pred, vis_true, eps = 1e-8):
         eps: a small constant to prevent divide by zero errors
     '''
 
-    mask = (vis_pred > 0.5) & vis_true
+    # mask = (vis_pred > 0.5) & vis_true
+    mask = vis_true
     valid_mask = np.squeeze(mask, axis = -1)
 
     error_per_kpt = np.linalg.norm(coords_pred - coords_true, axis = -1, keepdims = False)
@@ -119,3 +120,4 @@ def get_mpjpe(coords_pred, coords_true, vis_pred, vis_true, eps = 1e-8):
     mpjpe = np.nanmean(error)
 
     return mpjpe
+
