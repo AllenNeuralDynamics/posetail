@@ -92,7 +92,8 @@ def run(config_path, fabric):
     train_loader = DataLoader(
         train_dataset, 
         batch_size = config.dataset.batch_size, 
-        collate_fn = custom_collate)
+        collate_fn = custom_collate,
+        shuffle=True)
     
     train_loader = fabric.setup_dataloaders(train_loader)
     
@@ -115,7 +116,10 @@ def run(config_path, fabric):
         wandb.save(wandb_config_path, base_path = exp_dir)
 
     # device = torch.device(config.devices.device)
-    model = Tracker(**config.model) 
+    model = Tracker(**config.model)
+    torch.compile(model.cnn)
+    torch.compile(model.corr_mlp)
+    torch.compile(model.tsformer)
     model = fabric.setup(model)
 
     # NOTE: memory profiling causes a CPU memory leak
@@ -134,7 +138,8 @@ def run(config_path, fabric):
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr = config.training.optimizer.learning_rate, 
-        weight_decay = config.training.optimizer.weight_decay)
+        weight_decay = config.training.optimizer.weight_decay,
+        amsgrad=config.training.optimizer.amsgrad)
 
     optimizer = fabric.setup_optimizers(optimizer)
 
