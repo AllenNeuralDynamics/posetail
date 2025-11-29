@@ -106,9 +106,11 @@ class Tracker(nn.Module):
 
         # correlation features
         if self.mode_3d == 'minicubes':
-            mlp_input_dim = (2 * self.corr_radius + 1) ** 6
+            # mlp_input_dim = (2 * self.corr_radius + 1) ** 6
+            mlp_input_dim = (2 * self.corr_radius + 1) ** 3 * (3**3)
         else:
             mlp_input_dim = (2 * self.corr_radius + 1) ** 4
+
         self.corr_mlp = MLP(
             input_dim = mlp_input_dim, 
             embedding_dim = self.corr_hidden_dim, 
@@ -367,7 +369,8 @@ class Tracker(nn.Module):
         return corr_features
 
     def sample_feature_cubes(self, feature_planes, camera_group,
-                             cube_centers, cube_interval, corr_radius=None):
+                             cube_centers, cube_interval,
+                             corr_radius=None, downsample_ratio=None):
         """Inputs:
          feature_planes: cams bt d h w
          cube_centers: bt k 3
@@ -378,6 +381,8 @@ class Tracker(nn.Module):
         """
         if corr_radius is None:
             corr_radius = self.corr_radius
+        if downsample_ratio is None:
+            downsample_ratio = self.downsample_factor
         cube_size = corr_radius * 2 + 1
         n_cams = len(feature_planes)
         BT, K, _ = cube_centers.shape
@@ -388,13 +393,11 @@ class Tracker(nn.Module):
         xyz = rearrange(xyz_s, 'r x y z -> (x y z) r')
         xyz = torch.as_tensor(xyz, device=cube_centers.device, dtype=cube_centers.dtype)    
     
-        # cube_coords: bt (size**3) 3
         cube_coords = cube_centers[..., None, :] + xyz
         cube_coords_flat = rearrange(cube_coords, 'bt k total r -> (bt k total) r')
         p2d_flat = project_points_torch(camera_group, cube_coords_flat)
-        p2d_flat = p2d_flat / self.downsample_factor # account for resnet
+        p2d_flat = p2d_flat / downsample_ratio # account for resnet
     
-        #p2d_flat : ncams (bt size**3) 2
         p2d = rearrange(p2d_flat, 'ncams (bt k total) r -> ncams bt k total r',
                         bt=BT, k=K)
     
@@ -456,6 +459,7 @@ class Tracker(nn.Module):
             corr_features = einsum(mv, track_features_levels[i],
                                    'b s t1 n d, b t2 n d -> b s n t1 t2')
             
+            
             corr_features = rearrange(corr_features,
                                       'b s n t1 t2 -> (b s n) (t1 t2)')
 
@@ -478,7 +482,8 @@ class Tracker(nn.Module):
         for i in range(self.corr_levels):
             track_features_cube = self.sample_feature_cubes(
                 feature_planes_first, camera_group, 
-                coords, self.cube_scale * (2**i))
+                coords, self.cube_scale * (2**i),
+                corr_radius=1)
             track_features_cube = rearrange(track_features_cube,
                                             'b d n total -> b total n d')
             track_features_levels.append(track_features_cube)        
