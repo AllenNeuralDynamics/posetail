@@ -168,7 +168,18 @@ def get_timestamp():
     timestamp = datetime.now(tz)
     timestamp_fmt = timestamp.strftime('%Y-%m-%d %H:%M:%S')
 
-    return timestamp_fmt 
+    return timestamp_fmt
+
+def format_camera(cam, device):
+    return {
+        "ext": torch.as_tensor(cam.get_extrinsics_mat(), device=device, dtype=torch.float),
+        "mat": torch.as_tensor(cam.get_camera_matrix(), device=device, dtype=torch.float),
+        "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float)
+    }
+
+def format_camera_group(camera_group, device):
+    return [format_camera(cam, device)
+            for cam in camera_group.cameras]
 
 # @profile
 def train_epoch(config, model, fabric, dataloader, 
@@ -198,6 +209,7 @@ def train_epoch(config, model, fabric, dataloader,
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
+            cgroup = format_camera_group(cgroup, device)
 
         vis = get_vis_true(coords)
 
@@ -219,19 +231,19 @@ def train_epoch(config, model, fabric, dataloader,
 
         total_loss = loss(outputs, coords_true, vis_true, device = coords_pred.device)
 
-        if torch.any(torch.isnan(total_loss)):
-            print('WARNING: nan loss, skipping batch')
-            continue
-        
-        # report = reporter.report()
+        if not torch.any(torch.isnan(total_loss)):
+            # report = reporter.report()
 
-        fabric.backward(total_loss)
-        fabric.clip_gradients(model, optimizer, 
-            max_norm = config.training.max_grad_norm, 
-            error_if_nonfinite = False)
+            fabric.backward(total_loss)
+            fabric.clip_gradients(model, optimizer, 
+                max_norm = config.training.max_grad_norm, 
+                error_if_nonfinite = False)
 
-        optimizer.step()
-        optimizer.zero_grad()
+            optimizer.step()
+            optimizer.zero_grad()
+        else:
+            print('WARNING: nan loss')
+
         
         if evaluate:
             metrics_dict = get_eval_metrics(

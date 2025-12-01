@@ -69,7 +69,7 @@ def parse_args():
 
 def run(config_path, fabric):
 
-    # torch.set_float32_matmul_precision('high')
+    torch.set_float32_matmul_precision('high')
 
     config = load_config(config_path)
     set_seeds(config.training.seed)
@@ -93,7 +93,8 @@ def run(config_path, fabric):
         train_dataset, 
         batch_size = config.dataset.batch_size, 
         collate_fn = custom_collate,
-        shuffle=True)
+        shuffle=True,
+        num_workers=8)
     
     train_loader = fabric.setup_dataloaders(train_loader)
     
@@ -117,9 +118,13 @@ def run(config_path, fabric):
 
     # device = torch.device(config.devices.device)
     model = Tracker(**config.model)
-    torch.compile(model.cnn)
-    torch.compile(model.corr_mlp)
-    torch.compile(model.tsformer)
+    model.cnn.compile()
+    model.corr_mlp.compile()
+    model.tsformer.compile()
+    # model.compile()
+    # torch.compile(model.cnn)
+    # torch.compile(model.corr_mlp)
+    # torch.compile(model.tsformer)
     model = fabric.setup(model)
 
     # NOTE: memory profiling causes a CPU memory leak

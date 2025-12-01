@@ -71,13 +71,12 @@ class TimeSpaceTransformer(nn.Module):
     def init_weights(self, module): 
 
         if isinstance(module, nn.Linear): 
-            nn.init.xavier_normal_(module.weight)
-
+            # nn.init.xavier_normal_(module.weight)
+            nn.init.xavier_uniform_(module.weight)
             if module.bias is not None: 
                 nn.init.constant_(module.bias, 0)
 
         torch.nn.init.trunc_normal_(self.mlp_head.weight, std = 0.001)
-
         if self.vc_head: 
             torch.nn.init.trunc_normal_(self.vc_head.weight, std = 0.001)
  

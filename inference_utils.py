@@ -41,6 +41,17 @@ def load_predictions(data_path, device):
 
     return coords_pred, vis_pred, conf_pred, coords_true, vis_true, fnums, video_path
 
+def format_camera(cam, device):
+    return {
+        "ext": torch.as_tensor(cam.get_extrinsics_mat(), dtype=torch.float32, device=device),
+        "mat": torch.as_tensor(cam.get_camera_matrix(), dtype=torch.float32, device=device),
+        "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float32)
+    }
+
+def format_camera_group(camera_group, device):
+    return [format_camera(cam, device)
+            for cam in camera_group.cameras]
+
 
 def get_video_predictions(video_paths, model, dataloader, pred_path, device, debug_ix = -1):
 
@@ -68,6 +79,7 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
         cgroup = None 
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
+            cgroup = format_camera_group(cgroup, device)
 
         vis = get_vis_true(coords)
                       

@@ -72,9 +72,9 @@ class PosetailDataset(Dataset):
         fnums = torch.arange(start_ix, end_ix)
 
         pose = np.load(row['pose_path'])['pose']
-        coords = pose[:, start_ix:end_ix, :, :]
+        coords = pose[:, start_ix:end_ix, :6, :]
         coords = torch.tensor(coords, dtype = torch.float32)
-
+        
         res_dict = json.loads(row['res_dict'])
         new_res_dict = json.loads(row['new_res_dict'])
         scale_dict = json.loads(row['scale_dict'])
@@ -113,7 +113,8 @@ class PosetailDataset(Dataset):
             cgroup = None
         else: 
             cgroup = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
-
+            # cgroup = cgroup.subset_cameras_names(cam_names)
+            
         return views, coords, fnums, cgroup
 
 
@@ -243,6 +244,7 @@ class PosetailDataset(Dataset):
         extrinsics_dict = cam_metadata['extrinsic_matrices']
         distortions_dict = cam_metadata['distortion_matrices']
 
+        # TODO: fix preprocessing so camera names can correspond normally
         cam_names = list(intrinsics_dict.keys())
         cams = []
 
