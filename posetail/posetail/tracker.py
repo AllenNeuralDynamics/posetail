@@ -12,7 +12,6 @@ from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import FeatureExtractor, ResidualFeatureExtractor, TriplaneFeatureExtractor
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
-        
 
 class Tracker(nn.Module): 
 
@@ -401,7 +400,7 @@ class Tracker(nn.Module):
         BT, K, _ = cube_centers.shape
         
         # get coordinates of each cube
-        row = (torch.arange(cube_size) - self.corr_radius) * cube_interval
+        row = (torch.arange(cube_size) - corr_radius) * cube_interval
         xyz_s = torch.stack(torch.meshgrid(row, row, row, indexing='ij'))
         xyz = rearrange(xyz_s, 'r x y z -> (x y z) r')
         xyz = torch.as_tensor(xyz, device=cube_centers.device, dtype=cube_centers.dtype)    
@@ -432,18 +431,17 @@ class Tracker(nn.Module):
         mean_volume = torch.mean(volumes, dim=0)
 
         # # normalize features
-        # mv_norms = torch.sqrt(
-        #         reduce(torch.square(mean_volume),
-        #                'bt d k total -> bt 1 k total', 'sum'))
+        mv_norms = reduce(torch.square(mean_volume),
+                          'bt d k total -> bt 1 k total', 'sum')
 
-        # # handle 0 norm case
-        # mv_norms = torch.maximum(
-        #     mv_norms, torch.tensor(
-        #         1e-6, device=mv_norms.device, dtype=mv_norms.dtype))
+        # handle 0 norm case
+        mv_norms = torch.sqrt(torch.maximum(
+            mv_norms, torch.tensor(
+                1e-12, device=mv_norms.device, dtype=mv_norms.dtype)))
         
-        # mean_volume_normed = mean_volume / mv_norms
+        mean_volume_normed = mean_volume / mv_norms
         
-        return mean_volume
+        return mean_volume_normed
 
     
     def get_corr_features_minicubes(self, coords, feature_planes_levels, track_features_levels, camera_group):
@@ -584,7 +582,7 @@ class Tracker(nn.Module):
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
             if self.R == 3 and self.mode_3d == 'minicubes':
                 delta_coords = delta_coords * self.cube_scale
-            delta_coords[:, 0] = 0 # initial coordinates should not change
+            # delta_coords[:, 0] = 0 # initial coordinates should not change
             coords = coords + delta_coords # b s n 3
             vis = torch.sigmoid(vis + delta_vis) # b s n 1 
             conf = torch.sigmoid(conf + delta_conf) # b s n 1 
@@ -690,16 +688,17 @@ class Tracker(nn.Module):
                            b = B, t = T + n_pad)
 
             # normalize feature maps for correlation
-            ff_norms = torch.sqrt(
-                reduce(torch.square(ff),
-                       'b s d h w -> b s 1 h w', 'sum'))
+            ff_norms_sq = reduce(torch.square(ff), 'b s d h w -> b s 1 h w', 'sum')
 
             # handle 0 norm case
-            ff_norms = torch.maximum(
-                ff_norms, torch.tensor(
-                    1e-6, device=ff_norms.device, dtype=ff_norms.dtype))
+            ff_norms = torch.sqrt(
+                torch.maximum(
+                    ff_norms_sq,
+                    torch.tensor(1e-12, device=ff.device, dtype=ff.dtype))
+            )
 
             ffn = ff / ff_norms
+            # feature_maps.append(ffn)
             feature_maps.append(ffn)
 
         # NOTE: this can be put in the forward loop if its too memory 

@@ -12,7 +12,10 @@ from aniposelib.cameras import CameraGroup, Camera
 from easydict import EasyDict as edict
 
 from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
+from posetail.posetail.cube import project_points_torch
+from einops import rearrange
 
+from train_utils_lightning import format_camera_group
 
 def custom_collate(batch):
     ''' 
@@ -72,8 +75,14 @@ class PosetailDataset(Dataset):
         fnums = torch.arange(start_ix, end_ix)
 
         pose = np.load(row['pose_path'])['pose']
-        coords = pose[:, start_ix:end_ix, :6, :]
-        coords = torch.tensor(coords, dtype = torch.float32)
+
+        # if pose.shape[2] > 60:
+        #     ix_p = np.random.choice(pose.shape[2], size=128)
+        #     # ix_p = np.arange(60)
+        #     pose = pose[:, :, ix_p, :]
+        
+        coords = pose[:, start_ix:end_ix, :, :]
+        coords = torch.tensor(coords, dtype = torch.float32, device='cpu')
         
         res_dict = json.loads(row['res_dict'])
         new_res_dict = json.loads(row['new_res_dict'])
@@ -84,6 +93,35 @@ class PosetailDataset(Dataset):
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
         views = []
 
+        if len(cam_names) > 5:
+            ix_cams = np.random.choice(len(cam_names), size=5)
+            # ix_cams = np.arange(6)
+            cam_names = [cam_names[i] for i in ix_cams]
+
+        # create camera group from camera parameters
+        if len(cam_names) == 1: 
+            cgroup = None
+        else: 
+            cgroup = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
+            cgroup = cgroup.subset_cameras_names(cam_names)
+
+            # cgroup_f = format_camera_group(cgroup, coords.device)
+
+        b, s, k, r = coords.shape
+        coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
+        p2d_flat = cgroup.project(coords_flat.cpu().detach().numpy())
+        p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
+        s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
+        good = np.all(s >= 2, axis=1)
+
+        coords = coords[:, :, good[0]]
+            
+        if coords.shape[2] > 128:
+            ix_p = np.random.choice(coords.shape[2], size=128)
+            # ix_p = np.arange(60)
+            coords = coords[:, :, ix_p, :]
+        
+            
         for cam_name in cam_names:
             
             imgs = []
@@ -108,12 +146,6 @@ class PosetailDataset(Dataset):
         # print(views[0].shape)
         # views = [torch.stack(v, axis = 0) for v in views]
 
-        # create camera group from camera parameters
-        if len(cam_names) == 1: 
-            cgroup = None
-        else: 
-            cgroup = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
-            # cgroup = cgroup.subset_cameras_names(cam_names)
             
         return views, coords, fnums, cgroup
 

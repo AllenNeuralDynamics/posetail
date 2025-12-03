@@ -144,7 +144,8 @@ def run(config_path, fabric):
         model.parameters(), 
         lr = config.training.optimizer.learning_rate, 
         weight_decay = config.training.optimizer.weight_decay,
-        amsgrad=config.training.optimizer.amsgrad)
+        amsgrad=config.training.optimizer.amsgrad,
+        fused=True)
 
     optimizer = fabric.setup_optimizers(optimizer)
 

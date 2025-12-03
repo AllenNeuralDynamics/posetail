@@ -71,8 +71,8 @@ class TimeSpaceTransformer(nn.Module):
     def init_weights(self, module): 
 
         if isinstance(module, nn.Linear): 
-            # nn.init.xavier_normal_(module.weight)
-            nn.init.xavier_uniform_(module.weight)
+            nn.init.xavier_normal_(module.weight)
+            # nn.init.xavier_uniform_(module.weight)
             if module.bias is not None: 
                 nn.init.constant_(module.bias, 0)
 

@@ -219,8 +219,10 @@ def train_epoch(config, model, fabric, dataloader,
             stride = model.S, 
             stride_overlap = model.stride_overlap)
 
+        optimizer.zero_grad()
+
         outputs = model(
-            views = views, 
+            views = list(views), 
             coords = coords[:, 0, ...], 
             camera_group = cgroup, 
             offset_dict = None)
@@ -231,18 +233,42 @@ def train_epoch(config, model, fabric, dataloader,
 
         total_loss = loss(outputs, coords_true, vis_true, device = coords_pred.device)
 
-        if not torch.any(torch.isnan(total_loss)):
+        # if not torch.any(torch.isnan(total_loss)):
             # report = reporter.report()
 
-            fabric.backward(total_loss)
-            fabric.clip_gradients(model, optimizer, 
-                max_norm = config.training.max_grad_norm, 
-                error_if_nonfinite = False)
+        if torch.any(torch.isnan(total_loss)):
+            print(total_loss)
+            
+        fabric.backward(total_loss)
 
-            optimizer.step()
-            optimizer.zero_grad()
-        else:
-            print('WARNING: nan loss')
+        bad = False
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                grad_norm = param.grad.data.norm(2)
+                if not torch.isfinite(grad_norm):
+                    print(f"{name}: {grad_norm}")
+                    bad = True
+
+        if bad:
+            import pickle
+            outname = '/data/results/lili/posetail/test/modeltest.pth'
+            state_dict = {'views': views,
+                          'coords': coords,
+                          'camera_group': cgroup,
+                          'model_state': model.state_dict(),
+                          'optimizer_state': optimizer.state_dict()}
+            torch.save(state_dict, outname)
+            print("torch state dumped")
+
+        fabric.clip_gradients(model, optimizer, 
+            max_norm = config.training.max_grad_norm, 
+            error_if_nonfinite = True)
+
+
+        optimizer.step()
+        optimizer.zero_grad()
+        # else:
+        #     print('WARNING: nan loss')
 
         
         if evaluate:
