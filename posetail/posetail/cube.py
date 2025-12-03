@@ -24,8 +24,8 @@ def to_homogeneous(p):
     ones = torch.ones(size=one_size, dtype=p.dtype, device=p.device)
     return torch.cat([p, ones], dim=-1)
 
-def from_homogeneous(p):
-    return p[..., :-1] / p[..., -1, None]
+def from_homogeneous(p, eps=1e-9):
+    return p[..., :-1] / (p[..., -1, None] + eps) 
 
 @torch.compile
 def project_cam(cam, p3d_t):
@@ -140,15 +140,14 @@ class UnprojectViews:
         coords_flat = rearrange(coords, 'r cd ch cw -> (cd ch cw) r')
 
         # project coordinates for each camera 
-        coords_proj = list(self.cgroup.project(coords_flat))
+        coords_proj = self.cgroup.project(coords_flat) / self.downsample_factor
         camera_names = self.cgroup.get_names()
-
+        
         # account for camera cropping
         if self.offset_dict: 
-
             for i, (c_name, coords) in enumerate(zip(camera_names, coords_proj)): 
                 xy = np.array(self.offset_dict[c_name])
-                coords_proj[i] = (coords - xy) / self.downsample_factor
+                coords_proj[i] = coords - xy / self.downsample_factor
 
         return coords_proj
 
