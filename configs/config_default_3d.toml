@@ -8,7 +8,7 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 
 [dataset.train]
-prefix = '/nvme1/data/animal-datasets-processed/posetail-test-3500'
+prefix = '/data/animal-datasets-processed/posetail-tests/test-3500'
 n_frames = 16
 max_res = 256
 
@@ -34,11 +34,11 @@ downsample_factor = 2
 
 # cube (only used for 3d)
 cube_dim = 64
-cube_extent = 500
+cube_extent = 50
 
 # correlation
 corr_levels = 4 
-corr_radius = 9
+corr_radius = 7
 corr_hidden_dim = 384
 corr_output_dim = 256 
 

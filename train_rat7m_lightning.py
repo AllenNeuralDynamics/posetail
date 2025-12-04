@@ -92,7 +92,8 @@ def run(config_path, fabric):
     train_loader = DataLoader(
         train_dataset, 
         batch_size = config.dataset.batch_size, 
-        collate_fn = custom_collate)
+        collate_fn = custom_collate, 
+        shuffle = True)
     
     train_loader = fabric.setup_dataloaders(train_loader)
     

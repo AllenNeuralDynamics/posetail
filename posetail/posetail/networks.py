@@ -346,7 +346,7 @@ class TriplaneFeatureExtractor(nn.Module):
 
         # hidden layers
         self.hidden_conv_layers = nn.ModuleList()
-        # self.gn_layers = nn.ModuleList()
+        self.gn_layers = nn.ModuleList()
 
         for i in range(n_hidden_layers): 
 
@@ -359,8 +359,8 @@ class TriplaneFeatureExtractor(nn.Module):
 
             self.hidden_conv_layers.append(hidden_layer)
 
-            # gn = nn.GroupNorm(num_groups = 8, num_channels = input_dim)
-            # self.gn_layers.append(gn)
+            gn = nn.GroupNorm(num_groups = 8, num_channels = input_dim)
+            self.gn_layers.append(gn)
 
         self.relu = nn.ReLU()
 
@@ -371,7 +371,7 @@ class TriplaneFeatureExtractor(nn.Module):
             padding = padding
         )
 
-        # self._init_weights()
+        self._init_weights()
 
     def _init_weights(self): 
 
@@ -386,11 +386,11 @@ class TriplaneFeatureExtractor(nn.Module):
         if self.upsample_factor > 1:
             x = self.upsample(x)
 
-        for conv in self.hidden_conv_layers: 
-            x = self.relu(conv(x))
-            
-        # for gn, conv in zip(self.gn_layers, self.hidden_conv_layers): 
-        #     x = self.relu(gn(conv(x)))
+        # for conv in self.hidden_conv_layers: 
+        #     x = self.relu(conv(x))
+
+        for gn, conv in zip(self.gn_layers, self.hidden_conv_layers): 
+            x = self.relu(gn(conv(x)))
 
         x = self.conv_out(x)
         

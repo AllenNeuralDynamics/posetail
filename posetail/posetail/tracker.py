@@ -12,6 +12,7 @@ from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import FeatureExtractor, ResidualFeatureExtractor, TriplaneFeatureExtractor
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
+import numpy as np
 
 class Tracker(nn.Module): 
 
@@ -519,6 +520,9 @@ class Tracker(nn.Module):
             # unproject views into volumes, get average volume, then project
             volumes = cgroup.unproject_to_volume(feature_maps) # (G, B, S, D, V1, V2, V3)
             volumes_avg = torch.mean(volumes, dim = 0) 
+
+            # print('saving cube...')
+            # np.savez_compressed('/home/ruppk2@hhmi.org/output/cube.npz', data = volumes_avg.cpu().numpy())
             
             xy_planes, xz_planes, yz_planes = project_volumes(volumes_avg)
             planes = torch.cat((xy_planes, xz_planes, yz_planes), dim = -3) 
@@ -527,11 +531,15 @@ class Tracker(nn.Module):
             feature_planes = self.triplane_cnn(
                 rearrange(planes, 'b t d3 v1 v2 -> (b t) d3 v1 v2')
             )
-
-            # TODO: update the coords according to the conversion
+  
             coords = ((coords - (self.cube_center - self.cube_extent)) *
                                 (self.cube_dim / (2 * self.cube_extent)) * 
                                  self.upsample_factor)
+            
+            # print('saving feature planes...')
+            # np.savez_compressed('/home/ruppk2@hhmi.org/output/feature_planes.npz',
+            #                      data = feature_planes.cpu().numpy(), 
+            #                      coords = coords.cpu().numpy())
 
         else: # 2d case, no triplane
             coords = coords / self.downsample_factor
@@ -540,8 +548,8 @@ class Tracker(nn.Module):
         # initialize feature planes and track features for each correlation level
         (feature_planes_levels, 
         track_features_levels) = self.init_levels(coords = coords, 
-                                                    feature_planes = feature_planes, 
-                                                    dims = (B, T + n_pad))
+                                                  feature_planes = feature_planes, 
+                                                  dims = (B, T + n_pad))
 
         # track final predictions
         coords_pred = torch.zeros((B, T, N, R), device = device)
