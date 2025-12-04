@@ -168,7 +168,18 @@ def get_timestamp():
     timestamp = datetime.now(tz)
     timestamp_fmt = timestamp.strftime('%Y-%m-%d %H:%M:%S')
 
-    return timestamp_fmt 
+    return timestamp_fmt
+
+def format_camera(cam, device):
+    return {
+        "ext": torch.as_tensor(cam.get_extrinsics_mat(), device=device, dtype=torch.float),
+        "mat": torch.as_tensor(cam.get_camera_matrix(), device=device, dtype=torch.float),
+        "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float)
+    }
+
+def format_camera_group(camera_group, device):
+    return [format_camera(cam, device)
+            for cam in camera_group.cameras]
 
 # @profile
 def train_epoch(config, model, fabric, dataloader, 
@@ -198,6 +209,7 @@ def train_epoch(config, model, fabric, dataloader,
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
+            cgroup = format_camera_group(cgroup, device)
 
         vis = get_vis_true(coords)
 
@@ -207,8 +219,10 @@ def train_epoch(config, model, fabric, dataloader,
             stride = model.S, 
             stride_overlap = model.stride_overlap)
 
+        optimizer.zero_grad()
+
         outputs = model(
-            views = views, 
+            views = list(views), 
             coords = coords[:, 0, ...], 
             camera_group = cgroup, 
             offset_dict = None)
@@ -219,15 +233,43 @@ def train_epoch(config, model, fabric, dataloader,
 
         total_loss = loss(outputs, coords_true, vis_true, device = coords_pred.device)
 
-        # report = reporter.report()
+        # if not torch.any(torch.isnan(total_loss)):
+            # report = reporter.report()
 
+        if torch.any(torch.isnan(total_loss)):
+            print(total_loss)
+            
         fabric.backward(total_loss)
+
+        bad = False
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                grad_norm = param.grad.data.norm(2)
+                if not torch.isfinite(grad_norm):
+                    print(f"{name}: {grad_norm}")
+                    bad = True
+
+        if bad:
+            import pickle
+            outname = '/data/results/lili/posetail/test/modeltest.pth'
+            state_dict = {'views': views,
+                          'coords': coords,
+                          'camera_group': cgroup,
+                          'model_state': model.state_dict(),
+                          'optimizer_state': optimizer.state_dict()}
+            torch.save(state_dict, outname)
+            print("torch state dumped")
+
         fabric.clip_gradients(model, optimizer, 
             max_norm = config.training.max_grad_norm, 
-            error_if_nonfinite = False)
+            error_if_nonfinite = True)
+
 
         optimizer.step()
         optimizer.zero_grad()
+        # else:
+        #     print('WARNING: nan loss')
+
         
         if evaluate:
             metrics_dict = get_eval_metrics(
@@ -270,7 +312,7 @@ def train_epoch(config, model, fabric, dataloader,
 
         for metric in metrics: 
             metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
-            avg_metrics_dict[f'{metric}_avg'] = float(np.sum(metric_list))
+            avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
             avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
             
         train_dict.update(avg_metrics_dict)
@@ -357,7 +399,7 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
 
     for metric in metrics: 
         metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
-        avg_metrics_dict[f'{metric}_avg'] = float(np.sum(metric_list))
+        avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
         avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
 
     eval_dict.update(avg_metrics_dict)

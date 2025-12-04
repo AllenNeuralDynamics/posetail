@@ -4,7 +4,7 @@ import os
 from torch.utils.data import DataLoader
 
 from posetail.datasets.datasets import Rat7mDataset, custom_collate_3d
-from train_utils import *
+from train_utils_lightning import *
 from inference_utils import *
 from viz3d import *
 
@@ -57,7 +57,7 @@ def main(wandb_prefix, run_ids, video_paths, data_path, outpath, checkpoint = No
 
         dataloader = DataLoader(
             dataset, 
-            batch_size = config.dataset.batch_size, 
+            batch_size = 1, #config.dataset.batch_size, 
             collate_fn = custom_collate_3d)
 
         video_name = os.path.splitext(os.path.basename(video_paths[0]))[0]
@@ -111,15 +111,15 @@ if __name__ == '__main__':
 
     outpath = '/home/ruppk2@hhmi.org/output'
     wandb_prefix = '/data/results/katie/wandb'
-
+    
     run_ids = ['run-20251202_001304-u4hr9es2'] # ['run-20251127_040140-mit22v0a']
 
-    video_paths = ['/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera1-3500.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera2-3500.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera3-3500.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera4-3500.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera5-3500.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera6-3500.mp4']
+    video_paths = ['/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera1-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera2-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera3-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera4-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera5-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera6-0.mp4']
     data_path = '/data/animal-datasets/rat7m/data/mocap-s1-d1.mat'
 
 
@@ -128,4 +128,4 @@ if __name__ == '__main__':
          video_paths = video_paths, 
          data_path = data_path, 
          outpath = outpath, 
-         checkpoint = None)
+         checkpoint = 100)

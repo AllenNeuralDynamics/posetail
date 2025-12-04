@@ -178,3 +178,7 @@ environment/
 data/
 metadata/
 _deprecated/
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml

@@ -19,6 +19,48 @@ def project_volumes(volumes):
     return xy_planes, xz_planes, yz_planes
 
 
+def to_homogeneous(p):
+    one_size = p.shape[:-1] + (1,)
+    ones = torch.ones(size=one_size, dtype=p.dtype, device=p.device)
+    return torch.cat([p, ones], dim=-1)
+
+def from_homogeneous(p, eps=1e-9):
+    return p[..., :-1] / (p[..., -1, None] + eps) 
+
+@torch.compile
+def project_cam(cam, p3d_t):
+    # p3d_t = torch.as_tensor(p3d)
+    # ext_t = torch.as_tensor(cam.get_extrinsics_mat(), dtype=p3d_t.dtype, device=p3d_t.device)
+    # mat_t = torch.as_tensor(cam.get_camera_matrix(), dtype=p3d_t.dtype, device=p3d_t.device)
+    ext_t = cam['ext']
+    mat_t = cam['mat']
+    dist = cam['dist']
+    
+    p2d_proj_raw = torch.matmul(to_homogeneous(p3d_t), ext_t.T)
+    p2d_proj_raw = from_homogeneous(p2d_proj_raw[..., :3])
+
+    # k1, k2, p1, p2, k3 = dist
+    # k4 = k5 = k6 = 0
+    # r2 = torch.sum(torch.square(p2d_proj_raw), axis=1)
+    # kscale = (1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2) / (1 + k4 * r2 + k5 * r2 * r2 + k6 * r2 * r2 * r2)
+    # #TODO: add p1, p2 effect
+    # p2d_dist = kscale[:, None] * p2d_proj_raw
+
+    p2d_dist = p2d_proj_raw
+    
+    p2d_raw = torch.matmul(to_homogeneous(p2d_dist), mat_t.T)
+    p2d = from_homogeneous(p2d_raw)
+
+    #TODO: handle offset
+    
+    return p2d
+
+@torch.compile
+def project_points_torch(camera_group, p3d):
+    return torch.stack([project_cam(cam, p3d) 
+                        for cam in camera_group])
+
+
 class UnprojectViews:
 
     def __init__(self, 
@@ -98,15 +140,14 @@ class UnprojectViews:
         coords_flat = rearrange(coords, 'r cd ch cw -> (cd ch cw) r')
 
         # project coordinates for each camera 
-        coords_proj = list(self.cgroup.project(coords_flat))
+        coords_proj = self.cgroup.project(coords_flat) / self.downsample_factor
         camera_names = self.cgroup.get_names()
-
+        
         # account for camera cropping
         if self.offset_dict: 
-
             for i, (c_name, coords) in enumerate(zip(camera_names, coords_proj)): 
                 xy = np.array(self.offset_dict[c_name])
-                coords_proj[i] = (coords - xy) / self.downsample_factor
+                coords_proj[i] = coords - xy / self.downsample_factor
 
         return coords_proj
 

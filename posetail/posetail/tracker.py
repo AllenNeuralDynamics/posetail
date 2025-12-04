@@ -4,10 +4,10 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
-from einops import rearrange
+from einops import rearrange, einsum, reduce
 from frozendict import frozendict, deepfreeze
 
-from posetail.posetail.cube import UnprojectViews, project_volumes
+from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import FeatureExtractor, ResidualFeatureExtractor, TriplaneFeatureExtractor
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
@@ -25,7 +25,8 @@ class Tracker(nn.Module):
                  n_iters = 4, embedding_dim = 256, 
                  latent_dim = 128, encoding_dim = 64,
                  n_virtual = 64, n_heads = 8, 
-                 n_time_space_blocks = 6, embedding_factor = 4): 
+                 n_time_space_blocks = 6, embedding_factor = 4,
+                 mode_3d = 'triplane'): 
         super().__init__()
 
         if track_3d: 
@@ -34,6 +35,8 @@ class Tracker(nn.Module):
         else: 
             self.R = 2
 
+        self.mode_3d = mode_3d
+            
         # video processing
         self.S = stride_length
         
@@ -52,7 +55,11 @@ class Tracker(nn.Module):
 
         # this gives us the indices for xy, xz, and yz planes for 3d 
         # tracking, or xy planes for 2d tracking
-        self.plane_ixs = list(itertools.combinations(range(self.R), 2))
+        #
+        if self.R == 3 and self.mode_3d == 'minicubes':
+            self.plane_ixs = [(0,1)] # not used, but this makes input_dim work out later
+        else:
+            self.plane_ixs = list(itertools.combinations(range(self.R), 2))
         self.upsample_factor = upsample_factor
 
         # correlation params
@@ -87,8 +94,7 @@ class Tracker(nn.Module):
             spatial_res_factor = 2 
         )
 
-        if self.R == 3: 
-
+        if self.R == 3 and self.mode_3d == 'triplane':
             # triplane features
             self.triplane_cnn = TriplaneFeatureExtractor(
                 input_dim = self.latent_dim * len(self.plane_ixs), 
@@ -99,8 +105,14 @@ class Tracker(nn.Module):
             )
 
         # correlation features
+        if self.R == 3 and self.mode_3d == 'minicubes':
+            mlp_input_dim = (2 * self.corr_radius + 1) ** 6
+            # mlp_input_dim = (2 * self.corr_radius + 1) ** 3 * (3**3)
+        else:
+            mlp_input_dim = (2 * self.corr_radius + 1) ** 4
+
         self.corr_mlp = MLP(
-            input_dim = (2 * self.corr_radius + 1) ** 4, 
+            input_dim = mlp_input_dim, 
             embedding_dim = self.corr_hidden_dim, 
             output_dim = self.corr_output_dim
         )
@@ -141,13 +153,11 @@ class Tracker(nn.Module):
 
         return init
 
-    def init_levels(self, coords, feature_planes, dims):
+    def get_feature_planes_levels(self, feature_planes):
+        B, T, D, V1, V2, R = feature_planes.shape
 
         feature_planes_levels = []
-        track_features_levels = []
-
-        B, T = dims
-
+        
         for i, corr_level in enumerate(range(1, self.corr_levels + 1)): 
 
             # downsize image features according to corr level
@@ -162,16 +172,31 @@ class Tracker(nn.Module):
                     input = feature_planes_scaled, 
                     kernel_size = 2, 
                     stride = 2
-                ) 
+                )
+
+                feature_planes_scaled = rearrange(
+                    feature_planes_scaled, 
+                    '(b t) (d r) v1 v2 -> b t d v1 v2 r', 
+                    b = B, t = T, r = R
+                )
             else: 
                 feature_planes_scaled = feature_planes
 
-            feature_planes_scaled = rearrange(
-                feature_planes_scaled, 
-                '(b t) (d r) v1 v2 -> b t d v1 v2 r', 
-                b = B, t = T, r = len(self.plane_ixs)
-            )
 
+            feature_planes_levels.append(feature_planes_scaled)
+        return feature_planes_levels
+    
+    def init_levels(self, coords, feature_planes):
+
+        B, T, D, V1, V2, R = feature_planes.shape
+        
+        feature_planes_levels = self.get_feature_planes_levels(feature_planes)
+        track_features_levels = []
+
+        
+        for i, corr_level in enumerate(range(1, self.corr_levels + 1)): 
+            feature_planes_scaled = feature_planes_levels[i]
+            
             track_features = []
 
             for k, ixs in enumerate(self.plane_ixs):
@@ -316,7 +341,6 @@ class Tracker(nn.Module):
                                     
         return corr_features_4d
 
-
     def get_corr_features(self, coords, feature_planes_levels, track_features_levels): 
 
         B, S, N, R = coords.shape
@@ -356,14 +380,145 @@ class Tracker(nn.Module):
         
         return corr_features
 
+    @torch.compile
+    def sample_feature_cubes(self, feature_planes, camera_group,
+                             cube_centers, cube_interval,
+                             corr_radius=None, downsample_ratio=None):
+        """Inputs:
+         feature_planes: cams bt d h w
+         cube_centers: bt k 3
+         cube_interval: single float
+        
+        Returns:
+          volume: bt d k total
+        """
+        if corr_radius is None:
+            corr_radius = self.corr_radius
+        if downsample_ratio is None:
+            downsample_ratio = self.downsample_factor
+        cube_size = corr_radius * 2 + 1
+        n_cams = len(feature_planes)
+        BT, K, _ = cube_centers.shape
+        
+        # get coordinates of each cube
+        row = (torch.arange(cube_size) - corr_radius) * cube_interval
+        xyz_s = torch.stack(torch.meshgrid(row, row, row, indexing='ij'))
+        xyz = rearrange(xyz_s, 'r x y z -> (x y z) r')
+        xyz = torch.as_tensor(xyz, device=cube_centers.device, dtype=cube_centers.dtype)    
+    
+        cube_coords = cube_centers[..., None, :] + xyz
+        cube_coords_flat = rearrange(cube_coords, 'bt k total r -> (bt k total) r')
+        p2d_flat = project_points_torch(camera_group, cube_coords_flat)
+        p2d_flat = p2d_flat / downsample_ratio # account for resnet
+    
+        p2d = rearrange(p2d_flat, 'ncams (bt k total) r -> ncams bt k total r',
+                        bt=BT, k=K)
+    
+        all_samples = []
+        for ix_cam in range(n_cams):
+            bt, d, h, w = feature_planes[ix_cam].shape
+            scale = torch.tensor([h, w], device = p2d.device) 
+            p2d_scaled = 2 * p2d[ix_cam] / scale - 1
+            samples = F.grid_sample(
+                input=feature_planes[ix_cam],
+                grid=p2d_scaled,
+                align_corners=False,
+                padding_mode="zeros")
+            all_samples.append(samples) 
 
+        # volumes: cams bt d k total            
+        volumes = torch.stack(all_samples)
+
+        mean_volume = torch.mean(volumes, dim=0)
+
+        # # normalize features
+        mv_norms = reduce(torch.square(mean_volume),
+                          'bt d k total -> bt 1 k total', 'sum')
+
+        # handle 0 norm case
+        mv_norms = torch.sqrt(torch.maximum(
+            mv_norms, torch.tensor(
+                1e-12, device=mv_norms.device, dtype=mv_norms.dtype)))
+        
+        mean_volume_normed = mean_volume / mv_norms
+        
+        return mean_volume_normed
+
+    
+    def get_corr_features_minicubes(self, coords, feature_planes_levels, track_features_levels, camera_group):
+        # for each scale
+        # sample_feature_cubes to get cubes from feature planes at coords
+        # einsum for correlations
+        B, S, D, H, W, R = feature_planes_levels[0][0].shape
+        B, S, N, R = coords.shape
+
+        coords_bs = rearrange(coords, 'b s n r -> (b s) n r')
+
+        corr_features_levels = []
+        for i in range(self.corr_levels):
+            feature_planes = [ffl[i] for ffl in feature_planes_levels]
+            feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
+                                 for f in feature_planes]
+            mv = self.sample_feature_cubes(
+                feature_planes_bs,
+                camera_group,
+                coords_bs,
+                self.cube_scale * (2**i),
+                corr_radius=self.corr_radius,
+                downsample_ratio=self.downsample_factor * (2**i)
+            )
+
+            mv = rearrange(mv, '(b s) d n total -> b s total n d',
+                           b=B, s=S)
+
+            corr_features = einsum(mv, track_features_levels[i],
+                                   'b s t1 n d, b t2 n d -> b s n t1 t2')
+            
+            
+            corr_features = rearrange(corr_features,
+                                      'b s n t1 t2 -> (b s n) (t1 t2)')
+
+            mlp_corr_features = self.corr_mlp(corr_features) 
+            
+            corr_features_levels.append(mlp_corr_features)
+
+        corr_features = rearrange(
+            torch.cat(corr_features_levels,  dim = -1), 
+            '(b s n) d -> b s n d', 
+            b = B, s = S, n = N
+        )
+        return corr_features
+
+    
+    def get_track_features_minicubes(self, coords, feature_planes_levels,
+                                     camera_group): 
+
+        track_features_levels = []
+        for i in range(self.corr_levels):
+            feature_planes = [ffl[i] for ffl in feature_planes_levels]
+            feature_planes_first = [ff[:, 0, ..., 0] for ff in feature_planes]
+            track_features_cube = self.sample_feature_cubes(
+                feature_planes_first, camera_group, 
+                coords, self.cube_scale * (2**i),
+                corr_radius=self.corr_radius,
+                downsample_ratio=self.downsample_factor * (2**i))
+            track_features_cube = rearrange(track_features_cube,
+                                            'b d n total -> b total n d')
+            track_features_levels.append(track_features_cube)        
+
+        return track_features_levels
+            
     def forward_iteration(self, coords, vis, conf, 
                           feature_planes_levels, 
-                          track_features_levels):
+                          track_features_levels,
+                          camera_group=None):
 
         device = coords.device 
 
-        B, S, D, V1, V2, R = feature_planes_levels[0].shape
+        if self.R == 3 and self.mode_3d == 'minicubes':
+            B, S, D, V1, V2, R = feature_planes_levels[0][0].shape
+        else:
+            B, S, D, V1, V2, R = feature_planes_levels[0].shape
         B, S, N, R = coords.shape
 
         # iterative updates
@@ -374,11 +529,19 @@ class Tracker(nn.Module):
         for i in range(self.n_iters):
 
             # correlation features for transformer input
-            corr_features = self.get_corr_features(
-                coords = coords, 
-                feature_planes_levels = feature_planes_levels, 
-                track_features_levels = track_features_levels
-            )
+            if self.R == 3 and self.mode_3d == 'minicubes':
+                corr_features = self.get_corr_features_minicubes(
+                    coords = coords, 
+                    feature_planes_levels = feature_planes_levels, 
+                    track_features_levels = track_features_levels,
+                    camera_group = camera_group
+                )
+            else:
+                corr_features = self.get_corr_features(
+                    coords = coords, 
+                    feature_planes_levels = feature_planes_levels, 
+                    track_features_levels = track_features_levels
+                )
 
             # encodings for transformer input
             forward_flow = torch.diff(coords, dim = 1)
@@ -404,6 +567,8 @@ class Tracker(nn.Module):
                 scale = (torch.tensor([V1, V2, V1, V2])
                               .view(1, 1, 1, -1)
                               .to(device))
+            elif self.mode_3d == 'minicubes':
+                scale = self.cube_scale
 
             coord_flow = torch.cat([forward_flow, backward_flow], dim = -1) / scale
             flow_encoding = get_fourier_encoding(coord_flow, min_freq = 0, max_freq = self.max_freq)
@@ -416,6 +581,9 @@ class Tracker(nn.Module):
 
             # update coords, vis, and conf
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
+            if self.R == 3 and self.mode_3d == 'minicubes':
+                delta_coords = delta_coords * self.cube_scale
+            # delta_coords[:, 0] = 0 # initial coordinates should not change
             coords = coords + delta_coords # b s n 3
             vis = torch.sigmoid(vis + delta_vis) # b s n 1 
             conf = torch.sigmoid(conf + delta_conf) # b s n 1 
@@ -429,9 +597,12 @@ class Tracker(nn.Module):
 
     def unscale(self, coords): 
 
-        if self.R == 3: 
-            scale = (2 * self.cube_extent) / (self.cube_dim * self.upsample_factor)
-            coords_unscaled = scale * coords + (self.cube_center - self.cube_extent)
+        if self.R == 3:
+            if self.mode_3d == 'minicubes':
+                coords_unscaled = coords
+            else:
+                scale = (2 * self.cube_extent) / (self.cube_dim * self.upsample_factor)
+                coords_unscaled = scale * coords + (self.cube_center - self.cube_extent)
         else: 
             coords_unscaled = coords * self.downsample_factor 
 
@@ -456,30 +627,33 @@ class Tracker(nn.Module):
         assert R == self.R
 
         if self.R == 3:
-            # create a hash of frozen camera group dictionary
-            cgroup_hash = hash(deepfreeze(camera_group.get_dicts()))
-
-            if cgroup_hash in self.unproject_groups:
-                # access stored camera group
-                cgroup = self.unproject_groups[cgroup_hash]
-
+            if self.mode_3d == 'minicubes':
+                self.cube_scale = self.cube_extent / min(H, W)
             else:
+                # create a hash of frozen camera group dictionary
+                cgroup_hash = hash(deepfreeze(camera_group.get_dicts()))
 
-                with torch.no_grad():
+                if cgroup_hash in self.unproject_groups:
+                    # access stored camera group
+                    cgroup = self.unproject_groups[cgroup_hash]
 
-                    cgroup = UnprojectViews(
-                        camera_group = camera_group,
-                        offset_dict = offset_dict,
-                        downsample_factor = self.downsample_factor,
-                        cube_dim = self.cube_dim,
-                        cube_extent = self.cube_extent, 
-                        device = device) 
+                else:
 
-                    self.unproject_groups[cgroup_hash] = cgroup
+                    with torch.no_grad():
 
-            self.cube_extent = cgroup.cube_extent
-            self.cube_center = (torch.from_numpy(cgroup.cube_center)
-                                     .to(dtype = torch.float32, device = device))
+                        cgroup = UnprojectViews(
+                            camera_group = camera_group,
+                            offset_dict = offset_dict,
+                            downsample_factor = self.downsample_factor,
+                            cube_dim = self.cube_dim,
+                            cube_extent = self.cube_extent, 
+                            device = device) 
+
+                        self.unproject_groups[cgroup_hash] = cgroup
+
+                self.cube_extent = cgroup.cube_extent
+                self.cube_center = (torch.from_numpy(cgroup.cube_center)
+                                         .to(dtype = torch.float32, device = device))
 
         # normalize frames
         for i, frames in enumerate(views): 
@@ -507,11 +681,23 @@ class Tracker(nn.Module):
             feature_map = self.cnn(frames)
             _, D, H2, W2 = feature_map.shape
 
-            feature_maps.append(
-                rearrange(feature_map, 
-                '(b t) d h2 w2 -> b t d h2 w2',
-                b = B, t = T + n_pad)
+            ff = rearrange(feature_map, 
+                           '(b t) d h2 w2 -> b t d h2 w2',
+                           b = B, t = T + n_pad)
+
+            # normalize feature maps for correlation
+            ff_norms_sq = reduce(torch.square(ff), 'b s d h w -> b s 1 h w', 'sum')
+
+            # handle 0 norm case
+            ff_norms = torch.sqrt(
+                torch.maximum(
+                    ff_norms_sq,
+                    torch.tensor(1e-12, device=ff.device, dtype=ff.dtype))
             )
+
+            ffn = ff / ff_norms
+            # feature_maps.append(ffn)
+            feature_maps.append(ffn)
 
         # NOTE: this can be put in the forward loop if its too memory 
         # intensive up front 
@@ -541,16 +727,58 @@ class Tracker(nn.Module):
             #                      data = feature_planes.cpu().numpy(), 
             #                      coords = coords.cpu().numpy())
 
+            if self.mode_3d == 'triplane':
+                # unproject views into volumes, get average volume, then project
+                volumes = cgroup.unproject_to_volume(feature_maps) # (G, B, S, D, V1, V2, V3)
+                volumes_avg = torch.mean(volumes, dim = 0) 
+
+                xy_planes, xz_planes, yz_planes = project_volumes(volumes_avg)
+                planes = torch.cat((xy_planes, xz_planes, yz_planes), dim = -3) 
+
+                # extract features from planes 
+                feature_planes = self.triplane_cnn(
+                    rearrange(planes, 'b t d3 v1 v2 -> (b t) d3 v1 v2')
+                )
+
+                feature_planes = rearrange(
+                    feature_planes, 
+                    '(b t) (d r) v1 v2 -> b t d v1 v2 r', 
+                    b = B, t = T + n_pad, r = 3
+                )
+                
+                coords = ((coords - (self.cube_center - self.cube_extent)) *
+                                    (self.cube_dim / (2 * self.cube_extent)) * 
+                                     self.upsample_factor)
+                
+            elif self.mode_3d == 'minicubes':
+                feature_planes = feature_maps
+
         else: # 2d case, no triplane
             coords = coords / self.downsample_factor
-            feature_planes = rearrange(feature_maps, '1 b t d h w -> (b t) d h w')
+            feature_planes = rearrange(feature_maps, '1 b t d h w -> b t d h w 1')
 
         # initialize feature planes and track features for each correlation level
         (feature_planes_levels, 
         track_features_levels) = self.init_levels(coords = coords, 
                                                   feature_planes = feature_planes, 
                                                   dims = (B, T + n_pad))
+        
+        if self.R == 3 and self.mode_3d == 'minicubes':
+            # feature_planes_levels = [rearrange(f, 'b s d h w -> b s d h w 1')
+            #                          for f in feature_planes]
 
+            feature_planes_levels = [
+                self.get_feature_planes_levels(rearrange(f, 'b s d h w -> b s d h w 1'))
+                for f in feature_planes]
+            track_features_levels = self.get_track_features_minicubes(
+                coords, feature_planes_levels, camera_group
+            )
+        else:
+            (feature_planes_levels, track_features_levels) = self.init_levels(
+                coords = coords, 
+                feature_planes = feature_planes)
+
+        
         # track final predictions
         coords_pred = torch.zeros((B, T, N, R), device = device)
         vis_pred = torch.zeros((B, T, N, 1), device = device)
@@ -565,9 +793,6 @@ class Tracker(nn.Module):
 
             ix = stride_remainder * i
             prev_ix = ix - self.stride_overlap
-
-            # get the frames for the current stride
-            views_subset = [frames[:, ix:ix + self.S, ...] for frames in views]
 
             if i == 0:
                 # initialize coords with the first frame in the window 
@@ -584,8 +809,15 @@ class Tracker(nn.Module):
                 conf_init = self.init_stride(conf_pred, prev_ix)
 
             # get the feature planes and track features for the current stride
-            feature_plane_levels_subset = [fp[:, ix:ix + self.S, ...] 
-                                           for fp in feature_planes_levels]
+            if self.R == 3 and self.mode_3d == 'minicubes':
+                # multicams
+                feature_plane_levels_subset = [
+                    [fp[:, ix:ix + self.S, ...] for fp in fp_cams]
+                    for fp_cams in feature_planes_levels
+                ]
+            else:
+                feature_plane_levels_subset = [fp[:, ix:ix + self.S, ...] 
+                                               for fp in feature_planes_levels]
 
             # iterative updates with transformer
             (coords_pred_updates, 
@@ -595,7 +827,8 @@ class Tracker(nn.Module):
                 vis = vis_init,
                 conf = conf_init,
                 feature_planes_levels = feature_plane_levels_subset, 
-                track_features_levels = track_features_levels
+                track_features_levels = track_features_levels,
+                camera_group = camera_group
             )
 
             # remove excess padding and store final iteration

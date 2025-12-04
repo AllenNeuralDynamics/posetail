@@ -15,7 +15,7 @@ dependencies = [
     "toml==0.10.2",
     "wandb==0.19.5",
     "wget==3.2"
-]
+, "lightning>=2.5.6,<3"]
 requires-python = ">=3.8"
 description = "a model for tracking 2d or 3d animal pose through time"
 readme = "README.md"
@@ -28,11 +28,40 @@ classifiers = [
     'Programming Language :: Python :: 3'
 ]
 
-[project.optional-dependencies]
-gpu = [
-  "torch==2.0.1+cu118"
-]
+# [project.optional-dependencies]
+# gpu = [
+#   "torch==2.0.1+cu118"
+# ]
 
 [project.urls]
 Repository = "https://github.com/AllenNeuralDynamics/posetail"
+
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.pypi-dependencies]
+posetail = { path = ".", editable = true }
+torch = { version = "<3", index="https://download.pytorch.org/whl/cu128"}
+torchvision = {version ="*", index="https://download.pytorch.org/whl/cu128"}
+torchaudio = {version ="*", index="https://download.pytorch.org/whl/cu128"}
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+# gpu = { features = ["gpu"], solve-group = "default" }
+dev = {features = ["dev"], solve-group = "default"}
+
+[tool.pixi.tasks]
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+cuda-toolkit = "12.8.*"
+ipython = ">=9.7.0,<10"
+notebook = ">=7.5.0,<8"
+numpy = "==1.26"
+pip = ">=25.3,<26"
+
+[tool.pixi.feature.dev.dependencies]
+matplotlib = "*"
 

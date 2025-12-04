@@ -69,7 +69,7 @@ def parse_args():
 
 def run(config_path, fabric):
 
-    # torch.set_float32_matmul_precision('high')
+    torch.set_float32_matmul_precision('high')
 
     config = load_config(config_path)
     set_seeds(config.training.seed)
@@ -92,9 +92,10 @@ def run(config_path, fabric):
     train_loader = DataLoader(
         train_dataset, 
         batch_size = config.dataset.batch_size, 
-        collate_fn = custom_collate, 
-        shuffle = True)
-    
+        collate_fn = custom_collate,
+        shuffle = True,
+        num_workers = 8)
+
     train_loader = fabric.setup_dataloaders(train_loader)
     
     if 'steps_per_epoch' in config.training.scheduler and config.training.scheduler.steps_per_epoch == -1:
@@ -116,7 +117,14 @@ def run(config_path, fabric):
         wandb.save(wandb_config_path, base_path = exp_dir)
 
     # device = torch.device(config.devices.device)
-    model = Tracker(**config.model) 
+    model = Tracker(**config.model)
+    model.cnn.compile()
+    model.corr_mlp.compile()
+    model.tsformer.compile()
+    # model.compile()
+    # torch.compile(model.cnn)
+    # torch.compile(model.corr_mlp)
+    # torch.compile(model.tsformer)
     model = fabric.setup(model)
 
     # NOTE: memory profiling causes a CPU memory leak
@@ -135,7 +143,9 @@ def run(config_path, fabric):
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr = config.training.optimizer.learning_rate, 
-        weight_decay = config.training.optimizer.weight_decay)
+        weight_decay = config.training.optimizer.weight_decay,
+        amsgrad=config.training.optimizer.amsgrad,
+        fused=True)
 
     optimizer = fabric.setup_optimizers(optimizer)
 
