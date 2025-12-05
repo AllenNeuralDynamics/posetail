@@ -7,8 +7,8 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 
 [dataset.train]
-prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/test-3500'
-# prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
+# prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/test-3500'
+prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
 n_frames = 16
 max_res = 256
 
@@ -44,10 +44,10 @@ corr_radius = 3
 # corr_hidden_dim = 384
 # corr_output_dim = 256
 # corr_output_dim = 125
-# corr_hidden_dim = 1024
-# corr_output_dim = 512
-corr_hidden_dim = 1586
-corr_output_dim = 1024
+corr_hidden_dim = 1024
+corr_output_dim = 512
+# corr_hidden_dim = 1586
+# corr_output_dim = 1024
 
 # triplane
 upsample_factor = 1
@@ -57,7 +57,7 @@ max_freq = 10
 n_iters = 4
 embedding_dim = 384
 # embedding_dim = 512
-latent_dim = 128
+latent_dim = 64
 # encoding_dim = 64 # this doesn't change anything
 n_virtual = 64
 n_heads = 8
@@ -67,12 +67,12 @@ embedding_factor = 4
 
 [training]
 seed = 3
-n_epochs = 500
+n_epochs = 600
 scheduler_type = 'multisteplr'
 # scheduler_type = 'onecyclelr'
 use_half_precision = true
 max_grad_norm = 1.0
-checkpoint_freq = 5
+checkpoint_freq = 20
 eval_freq = 1
 print_freq = 1
 debug_ix = -1
@@ -84,8 +84,8 @@ weight_decay = 1e-5
 amsgrad = false
 
 [training.scheduler]
-milestones = [100, 200, 300, 400]
-gamma = 0.5
+milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
+gamma = 0.7
 # steps_per_epoch = 218
 # pct_start = 0.05
 # cycle_momentum = false
@@ -99,4 +99,4 @@ use_huber = true
 # weights for computing total loss
 vis_loss_weight = 2
 conf_loss_weight = 1
-coords_loss_weight = 0.1
+coords_loss_weight = 1.0
