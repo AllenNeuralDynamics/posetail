@@ -424,3 +424,62 @@ class FeatureUpdater(nn.Module):
 
         return x
 
+    
+# from learnable triangulation
+class Res3DBlock(nn.Module):
+    def __init__(self, in_planes, out_planes):
+        super().__init__()
+        self.res_branch = nn.Sequential(
+            nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm3d(out_planes),
+            nn.ReLU(),
+            nn.Conv3d(out_planes, out_planes, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm3d(out_planes)
+        )
+
+        if in_planes == out_planes:
+            self.skip_con = nn.Sequential()
+        else:
+            self.skip_con = nn.Sequential(
+                nn.Conv3d(in_planes, out_planes, kernel_size=1, stride=1, padding=0),
+                nn.BatchNorm3d(out_planes)
+            )
+        self.last_relu = nn.ReLU()
+
+    def forward(self, x):
+        res = self.res_branch(x)
+        skip = self.skip_con(x)
+        out = self.last_relu(res + skip)
+        return out
+
+
+class MinicubesV2V(nn.Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.res1 = Res3DBlock(latent_dim, latent_dim)
+        self.conv_out = nn.Conv3d(latent_dim, latent_dim,
+                                  kernel_size=3, stride=1, padding=1)
+        self.res2 = Res3DBlock(latent_dim, latent_dim)
+        # self.skip1 = Res3DBlock(latent_dim, latent_dim*2)
+
+        self._initialize_weights()
+        
+    def forward(self, x):
+        # s1 = self.skip1(x)
+        x = self.res1(x)
+        x = self.res2(x)
+        # x = x + s1
+        x = self.conv_out(x)
+        return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.ConvTranspose3d):
+                nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                nn.init.constant_(m.bias, 0)
+

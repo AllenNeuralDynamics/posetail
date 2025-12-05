@@ -94,9 +94,9 @@ class PosetailDataset(Dataset):
         views = []
 
         # if len(cam_names) > 5:
-        #     ix_cams = np.random.choice(len(cam_names), size = 5, replace = False) # NOTE: previously sampled with replacement
-        #     ix_cams = np.arange(6)
-        # cam_names = [cam_names[i] for i in ix_cams]
+        #     ix_cams = np.random.choice(len(cam_names), size=5, replace=False)
+        #     # ix_cams = np.arange(6)
+        #     cam_names = [cam_names[i] for i in ix_cams]
 
         # create camera group from camera parameters
         if len(cam_names) == 1: 
@@ -115,8 +115,8 @@ class PosetailDataset(Dataset):
 
         # coords = coords[:, :, good[0]]
             
-        # if coords.shape[2] > 128:
-        #     ix_p = np.random.choice(coords.shape[2], size=128)
+        # if coords.shape[2] > 60:
+        #     ix_p = np.random.choice(coords.shape[2], size=60, replace=False)
         #     # ix_p = np.arange(60)
         #     coords = coords[:, :, ix_p, :]
         
@@ -143,7 +143,7 @@ class PosetailDataset(Dataset):
         
         # print(views[0].shape)
         # views = [torch.stack(v, axis = 0) for v in views]
-            
+
         return views, coords, fnums, cgroup
 
 
