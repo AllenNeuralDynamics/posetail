@@ -65,19 +65,20 @@ class UnprojectViews:
 
     def __init__(self, 
                  camera_group, 
-                 cube_dim = 64, 
+                 cube_center,
                  cube_extent = None,
+                 cube_dim = 64, 
                  offset_dict = None, 
                  downsample_factor = 2, 
                  device = None):
 
         self.cgroup = camera_group
+        self.cube_center = cube_center
+        self.cube_extent = cube_extent
         self.cube_dim = cube_dim 
         self.offset_dict = offset_dict
         self.downsample_factor = downsample_factor
         self.device = device
-
-        self.cube_center, self.cube_extent = self.get_cgroup_box()
 
         if cube_extent is not None: 
             self.cube_extent = cube_extent
@@ -96,37 +97,37 @@ class UnprojectViews:
         return coords
 
 
-    def get_cgroup_box(self):
+    # def get_cgroup_box(self):
 
-        p3ds = []
+    #     p3ds = []
 
-        for a, b in itertools.combinations(range(len(self.cgroup.cameras)), 2):
+    #     for a, b in itertools.combinations(range(len(self.cgroup.cameras)), 2):
 
-            cgroup_sub = self.cgroup.subset_cameras([a, b])
-            pts = []
+    #         cgroup_sub = self.cgroup.subset_cameras([a, b])
+    #         pts = []
 
-            for cam in cgroup_sub.cameras:
+    #         for cam in cgroup_sub.cameras:
 
-                width, height = cam.get_size()
-                pcam = np.array(
-                    list(itertools.product(
-                    np.linspace(0, width, num = 5),
-                    np.linspace(0, height, num = 5)))
-                )
-                # mid = np.array(cam.get_size())/2
-                pts.append(pcam)
+    #             width, height = cam.get_size()
+    #             pcam = np.array(
+    #                 list(itertools.product(
+    #                 np.linspace(0, width, num = 5),
+    #                 np.linspace(0, height, num = 5)))
+    #             )
+    #             # mid = np.array(cam.get_size())/2
+    #             pts.append(pcam)
 
-            pts = np.array(pts)
-            p3d = cgroup_sub.triangulate(pts)
-            p3ds.append(p3d)
+    #         pts = np.array(pts)
+    #         p3d = cgroup_sub.triangulate(pts)
+    #         p3ds.append(p3d)
 
-        p3ds = np.vstack(p3ds)
-        crange = np.diff(np.percentile(p3ds, [5, 95], axis = 0), axis = 0)
+    #     p3ds = np.vstack(p3ds)
+    #     crange = np.diff(np.percentile(p3ds, [5, 95], axis = 0), axis = 0)
 
-        center = np.median(p3ds, axis = 0)
-        cube_extent = np.max(crange) / 2
+    #     center = np.median(p3ds, axis = 0)
+    #     cube_extent = np.max(crange) / 2
 
-        return center, cube_extent
+    #     return center, cube_extent
 
 
     def create_mesh_3d(self):

@@ -31,7 +31,6 @@ class Tracker(nn.Module):
 
         if track_3d: 
             self.R = 3 
-            self.unproject_groups = {}
         else: 
             self.R = 2
 
@@ -629,31 +628,22 @@ class Tracker(nn.Module):
         if self.R == 3:
             if self.mode_3d == 'minicubes':
                 self.cube_scale = self.cube_extent / min(H, W)
+
             else:
-                # create a hash of frozen camera group dictionary
-                cgroup_hash = hash(deepfreeze(camera_group.get_dicts()))
+                # dynamically compute the cube center and extent based
+                # on the coord from the first frame
+                self.cube_center = torch.mean(coords, dim = (0, 1))
+                # self.cube_extent = cgroup.cube_extent TODO: auto compute this later
 
-                if cgroup_hash in self.unproject_groups:
-                    # access stored camera group
-                    cgroup = self.unproject_groups[cgroup_hash]
-
-                else:
-
-                    with torch.no_grad():
-
-                        cgroup = UnprojectViews(
-                            camera_group = camera_group,
-                            offset_dict = offset_dict,
-                            downsample_factor = self.downsample_factor,
-                            cube_dim = self.cube_dim,
-                            cube_extent = self.cube_extent, 
-                            device = device) 
-
-                        self.unproject_groups[cgroup_hash] = cgroup
-
-                self.cube_extent = cgroup.cube_extent
-                self.cube_center = (torch.from_numpy(cgroup.cube_center)
-                                         .to(dtype = torch.float32, device = device))
+                with torch.no_grad():
+                    cgroup = UnprojectViews(
+                        camera_group = camera_group,
+                        offset_dict = offset_dict,
+                        cube_center = self.cube_center,
+                        cube_extent = self.cube_extent,
+                        downsample_factor = self.downsample_factor,
+                        cube_dim = self.cube_dim,
+                        device = device) 
 
         # normalize frames
         for i, frames in enumerate(views): 
