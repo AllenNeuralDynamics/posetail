@@ -61,6 +61,7 @@ ipython = ">=9.7.0,<10"
 notebook = ">=7.5.0,<8"
 numpy = "==1.26"
 pip = ">=25.3,<26"
+rerun-sdk = "==0.22.1"
 
 [tool.pixi.feature.dev.dependencies]
 matplotlib = "*"
