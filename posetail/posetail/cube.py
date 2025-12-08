@@ -73,7 +73,7 @@ class UnprojectViews:
                  device = None):
 
         self.cgroup = camera_group
-        self.cube_center = cube_center
+        self.cube_center = cube_center.cpu()
         self.cube_extent = cube_extent
         self.cube_dim = cube_dim 
         self.offset_dict = offset_dict
@@ -139,16 +139,16 @@ class UnprojectViews:
         # create a mesh of all coords in the volume
         coords = np.array(np.meshgrid(zs, xs, ys))
         coords_flat = rearrange(coords, 'r cd ch cw -> (cd ch cw) r')
+        coords_flat = torch.from_numpy(coords_flat).to(self.device).float()
 
         # project coordinates for each camera 
-        coords_proj = self.cgroup.project(coords_flat) / self.downsample_factor
-        camera_names = self.cgroup.get_names()
-        
-        # account for camera cropping
+        coords_proj = project_points_torch(self.cgroup, coords_flat) / self.downsample_factor
+        camera_names = [cam['name'] for cam in self.cgroup]
+                
+        # account for camera cropping # TODO: test this once we have a dataset to do so
         if self.offset_dict: 
-            for i, (c_name, coords) in enumerate(zip(camera_names, coords_proj)): 
-                xy = np.array(self.offset_dict[c_name])
-                coords_proj[i] = coords - xy / self.downsample_factor
+            offsets = torch.tensor([self.offset_dict[name]] for name in camera_names).float()
+            coords_proj = coords - offsets[:, None, :] / self.downsample_factor
 
         return coords_proj
 
