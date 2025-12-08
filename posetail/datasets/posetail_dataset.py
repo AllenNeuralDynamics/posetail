@@ -47,12 +47,17 @@ def custom_collate(batch):
 
 class PosetailDataset(Dataset): 
 
-    def __init__(self, data_path, track_3d = True, n_frames = 16, max_res = -1): 
+    def __init__(self, data_path, track_3d = True, n_frames = 16, max_res = -1, 
+                 cams_to_sample = None, kpts_to_sample = None): 
 
         self.data_path = data_path
         self.track_3d = track_3d
         self.n_frames = n_frames
-        self.max_res = max_res
+        self.max_res = max_res # -1 means no resizing
+
+        # for sampling cameras (None uses all available)
+        self.cams_to_sample = cams_to_sample
+        self.kpts_to_sample = kpts_to_sample
 
         # generate metadata for the provided data path (requires a specific format)
         self.metadata = self._generate_metadata(track_3d)
@@ -74,16 +79,12 @@ class PosetailDataset(Dataset):
         end_ix = row['end_ix']
         fnums = torch.arange(start_ix, end_ix)
 
+        # load keypoints 
         pose = np.load(row['pose_path'])['pose']
-
-        # if pose.shape[2] > 60:
-        #     ix_p = np.random.choice(pose.shape[2], size=128)
-        #     # ix_p = np.arange(60)
-        #     pose = pose[:, :, ix_p, :]
-        
         coords = pose[:, start_ix:end_ix, :, :]
         coords = torch.tensor(coords, dtype = torch.float32, device='cpu')
         
+        # load camera resolutions for resizing
         res_dict = json.loads(row['res_dict'])
         new_res_dict = json.loads(row['new_res_dict'])
         scale_dict = json.loads(row['scale_dict'])
@@ -93,10 +94,10 @@ class PosetailDataset(Dataset):
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
         views = []
 
-        # if len(cam_names) > 5:
-        #     ix_cams = np.random.choice(len(cam_names), size=5, replace=False)
-        #     # ix_cams = np.arange(6)
-        #     cam_names = [cam_names[i] for i in ix_cams]
+        # sample views from cameras
+        if self.cams_to_sample and len(cam_names) > self.cams_to_sample:
+            ix_cams = np.random.choice(len(cam_names), size = self.cams_to_sample, replace = False)
+            cam_names = [cam_names[i] for i in ix_cams]
 
         # create camera group from camera parameters
         if len(cam_names) == 1: 
@@ -112,13 +113,12 @@ class PosetailDataset(Dataset):
         # p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
         # s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
         # good = np.all(s >= 2, axis=1)
-
         # coords = coords[:, :, good[0]]
-            
-        # if coords.shape[2] > 60:
-        #     ix_p = np.random.choice(coords.shape[2], size=60, replace=False)
-        #     # ix_p = np.arange(60)
-        #     coords = coords[:, :, ix_p, :]
+
+        # sample keypoints from available tracks 
+        if self.kpts_to_sample and coords.shape[2] > self.kpts_to_sample:   
+            ix_p = np.random.choice(coords.shape[2], size = self.kpts_to_sample, replace = False)
+            coords = coords[:, :, ix_p, :]
         
         for cam_name in cam_names:
             
@@ -136,14 +136,8 @@ class PosetailDataset(Dataset):
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 imgs.append(img)
 
-            # for i, img in enumerate(imgs):
-            #     print([np.array(img).shape for img in imgs])
-
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32))
         
-        # print(views[0].shape)
-        # views = [torch.stack(v, axis = 0) for v in views]
-
         return views, coords, fnums, cgroup
 
 
@@ -215,7 +209,7 @@ class PosetailDataset(Dataset):
                     end_ixs = start_ixs + self.n_frames
 
                     # add a row to the metadata that will correspond
-                    # to each batch
+                    # to each sample within a batch
                     for start_ix, end_ix in zip(start_ixs, end_ixs): 
                         row = [dataset, session, trial, metadata_path,
                             pose_path, img_path, start_ix, end_ix, 
@@ -273,8 +267,7 @@ class PosetailDataset(Dataset):
         extrinsics_dict = cam_metadata['extrinsic_matrices']
         distortions_dict = cam_metadata['distortion_matrices']
 
-        # TODO: fix preprocessing so camera names can correspond normally
-        cam_names = list(intrinsics_dict.keys())
+        cam_names = sorted(list(intrinsics_dict.keys()))
         cams = []
 
         for cam_name in cam_names: 
