@@ -12,6 +12,7 @@ from aniposelib.cameras import CameraGroup, Camera
 from easydict import EasyDict as edict
 
 from posetail.datasets.utils import extract_name, extract_num, scale_coords
+from train_utils_lightning import format_camera_group
 
 
 def custom_collate_2d(batch):
@@ -334,6 +335,7 @@ class Rat7mDataset(Dataset):
         coords = torch.tensor(coords, dtype = torch.float32)
 
         fnums = torch.arange(start_frame, start_frame + self.n_frames)
+        cgroup = format_camera_group(cgroup, coords.device)
 
         return views, coords, fnums, self.cgroup
 

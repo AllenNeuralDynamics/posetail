@@ -24,6 +24,7 @@ from train_utils_lightning import *
 python train_rat7m_lightning.py --config-path configs/config_default_2d.toml
 python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --devices 1
 python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --devices 1 2
+pixi run python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --devices 1 --precision 32
 '''
 
 def parse_args(): 

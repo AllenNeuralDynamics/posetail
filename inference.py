@@ -8,6 +8,7 @@ from train_utils_lightning import *
 from inference_utils import *
 from viz3d import *
 
+
 ''' 
 python inference.py
 '''
@@ -58,7 +59,8 @@ def main(wandb_prefix, run_ids, video_paths, data_path, outpath, checkpoint = No
         dataloader = DataLoader(
             dataset, 
             batch_size = 1, #config.dataset.batch_size, 
-            collate_fn = custom_collate_3d)
+            collate_fn = custom_collate_3d,
+            num_workers = 8)
 
         video_name = os.path.splitext(os.path.basename(video_paths[0]))[0]
 
@@ -112,7 +114,7 @@ if __name__ == '__main__':
     outpath = '/home/ruppk2@hhmi.org/output'
     wandb_prefix = '/data/results/katie/wandb'
     
-    run_ids = ['run-20251202_001304-u4hr9es2'] # ['run-20251127_040140-mit22v0a']
+    run_ids = ['run-20251208_032629-irntica4'] 
 
     video_paths = ['/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera1-0.mp4',
                     '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera2-0.mp4',
@@ -127,5 +129,4 @@ if __name__ == '__main__':
          run_ids = run_ids, 
          video_paths = video_paths, 
          data_path = data_path, 
-         outpath = outpath, 
-         checkpoint = 100)
+         outpath = outpath)

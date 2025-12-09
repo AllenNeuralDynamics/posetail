@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from easydict import EasyDict
 # from pytorch_memlab import MemReporter, LineProfiler, profile
 
-from posetail.datasets.datasets import Rat7mIterableDataset
+# from posetail.datasets.datasets import Rat7mIterableDataset
 from posetail.datasets.utils import safe_make
 from posetail.posetail.eval_metrics import get_eval_metrics
 from posetail.posetail.losses import get_vis_true, unroll_batch
@@ -172,6 +172,7 @@ def get_timestamp():
 
 def format_camera(cam, device):
     return {
+        "name": cam.get_name(),
         "ext": torch.as_tensor(cam.get_extrinsics_mat(), device=device, dtype=torch.float),
         "mat": torch.as_tensor(cam.get_camera_matrix(), device=device, dtype=torch.float),
         "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float)
