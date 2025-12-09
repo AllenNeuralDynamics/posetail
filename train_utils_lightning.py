@@ -210,7 +210,7 @@ def train_epoch(config, model, fabric, dataloader,
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
-            cgroup = format_camera_group(cgroup, device)
+            # cgroup = format_camera_group(cgroup, device)
 
         vis = get_vis_true(coords)
 
