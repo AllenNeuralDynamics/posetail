@@ -41,7 +41,7 @@ class TotalLoss(nn.Module):
             weight = self.coords_loss_weight
         )
 
-        loss_names = ['vis_loss', 'conf_loss', 'coords_loss', 'total_loss']
+        loss_names = ['vis_loss', 'conf_loss', 'coords_loss', 'feature_loss', 'bad_feature_loss', 'total_loss']
         self.loss_history = {loss_name: [] for loss_name in loss_names}
 
     def collapse_history(self, prefix = ''): 
@@ -61,7 +61,7 @@ class TotalLoss(nn.Module):
 
         (coords_pred, vis_pred, 
         conf_pred, coords_pred_iters, 
-        vis_pred_iters, conf_pred_iters) = outputs
+        vis_pred_iters, conf_pred_iters) = outputs[:6]
 
         # compute losses
         vis_loss = self.bce_loss_vis(
@@ -85,13 +85,19 @@ class TotalLoss(nn.Module):
             device = device
         )
 
+        feature_loss = outputs[6] * 0.05
+        bad_feature_loss = outputs[7] * 0.05
+
         # total_loss = vis_loss + conf_loss + coords_loss
-        total_loss = coords_loss
+        # total_loss = coords_loss
+        total_loss = coords_loss + feature_loss + bad_feature_loss
 
         self.loss_history['vis_loss'].append(vis_loss.item())
         self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
+        self.loss_history['feature_loss'].append(feature_loss.item())
+        self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 
         return total_loss
 

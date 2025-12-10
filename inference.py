@@ -47,6 +47,8 @@ def main(wandb_prefix, run_ids, video_paths, data_path, outpath, checkpoint = No
         model = load_checkpoint(config_path, model_path)
         model.eval()
 
+        model.cube_extent = 500
+
         set_seeds(config.training.seed)
 
         dataset = Rat7mDataset(
@@ -115,15 +117,15 @@ if __name__ == '__main__':
     outpath = '/data/results/lili/posetail/viz'
     wandb_prefix = '/data/results/lili/posetail/wandb'
     
-    run_ids = ['run-20251201_202848-rmeuciu7']
+    run_ids = ['run-20251204_043511-k6he6w9i']
 
-    video_paths = ['/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera1-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera2-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera3-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera4-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera5-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s1-d1/s1-d1-camera6-0.mp4']
-    data_path = '/data/animal-datasets/rat7m/data/mocap-s1-d1.mat'
+    video_paths = ['/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera1-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera2-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera3-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera4-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera5-0.mp4',
+                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera6-0.mp4']
+    data_path = '/data/animal-datasets/rat7m/data/mocap-s4-d1.mat'
 
 
     main(wandb_prefix = wandb_prefix, 
@@ -131,4 +133,5 @@ if __name__ == '__main__':
          video_paths = video_paths, 
          data_path = data_path, 
          outpath = outpath, 
-         checkpoint = 100)
+         checkpoint = 400)
+

@@ -21,6 +21,7 @@ from posetail.posetail.eval_metrics import get_eval_metrics
 from posetail.posetail.losses import get_vis_true, unroll_batch
 from posetail.posetail.tracker import Tracker 
 
+from einops import rearrange
 
 def set_seeds(seed = 3, set_backends = True):
 
@@ -231,6 +232,27 @@ def train_epoch(config, model, fabric, dataloader,
         vis_pred = outputs[1]
         conf_pred = outputs[2]
 
+        outputs = list(outputs)
+
+        feature_loss = model.get_feature_loss(
+            views = list(views), 
+            coords_full = coords, 
+            camera_group = cgroup, 
+            offset_dict = None)
+        outputs.append(feature_loss)
+
+        b, s, n, r = coords.shape
+        coords_flat = rearrange(coords, 'b s n r -> (b s n) r')
+        ixs_perm = torch.randperm(coords_flat.shape[0])
+        coords_shuffle = rearrange(coords_flat[ixs_perm], '(b s n) r -> b s n r', b=b, s=s, n=n)
+
+        bad_feature_loss = model.get_feature_loss(
+            views = list(views), 
+            coords_full = coords_shuffle, 
+            camera_group = cgroup, 
+            offset_dict = None)
+        outputs.append(1 - bad_feature_loss)
+        
         total_loss = loss(outputs, coords_true, vis_true, device = coords_pred.device)
 
         # if not torch.any(torch.isnan(total_loss)):

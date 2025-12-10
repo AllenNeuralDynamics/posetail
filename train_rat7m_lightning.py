@@ -97,6 +97,8 @@ def run(config_path, fabric):
         num_workers=8)
     
     train_loader = fabric.setup_dataloaders(train_loader)
+
+    # torch.autograd.set_detect_anomaly(True)
     
     if 'steps_per_epoch' in config.training.scheduler and config.training.scheduler.steps_per_epoch == -1:
         steps_per_epoch = get_steps_per_epoch(train_dataset, train_loader)
@@ -121,12 +123,14 @@ def run(config_path, fabric):
     model.cnn.compile()
     model.corr_mlp.compile()
     model.tsformer.compile()
+    model.minicube_v2v.compile()
     # model.compile()
     # torch.compile(model.cnn)
     # torch.compile(model.corr_mlp)
     # torch.compile(model.tsformer)
     model = fabric.setup(model)
-
+    model.mark_forward_method('get_feature_loss')
+    
     # NOTE: memory profiling causes a CPU memory leak
     # profiler = LineProfiler(
     #     train_epoch, model, model.forward, 
