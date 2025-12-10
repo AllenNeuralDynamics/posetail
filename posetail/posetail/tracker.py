@@ -857,7 +857,7 @@ class Tracker(nn.Module):
             else:
                 # determine cube center according to coords of first frame
                 self.cube_center = torch.mean(coords, dim = (0, 1))
-                # self.cube_extent = self.cube_extent # TODO: determine dynamically
+                # self.cube_extent = self.cube_extent # TODO: determine this dynamically
 
                 with torch.no_grad():
 

@@ -105,7 +105,7 @@ class PosetailDataset(Dataset):
         else: 
             cgroup = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
             cgroup = cgroup.subset_cameras_names(cam_names)
-            cgroup = format_camera_group(cgroup, coords.device)
+            cgroup = format_camera_group(cgroup, coords.device) 
 
         # b, s, k, r = coords.shape
         # coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
