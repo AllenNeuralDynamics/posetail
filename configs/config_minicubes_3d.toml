@@ -9,6 +9,7 @@ batch_size = 1
 [dataset.train]
 # prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
 prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-filtered-3500'
+# prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-35000'
 n_frames = 16
 max_res = 256
 

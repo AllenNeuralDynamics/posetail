@@ -636,7 +636,7 @@ class Tracker(nn.Module):
 
         if self.R == 3:
             if self.mode_3d == 'minicubes':
-                self.cube_scale = 3 * self.cube_extent / min(H, W) 
+                self.cube_scale = self.cube_extent / min(H, W) 
             else:
                 # create a hash of frozen camera group dictionary
                 cgroup_hash = hash(deepfreeze(camera_group.get_dicts()))
