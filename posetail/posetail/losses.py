@@ -85,8 +85,8 @@ class TotalLoss(nn.Module):
             device = device
         )
 
-        feature_loss = outputs[6] * 0.05
-        bad_feature_loss = outputs[7] * 0.05
+        feature_loss = outputs[6] * 0.5
+        bad_feature_loss = outputs[7] * 0.5
 
         # total_loss = vis_loss + conf_loss + coords_loss
         # total_loss = coords_loss

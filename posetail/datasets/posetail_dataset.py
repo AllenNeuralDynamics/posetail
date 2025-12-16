@@ -93,10 +93,10 @@ class PosetailDataset(Dataset):
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
         views = []
 
-        if len(cam_names) > 5:
-            ix_cams = np.random.choice(len(cam_names), size=5, replace=False)
-            # ix_cams = np.arange(6)
-            cam_names = [cam_names[i] for i in ix_cams]
+        # if len(cam_names) > 5:
+        #     ix_cams = np.random.choice(len(cam_names), size=5, replace=False)
+        #     # ix_cams = np.arange(6)
+        #     cam_names = [cam_names[i] for i in ix_cams]
 
         # create camera group from camera parameters
         if len(cam_names) == 1: 
@@ -107,19 +107,19 @@ class PosetailDataset(Dataset):
 
             # cgroup_f = format_camera_group(cgroup, coords.device)
 
-        b, s, k, r = coords.shape
-        coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
-        p2d_flat = cgroup.project(coords_flat.cpu().detach().numpy())
-        p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
-        s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
-        good = np.all(s >= 2, axis=1)
+        # b, s, k, r = coords.shape
+        # coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
+        # p2d_flat = cgroup.project(coords_flat.cpu().detach().numpy())
+        # p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
+        # s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
+        # good = np.all(s >= 2, axis=1)
 
-        coords = coords[:, :, good[0]]
+        # coords = coords[:, :, good[0]]
             
-        if coords.shape[2] > 60:
-            ix_p = np.random.choice(coords.shape[2], size=60, replace=False)
-            # ix_p = np.arange(60)
-            coords = coords[:, :, ix_p, :]
+        # if coords.shape[2] > 60:
+        #     ix_p = np.random.choice(coords.shape[2], size=60, replace=False)
+        #     # ix_p = np.arange(60)
+        #     coords = coords[:, :, ix_p, :]
         
             
         for cam_name in cam_names:

@@ -232,10 +232,12 @@ def train_epoch(config, model, fabric, dataloader,
         vis_pred = outputs[1]
         conf_pred = outputs[2]
 
-        outputs = list(outputs)
+        feature_planes_levels = outputs[6]
+
+        outputs = list(outputs[:6])
 
         feature_loss = model.get_feature_loss(
-            views = list(views), 
+            feature_planes_levels = feature_planes_levels, 
             coords_full = coords, 
             camera_group = cgroup, 
             offset_dict = None)
@@ -247,7 +249,7 @@ def train_epoch(config, model, fabric, dataloader,
         coords_shuffle = rearrange(coords_flat[ixs_perm], '(b s n) r -> b s n r', b=b, s=s, n=n)
 
         bad_feature_loss = model.get_feature_loss(
-            views = list(views), 
+            feature_planes_levels = feature_planes_levels, 
             coords_full = coords_shuffle, 
             camera_group = cgroup, 
             offset_dict = None)

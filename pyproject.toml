@@ -62,11 +62,11 @@ dev = {features = ["dev"], solve-group = "default"}
 [tool.pixi.dependencies]
 python = "3.10.*"
 cuda-toolkit = "12.8.*"
-ipython = "*"
-notebook = "*"
 numpy = "==1.26"
 pip = "*"
 
 [tool.pixi.feature.dev.dependencies]
 matplotlib = "*"
-
+ipython = "*"
+notebook = "*"
+ipympl = "*"
