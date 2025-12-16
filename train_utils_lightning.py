@@ -183,6 +183,15 @@ def format_camera_group(camera_group, device):
     return [format_camera(cam, device)
             for cam in camera_group.cameras]
 
+def dict_to_device(dd, device):
+    dout = dict()
+    for k, v in dd.items():
+        if isinstance(v, torch.Tensor):
+            dout[k] = v.to(device)
+        else:
+            dout[k] = v
+    return dout
+
 # @profile
 def train_epoch(config, model, fabric, dataloader, 
                 optimizer, loss, scheduler = None,
@@ -211,7 +220,7 @@ def train_epoch(config, model, fabric, dataloader,
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
-            # cgroup = format_camera_group(cgroup, device)
+            # cgroup = dict_to_device(cgroup, device)
 
         vis = get_vis_true(coords)
 
