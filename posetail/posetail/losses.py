@@ -63,20 +63,20 @@ class TotalLoss(nn.Module):
         conf_pred, coords_pred_iters, 
         vis_pred_iters, conf_pred_iters) = outputs[:6]
 
-        # compute losses
-        vis_loss = self.bce_loss_vis(
-            vis_pred = vis_pred_iters,
-            vis_true = vis_true,
-            device = device
-        )
+        # # compute losses
+        # vis_loss = self.bce_loss_vis(
+        #     vis_pred = vis_pred_iters,
+        #     vis_true = vis_true,
+        #     device = device
+        # )
 
-        conf_loss = self.bce_loss_conf(
-            conf_pred = conf_pred_iters, 
-            coords_pred = coords_pred_iters, 
-            coords_true = coords_true, 
-            vis_true = vis_true,
-            device = device
-        )
+        # conf_loss = self.bce_loss_conf(
+        #     conf_pred = conf_pred_iters, 
+        #     coords_pred = coords_pred_iters, 
+        #     coords_true = coords_true, 
+        #     vis_true = vis_true,
+        #     device = device
+        # )
 
         coords_loss = self.mae_loss_coords(
             coords_pred = coords_pred_iters, 
@@ -92,8 +92,8 @@ class TotalLoss(nn.Module):
         # total_loss = coords_loss
         total_loss = coords_loss + feature_loss + bad_feature_loss
 
-        self.loss_history['vis_loss'].append(vis_loss.item())
-        self.loss_history['conf_loss'].append(conf_loss.item())
+        # self.loss_history['vis_loss'].append(vis_loss.item())
+        # self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
         self.loss_history['feature_loss'].append(feature_loss.item())

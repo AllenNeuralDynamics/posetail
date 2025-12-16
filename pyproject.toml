@@ -65,6 +65,7 @@ cuda-toolkit = "12.8.*"
 numpy = "==1.26"
 pip = "*"
 
+
 [tool.pixi.feature.dev.dependencies]
 matplotlib = "*"
 ipython = "*"
