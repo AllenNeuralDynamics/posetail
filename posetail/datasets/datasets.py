@@ -12,7 +12,7 @@ from aniposelib.cameras import CameraGroup, Camera
 from easydict import EasyDict as edict
 
 from posetail.datasets.utils import extract_name, extract_num, scale_coords
-from train_utils_lightning import format_camera_group
+from posetail.train_utils import format_camera_group
 
 
 def custom_collate_2d(batch):

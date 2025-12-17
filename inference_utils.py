@@ -5,7 +5,7 @@ import glob
 import numpy as np
 
 import torch
-from train_utils_lightning import *
+from posetail.train_utils import *
 
 
 def get_checkpoint(wandb_prefix, run_id, checkpoint = None):

@@ -14,7 +14,7 @@ from easydict import EasyDict as edict
 from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
 from einops import rearrange
 
-from train_utils_lightning import format_camera_group
+from posetail.train_utils import format_camera_group
 
 
 def custom_collate(batch):
