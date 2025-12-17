@@ -5,8 +5,7 @@ import glob
 import numpy as np
 
 import torch
-from train_utils import *
-
+from train_utils_lightning import *
 
 
 def get_checkpoint(wandb_prefix, run_id, checkpoint = None):
@@ -53,18 +52,6 @@ def format_camera_group(camera_group, device):
             for cam in camera_group.cameras]
 
 
-def move_dict_to_device(d, device):
-
-    new_dict = {}
-
-    for k, v in d.items():
-        if isinstance(v, torch.Tensor): 
-            new_dict[k] = v.to(device)
-        else: 
-            new_dict[k] = v
-
-    return new_dict
-
 def get_video_predictions(video_paths, model, dataloader, pred_path, device, debug_ix = -1):
 
     torch.set_float32_matmul_precision('high')
@@ -92,11 +79,9 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
         cgroup = None 
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
-            cgroup = [move_dict_to_device(cam_dict, device) for cam_dict in cgroup]
+            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
-
-        print(len(views),views[0].shape, coords.shape, cgroup)
         
         # get model predictions
         with torch.no_grad():
@@ -180,7 +165,7 @@ def get_predictions(video_paths, model, dataloader, pred_path, device, debug_ix 
         cgroup = None 
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
-            cgroup = [move_dict_to_device(cam_dict, device) for cam_dict in cgroup]
+            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
                       
