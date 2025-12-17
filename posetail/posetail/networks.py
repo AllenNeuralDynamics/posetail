@@ -431,10 +431,10 @@ class Res3DBlock(nn.Module):
         super().__init__()
         self.res_branch = nn.Sequential(
             nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm3d(out_planes),
+            # nn.BatchNorm3d(out_planes),
             nn.ReLU(),
             nn.Conv3d(out_planes, out_planes, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm3d(out_planes)
+            # nn.BatchNorm3d(out_planes)
         )
 
         if in_planes == out_planes:
@@ -442,7 +442,7 @@ class Res3DBlock(nn.Module):
         else:
             self.skip_con = nn.Sequential(
                 nn.Conv3d(in_planes, out_planes, kernel_size=1, stride=1, padding=0),
-                nn.BatchNorm3d(out_planes)
+                # nn.BatchNorm3d(out_planes)
             )
         self.last_relu = nn.ReLU()
 
@@ -460,7 +460,7 @@ class MinicubesV2V(nn.Module):
         self.conv_out = nn.Conv3d(latent_dim, latent_dim,
                                   kernel_size=3, stride=1, padding=1)
         self.res2 = Res3DBlock(latent_dim, latent_dim)
-        # self.skip1 = Res3DBlock(latent_dim, latent_dim*2)
+        # self.skip1 = Res3DBlock(latent_dim, latent_dim)
 
         self._initialize_weights()
         

@@ -88,9 +88,7 @@ def run(config_path, fabric):
         data_path = config.dataset.train.prefix, 
         track_3d = config.model.track_3d, 
         n_frames = config.dataset.train.n_frames,
-        max_res = config.dataset.train.max_res, 
-        cams_to_sample = config.dataset.cams_to_sample, 
-        kpts_to_sample = config.dataset.kpts_to_sample)
+        max_res = config.dataset.train.max_res)
 
     train_loader = DataLoader(
         train_dataset, 
@@ -100,6 +98,7 @@ def run(config_path, fabric):
         num_workers = 8)
 
     train_loader = fabric.setup_dataloaders(train_loader)
+    # torch.autograd.set_detect_anomaly(True)
     
     if 'steps_per_epoch' in config.training.scheduler and config.training.scheduler.steps_per_epoch == -1:
         steps_per_epoch = get_steps_per_epoch(train_dataset, train_loader)
@@ -124,12 +123,13 @@ def run(config_path, fabric):
     model.cnn.compile()
     model.corr_mlp.compile()
     model.tsformer.compile()
-    # model.compile()
-    # torch.compile(model.cnn)
-    # torch.compile(model.corr_mlp)
-    # torch.compile(model.tsformer)
-    model = fabric.setup(model)
 
+    if model.mode_3d == 'minicubes':
+        model.minicube_v2v.compile()
+
+    model = fabric.setup(model)
+    model.mark_forward_method('get_feature_loss')
+    
     # NOTE: memory profiling causes a CPU memory leak
     # profiler = LineProfiler(
     #     train_epoch, model, model.forward, 
@@ -148,7 +148,7 @@ def run(config_path, fabric):
         lr = config.training.optimizer.learning_rate, 
         weight_decay = config.training.optimizer.weight_decay,
         amsgrad=config.training.optimizer.amsgrad,
-        fused=True)
+        fused = True)
 
     optimizer = fabric.setup_optimizers(optimizer)
 

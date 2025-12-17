@@ -95,7 +95,9 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
             cgroup = [move_dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
-                      
+
+        print(len(views),views[0].shape, coords.shape, cgroup)
+        
         # get model predictions
         with torch.no_grad():
             coords_p, vis_p, conf_p, *_ = model(

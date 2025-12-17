@@ -21,6 +21,8 @@ from posetail.posetail.eval_metrics import get_eval_metrics
 from posetail.posetail.losses import get_vis_true, unroll_batch
 from posetail.posetail.tracker import Tracker 
 
+from einops import rearrange
+
 
 def set_seeds(seed = 3, set_backends = True):
 
@@ -200,6 +202,18 @@ def format_camera_group(camera_group, device):
     return [format_camera(cam, device)
             for cam in camera_group.cameras]
 
+def dict_to_device(dd, device):
+
+    dout = dict()
+
+    for k, v in dd.items():
+        if isinstance(v, torch.Tensor):
+            dout[k] = v.to(device)
+        else:
+            dout[k] = v
+
+    return dout
+
 # @profile
 def train_epoch(config, model, fabric, dataloader, 
                 optimizer, loss, scheduler = None,
@@ -228,7 +242,7 @@ def train_epoch(config, model, fabric, dataloader,
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
-            # cgroup = format_camera_group(cgroup, device)
+            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
 
@@ -250,6 +264,33 @@ def train_epoch(config, model, fabric, dataloader,
         vis_pred = outputs[1]
         conf_pred = outputs[2]
 
+        feature_planes_levels = outputs[6]
+        outputs = list(outputs[:6])
+
+        if config.training.losses.use_feature_loss:
+
+            feature_loss = model.get_feature_loss(
+                feature_planes_levels = feature_planes_levels, 
+                coords_full = coords, 
+                camera_group = cgroup, 
+                offset_dict = None)
+            
+            outputs.append(feature_loss)
+
+            b, s, n, r = coords.shape
+            coords_flat = rearrange(coords, 'b s n r -> (b s n) r')
+            ixs_perm = torch.randperm(coords_flat.shape[0])
+            coords_shuffle = rearrange(coords_flat[ixs_perm], '(b s n) r -> b s n r',
+                b = b, s = s, n = n)
+
+            bad_feature_loss = model.get_feature_loss(
+                feature_planes_levels = feature_planes_levels, 
+                coords_full = coords_shuffle, 
+                camera_group = cgroup, 
+                offset_dict = None)
+            
+            outputs.append(1 - bad_feature_loss)
+        
         total_loss = loss(outputs, coords_true, vis_true, device = coords_pred.device)
 
         # if not torch.any(torch.isnan(total_loss)):
@@ -268,27 +309,25 @@ def train_epoch(config, model, fabric, dataloader,
                     print(f"{name}: {grad_norm}")
                     bad = True
 
-        if bad:
-            import pickle
-            outname = '/data/results/lili/posetail/test/modeltest.pth'
-            state_dict = {'views': views,
-                          'coords': coords,
-                          'camera_group': cgroup,
-                          'model_state': model.state_dict(),
-                          'optimizer_state': optimizer.state_dict()}
-            torch.save(state_dict, outname)
-            print("torch state dumped")
+        # if bad:
+        #     import pickle
+        #     outname = '/data/results/lili/posetail/test/modeltest.pth'
+        #     state_dict = {'views': views,
+        #                   'coords': coords,
+        #                   'camera_group': cgroup,
+        #                   'model_state': model.state_dict(),
+        #                   'optimizer_state': optimizer.state_dict()}
+        #     torch.save(state_dict, outname)
+        #     print("torch state dumped")
 
         fabric.clip_gradients(model, optimizer, 
             max_norm = config.training.max_grad_norm, 
             error_if_nonfinite = True)
 
-
         optimizer.step()
         optimizer.zero_grad()
         # else:
         #     print('WARNING: nan loss')
-
         
         if evaluate:
             metrics_dict = get_eval_metrics(

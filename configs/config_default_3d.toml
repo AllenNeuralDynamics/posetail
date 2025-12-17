@@ -8,7 +8,7 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 
 [dataset.train]
-prefix = '/data/animal-datasets-processed/posetail-tests/multi-subject-filtered-35000'
+prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-filtered-3500'
 # prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
 n_frames = 16
 max_res = 256
@@ -91,6 +91,7 @@ gamma = 0.8
 pixel_thresh = 9
 delta = 6
 use_huber = false
+use_feature_loss = false
 
 # weights for computing total loss 
 vis_loss_weight = 2

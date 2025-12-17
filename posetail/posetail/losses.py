@@ -10,18 +10,21 @@ from einops import rearrange
 class TotalLoss(nn.Module): 
 
     def __init__(self, gamma = 0.8, pixel_thresh = 12, delta = 6, 
-                 use_huber = False, vis_loss_weight = 1,
-                 conf_loss_weight = 1, coords_loss_weight = 1):
+                 use_huber = False, use_feature_loss = False, vis_loss_weight = 1,
+                 conf_loss_weight = 1, coords_loss_weight = 1, 
+                 feature_loss_weight = 0.5):
         super().__init__()
 
         self.gamma = gamma
         self.pixel_thresh = pixel_thresh
         self.delta = delta
         self.use_huber = use_huber
+        self.use_feature_loss = use_feature_loss
 
         self.vis_loss_weight = vis_loss_weight
         self.conf_loss_weight = conf_loss_weight
         self.coords_loss_weight = coords_loss_weight
+        self.feature_loss_weight = feature_loss_weight
 
         self.bce_loss_vis = BCELossVis(
             gamma = self.gamma, 
@@ -41,7 +44,9 @@ class TotalLoss(nn.Module):
             weight = self.coords_loss_weight
         )
 
-        loss_names = ['vis_loss', 'conf_loss', 'coords_loss', 'total_loss']
+        loss_names = ['vis_loss', 'conf_loss', 'coords_loss',
+                      'feature_loss','bad_feature_loss',
+                      'total_loss']
         self.loss_history = {loss_name: [] for loss_name in loss_names}
 
     def collapse_history(self, prefix = ''): 
@@ -61,7 +66,7 @@ class TotalLoss(nn.Module):
 
         (coords_pred, vis_pred, 
         conf_pred, coords_pred_iters, 
-        vis_pred_iters, conf_pred_iters) = outputs
+        vis_pred_iters, conf_pred_iters) = outputs[:6]
 
         # # compute losses
         # vis_loss = self.bce_loss_vis(
@@ -85,8 +90,20 @@ class TotalLoss(nn.Module):
             device = device
         )
 
-        # total_loss = vis_loss + conf_loss + coords_loss
         total_loss = coords_loss
+
+        if self.use_feature_loss: 
+
+            feature_loss = outputs[6] * self.feature_loss_weight
+            bad_feature_loss = outputs[7] * self.feature_loss_weight
+
+            # total_loss = vis_loss + conf_loss + coords_loss
+            # total_loss = coords_loss
+            total_loss += feature_loss 
+            total_loss += bad_feature_loss
+
+            self.loss_history['feature_loss'].append(feature_loss.item())
+            self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 
         # self.loss_history['vis_loss'].append(vis_loss.item())
         # self.loss_history['conf_loss'].append(conf_loss.item())
