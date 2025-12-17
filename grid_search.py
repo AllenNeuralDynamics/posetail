@@ -5,11 +5,12 @@ import random
 import shutil
 import string
 import subprocess
+import toml
 
 import numpy as np 
 import pandas as pd 
 
-from train_utils import *
+from posetail.train_utils import *
 
 ''' 
 example script submission 
@@ -26,15 +27,15 @@ TMP_DIR = '/allen/aind/scratch/katie.rupp/tmp'
 #               'training.losses.pixel_thresh': [3, 6], 
 #               'model.latent_dim': [128, 128]}
 
-PARAM_DICT = {'training.losses.pixel_thresh': [3], 
-              'training.optimizer.learning_rate': [0.00001],
-              'training.optimizer.weight_decay': [0.000001],
-              'model.cube_dim': [64], 
-              'model.cube_extent': [500],
-              'training.losses.coords_loss_weight': [0.1],
-              'training.debug_ix': [-1],
-              'dataset.train.n_videos': [5], 
-              'model.corr_radius': [9]}
+PARAM_DICT = {'training.losses.pixel_thresh': [3, 3], 
+              'training.optimizer.learning_rate': [0.00001, 0.00001],
+              'training.optimizer.weight_decay': [0.000001, 0.000001],
+              'model.cube_dim': [74, 74], 
+              'model.cube_extent': [500, 500],
+              'training.losses.coords_loss_weight': [0.1, 0.1],
+              'training.debug_ix': [-1, -1],
+              'dataset.train.n_videos': [1, 1], 
+              'model.corr_radius': [5, 7]}
 # PARAM_DICT = None
 
 def parse_args(): 
@@ -168,4 +169,4 @@ if __name__ == '__main__':
 
             # run the submission script from the temp dir
             print(f'submitting job with config {config_path}')
-            result = subprocess.run(['sbatch', 'train.sh', config_path])
+            result = subprocess.run(['sbatch', 'train_lightning.sh', config_path])
