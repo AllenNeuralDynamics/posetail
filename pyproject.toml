@@ -62,6 +62,7 @@ notebook = ">=7.5.0,<8"
 numpy = "==1.26"
 pip = ">=25.3,<26"
 rerun-sdk = "==0.22.1"
+matplotlib = ">=3.10.8,<4"
 
 [tool.pixi.feature.dev.dependencies]
 matplotlib = "*"

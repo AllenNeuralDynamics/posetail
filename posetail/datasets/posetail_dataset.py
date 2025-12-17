@@ -16,6 +16,7 @@ from posetail.posetail.cube import project_points_torch
 from einops import rearrange
 
 from train_utils_lightning import format_camera_group
+import wandb
 
 def custom_collate(batch):
     ''' 
@@ -82,7 +83,7 @@ class PosetailDataset(Dataset):
         # load keypoints 
         pose = np.load(row['pose_path'])['pose']
         coords = pose[:, start_ix:end_ix, :, :]
-        coords = torch.tensor(coords, dtype = torch.float32, device='cpu')
+        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
         
         # load camera resolutions for resizing
         res_dict = json.loads(row['res_dict'])
@@ -105,8 +106,9 @@ class PosetailDataset(Dataset):
         else: 
             cgroup = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
             cgroup = cgroup.subset_cameras_names(cam_names)
-            cgroup = format_camera_group(cgroup, coords.device) 
+            # cgroup = format_camera_group(cgroup, coords.device) 
 
+        # cgroup = format_camera_group(cgroup, coords.device) 
         # b, s, k, r = coords.shape
         # coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
         # p2d_flat = cgroup.project(coords_flat.cpu().detach().numpy())

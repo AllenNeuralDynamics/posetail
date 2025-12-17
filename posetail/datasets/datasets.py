@@ -335,7 +335,7 @@ class Rat7mDataset(Dataset):
         coords = torch.tensor(coords, dtype = torch.float32)
 
         fnums = torch.arange(start_frame, start_frame + self.n_frames)
-        cgroup = format_camera_group(cgroup, coords.device)
+        cgroup = format_camera_group(self.cgroup, coords.device)
 
         return views, coords, fnums, self.cgroup
 

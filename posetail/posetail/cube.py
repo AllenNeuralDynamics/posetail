@@ -35,7 +35,7 @@ def project_cam(cam, p3d_t):
     ext_t = cam['ext']
     mat_t = cam['mat']
     dist = cam['dist']
-    
+
     p2d_proj_raw = torch.matmul(to_homogeneous(p3d_t), ext_t.T)
     p2d_proj_raw = from_homogeneous(p2d_proj_raw[..., :3])
 

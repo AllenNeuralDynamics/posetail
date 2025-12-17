@@ -39,14 +39,14 @@ def set_seeds(seed = 3, set_backends = True):
         torch.backends.cudnn.benchmark = False
 
 
-def get_dataset(dataset_name, **kwargs):
+# def get_dataset(dataset_name, **kwargs):
 
-    if dataset_name == 'rat7m':
-        dataset = Rat7mIterableDataset(**kwargs)
-    else:
-        raise ValueError(f'no functionality for dataset named {dataset}')
+#     if dataset_name == 'rat7m':
+#         dataset = Rat7mIterableDataset(**kwargs)
+#     else:
+#         raise ValueError(f'no functionality for dataset named {dataset}')
 
-    return dataset
+#     return dataset
 
 def load_config(config_path, easy = True): 
     ''' 
@@ -131,6 +131,24 @@ def load_checkpoint(config_path, checkpoint_path):
 
     param_dict = torch.load(checkpoint_path, map_location = device)['model_state']
     model.load_state_dict(param_dict)
+
+    return model
+
+def load_checkpoint_no_inductor(config_path, checkpoint_path): 
+
+    config = load_config(config_path)
+
+    device = torch.device(config.devices.device)
+
+    if not torch.cuda.is_available(): 
+        device = torch.device('cpu')
+
+    model = Tracker(**config.model) 
+    model.to(device)
+
+    checkpoint = torch.load(checkpoint_path, map_location = device)
+    state_dict = checkpoint.get('model_state')
+    model.load_state_dict(state_dict)
 
     return model
 

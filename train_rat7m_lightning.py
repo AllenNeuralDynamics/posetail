@@ -88,7 +88,9 @@ def run(config_path, fabric):
         data_path = config.dataset.train.prefix, 
         track_3d = config.model.track_3d, 
         n_frames = config.dataset.train.n_frames,
-        max_res = config.dataset.train.max_res)
+        max_res = config.dataset.train.max_res, 
+        cams_to_sample = config.dataset.cams_to_sample, 
+        kpts_to_sample = config.dataset.kpts_to_sample)
 
     train_loader = DataLoader(
         train_dataset, 
