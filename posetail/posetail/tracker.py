@@ -634,7 +634,7 @@ class Tracker(nn.Module):
 
         if self.R == 3:
             if self.mode_3d == 'minicubes':
-                self.cube_scale = self.cube_extent / min(H, W)
+                self.cube_scale = 3 * self.cube_extent / min(H, W)
             else:
                 # dynamically compute the cube center and extent based
                 # on the coord from the first frame
