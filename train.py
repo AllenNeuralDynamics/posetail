@@ -75,19 +75,13 @@ def run(config_path, fabric):
     set_seeds(config.training.seed)
 
     # set up training dataloader
-    # train_dataset = get_dataset(**config.dataset.train)
-
-    # train_loader = DataLoader(
-    #     train_dataset, 
-    #     batch_size = config.dataset.batch_size, 
-    #     collate_fn = custom_collate_3d if config.model.track_3d else custom_collate_2d)
-
-    # set up training dataloader
     train_dataset = PosetailDataset(
         data_path = config.dataset.train.prefix, 
         track_3d = config.model.track_3d, 
         n_frames = config.dataset.train.n_frames,
-        max_res = config.dataset.train.max_res)
+        max_res = config.dataset.train.max_res, 
+        cams_to_sample = config.dataset.train.cams_to_sample, 
+        kpts_to_sample = config.dataset.train.kpts_to_sample)
 
     train_loader = DataLoader(
         train_dataset, 

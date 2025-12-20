@@ -10,11 +10,11 @@ import pandas as pd
 
 from aniposelib.cameras import CameraGroup, Camera
 from easydict import EasyDict as edict
-
-from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
 from einops import rearrange
 
-from posetail.train_utils import format_camera_group
+from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
+from posetail.posetail.cube import project_points_torch
+from train_utils import format_camera_group
 
 
 def custom_collate(batch):
@@ -48,7 +48,7 @@ def custom_collate(batch):
 class PosetailDataset(Dataset): 
 
     def __init__(self, data_path, track_3d = True, n_frames = 16, max_res = -1, 
-                 cams_to_sample = None, kpts_to_sample = None): 
+                 cams_to_sample = -1, kpts_to_sample = -1): 
 
         self.data_path = data_path
         self.track_3d = track_3d
@@ -95,7 +95,7 @@ class PosetailDataset(Dataset):
         views = []
 
         # sample views from cameras
-        if self.cams_to_sample and len(cam_names) > self.cams_to_sample:
+        if self.cams_to_sample != -1 and len(cam_names) > self.cams_to_sample:
             ix_cams = np.random.choice(len(cam_names), size = self.cams_to_sample, replace = False)
             cam_names = [cam_names[i] for i in ix_cams]
 
@@ -110,14 +110,14 @@ class PosetailDataset(Dataset):
         # filter points that are visible from at least 2 views
         # b, s, k, r = coords.shape
         # coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
-        # p2d_flat = cgroup.project(coords_flat.cpu().detach().numpy())
+        # p2d_flat = project_points_torch(cgroup, coords_flat)
         # p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
         # s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
         # good = np.all(s >= 2, axis=1)
         # coords = coords[:, :, good[0]]
 
         # sample keypoints from available tracks 
-        if self.kpts_to_sample and coords.shape[2] > self.kpts_to_sample:   
+        if self.kpts_to_sample != -1 and coords.shape[2] > self.kpts_to_sample:   
             ix_p = np.random.choice(coords.shape[2], size = self.kpts_to_sample, replace = False)
             coords = coords[:, :, ix_p, :]
         

@@ -5,7 +5,7 @@ import glob
 import numpy as np
 
 import torch
-from posetail.train_utils import *
+from train_utils import *
 
 
 def get_checkpoint(wandb_prefix, run_id, checkpoint = None):
@@ -58,7 +58,6 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
     model.eval()
 
     start_time = time.time()
-    timestamp = get_timestamp()
 
     coords_pred = []
     vis_pred = []
@@ -85,16 +84,16 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
         
         # get model predictions
         with torch.no_grad():
-            coords_p, vis_p, conf_p, *_ = model(
+            outputs = model(
                 views = views, 
                 coords = coords[:, 0, ...], 
                 camera_group = cgroup, 
                 offset_dict = None
             )
 
-        coords_pred.append(torch.squeeze(coords_p, dim = 0))
-        vis_pred.append(torch.squeeze(vis_p, dim = 0))
-        conf_pred.append(torch.squeeze(conf_p, dim = 0))
+        coords_pred.append(torch.squeeze(outputs['coords_pred'], dim = 0))
+        vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0))
+        conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0))
         coords_true.append(torch.squeeze(coords, dim = 0))
         vis_true.append(torch.squeeze(vis, dim = 0))
         fnums.append(torch.squeeze(fnum, dim = 0))
@@ -138,13 +137,12 @@ def pad_array(coords, n_kpts = 20):
     return coords_new
 
 
-def get_predictions(video_paths, model, dataloader, pred_path, device, debug_ix = -1):
+def get_predictions(data_prefix, model, dataloader, pred_path, device, n_kpts, debug_ix = -1):
 
     torch.set_float32_matmul_precision('high')
     model.eval()
 
     start_time = time.time()
-    timestamp = get_timestamp()
 
     coords_pred = []
     vis_pred = []
@@ -171,25 +169,25 @@ def get_predictions(video_paths, model, dataloader, pred_path, device, debug_ix 
                       
         # get model predictions
         with torch.no_grad():
-            coords_p, vis_p, conf_p, *_ = model(
+            outputs = model(
                 views = views, 
                 coords = coords[:, 0, ...], 
                 camera_group = cgroup, 
                 offset_dict = None
             )
 
-        coords_pred.append(pad_array(torch.squeeze(coords_p, dim = 0).cpu().numpy()))
-        # vis_pred.append(torch.squeeze(vis_p, dim = 0).cpu().numpy())
-        # conf_pred.append(torch.squeeze(conf_p, dim = 0).cpu().numpy())
-        coords_true.append(pad_array(torch.squeeze(coords, dim = 0).cpu().numpy()))
-        # vis_true.append(torch.squeeze(vis, dim = 0).cpu().numpy())
+        coords_pred.append(pad_array(torch.squeeze(outputs['coords_pred'], dim = 0).cpu().numpy(), n_kpts = n_kpts))
+        vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0).cpu().numpy())
+        conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0).cpu().numpy())
+        coords_true.append(pad_array(torch.squeeze(coords, dim = 0).cpu().numpy(), n_kpts = n_kpts))
+        vis_true.append(torch.squeeze(vis, dim = 0).cpu().numpy())
         fnums.append(torch.squeeze(fnum, dim = 0).cpu().numpy())
 
     coords_pred = np.concatenate(coords_pred, axis = 0)
-    # vis_pred = torch.cat(vis_pred, axis = 0)
-    # conf_pred = torch.cat(conf_pred, axis = 0)
+    vis_pred = np.concatenate(vis_pred, axis = 0)
+    conf_pred = np.concatenate(conf_pred, axis = 0)
     coords_true = np.concatenate(coords_true, axis = 0)
-    # vis_true = np.concatenate(vis_true, axis = 0)
+    vis_true = np.concatenate(vis_true, axis = 0)
     fnums = np.concatenate(fnums, axis = 0)
 
     elapsed_time = time.time() - start_time
@@ -197,12 +195,12 @@ def get_predictions(video_paths, model, dataloader, pred_path, device, debug_ix 
 
     np.savez(pred_path,
         coords_pred = coords_pred, 
-        # vis_pred = vis_pred.cpu(), 
-        # conf_pred = conf_pred.cpu(),
+        # vis_pred = vis_pred, 
+        # conf_pred = conf_pred,
         coords_true = coords_true,
-        # vis_true = vis_true.cpu(),
+        # vis_true = vis_true,
         fnums = fnums, 
-        video_path = video_paths, 
+        video_path = data_prefix, 
         elapsed_time = list(np.array([elapsed_time])), 
         elapsed_time_hms = list(elapsed_time_hms))
 

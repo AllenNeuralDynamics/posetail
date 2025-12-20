@@ -1,4 +1,5 @@
 import itertools
+# import numpy as np
 
 import torch
 import torch.nn as nn 
@@ -11,7 +12,6 @@ from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor, MinicubesV2V
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
-import numpy as np
 
 class Tracker(nn.Module): 
 
@@ -22,8 +22,7 @@ class Tracker(nn.Module):
                  corr_radius = 3, corr_hidden_dim = 384,
                  corr_output_dim = 256, max_freq = 10, 
                  n_iters = 4, embedding_dim = 256, 
-                 latent_dim = 128, encoding_dim = 64,
-                 n_virtual = 64, n_heads = 8, 
+                 latent_dim = 128, n_virtual = 64, n_heads = 8, 
                  n_time_space_blocks = 6, embedding_factor = 4,
                  mode_3d = 'triplane'): 
         super().__init__()
@@ -833,46 +832,92 @@ class Tracker(nn.Module):
         # adjust coordinates to match original scale
         coords_pred = self.unscale(coords_pred)
 
-        return coords_pred, vis_pred, conf_pred, coords_pred_iters, vis_pred_iters, conf_pred_iters, feature_planes_levels
+        # assemble outputs 
+        result_dict = {
+            'coords_pred': coords_pred,
+            'vis_pred': vis_pred,
+            'conf_pred': conf_pred}
+
+        if self.training: 
+            train_dict = {
+                'coords_pred_iters': coords_pred_iters,
+                'vis_pred_iters': vis_pred_iters, 
+                'conf_pred_iters': conf_pred_iters, 
+                'feature_planes_levels': feature_planes_levels}
+            
+            result_dict.update(train_dict)
+
+        return result_dict 
 
 
     @torch.compile
-    def get_feature_loss(self, feature_planes_levels, coords_full, camera_group = None, offset_dict = None):
+    def get_feature_loss(self, feature_planes_levels, coords_full, 
+                         camera_group = None, offset_dict = None):
 
-        coords = coords_full[:, 0]
-        
-        # NOTE: this only works for minicubes right now
-
-        B, S, D, H, W, R = feature_planes_levels[0][0].shape
-        B, S, N, R = coords_full.shape
-
+        coords = coords_full[:, 0] # first frame coords
+        B, S, N, R = coords_full.shape        
         coords_bs = rearrange(coords_full, 'b s n r -> (b s) n r')
 
-        corr_features_levels = []
-        for i in range(self.corr_levels):
-            feature_planes = [ffl[i] for ffl in feature_planes_levels]
-            feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
-                                 for f in feature_planes]
-            mv = self.sample_feature_cubes(
-                feature_planes_bs,
-                camera_group,
-                coords_bs,
-                self.cube_scale * (2**i),
-                corr_radius=self.corr_radius,
-                downsample_ratio=self.downsample_factor * (2**i)
-            )
+        if self.mode_3d == 'minicubes': 
 
-            mv = rearrange(mv, '(b s) d n total -> b s total n d',
-                           b=B, s=S)
+            B, S, D, H, W, R = feature_planes_levels[0][0].shape
+            corr_features_levels = []
 
-            tv = mv[:, 0]
+            for i in range(self.corr_levels):
+                feature_planes = [ffl[i] for ffl in feature_planes_levels]
+                feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
+                                    for f in feature_planes]
+                mv = self.sample_feature_cubes(
+                    feature_planes_bs,
+                    camera_group,
+                    coords_bs,
+                    self.cube_scale * (2**i),
+                    corr_radius=self.corr_radius,
+                    downsample_ratio=self.downsample_factor * (2**i)
+                )
+
+                mv = rearrange(mv, '(b s) d n total -> b s total n d', b = B, s = S)
+                tv = mv[:, 0]
             
-            corr_features = einsum(mv, tv,
-                                   'b s t n d, b t n d -> b s n t')
+                corr_features = einsum(mv, tv, 'b s t n d, b t n d -> b s n t')
+                corr_features_levels.append(torch.mean(corr_features))
 
-            corr_features_levels.append(torch.mean(corr_features))
+            mean_corr = sum(corr_features_levels) / len(corr_features_levels)
 
-        mean_corr = sum(corr_features_levels) / len(corr_features_levels)
+        else: # self.mode_3d == 'triplanes':
+
+            B, S, D, H, W, R = feature_planes_levels[0].shape
+            corr_features_levels = []
+
+            for i in range(self.corr_levels):
+
+                corr_features_triplanes = []
+
+                for j, ixs in enumerate(self.plane_ixs):
+                    
+                    coords_scaled = coords_bs[..., ixs] / 2**i
+
+                    corr_features_2d = self.get_corr_features_2d(
+                        coords = coords_scaled, 
+                        feature_planes = feature_planes_levels[i][..., j]
+                        ) 
+
+                    track_features = corr_features_2d[:, 0]
+
+                    corr_features = torch.einsum(
+                        'bsnxyd,bnxyd->bsnxy', 
+                        corr_features_2d, 
+                        track_features
+                    )
+
+                    corr_features_triplanes.append(corr_features)
+
+                # stack xy, xz, and yz correlation features, then average
+                cf = torch.stack(corr_features_triplanes, dim = -1)
+                corr_features_levels.append(torch.mean(cf))
+
+            mean_corr = sum(corr_features_levels) / len(corr_features_levels)
+        
         return 1 - mean_corr
 
 
