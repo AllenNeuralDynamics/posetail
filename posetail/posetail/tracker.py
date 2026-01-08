@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from einops import rearrange, einsum, reduce
 
-from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch
+from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor, MinicubesV2V
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
@@ -631,9 +631,9 @@ class Tracker(nn.Module):
         assert R == self.R
 
         if self.R == 3:
-            if self.mode_3d == 'minicubes':
-                self.cube_scale = 3 * self.cube_extent / min(H, W)
-            else:
+            self.cube_scale = ( get_camera_scale(camera_group, coords.reshape(-1, 3)) * 
+                                self.downsample_factor * 1.5 )
+            if self.mode_3d == 'triplane':
                 # dynamically compute the cube center and extent based
                 # on the coord from the first frame
                 self.cube_center = torch.mean(coords, dim = (0, 1))

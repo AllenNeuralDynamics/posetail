@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from einops import rearrange
+from posetail.posetail.cube import get_camera_scale
 
 
 class TotalLoss(nn.Module): 
@@ -98,6 +99,10 @@ class TotalLoss(nn.Module):
             device = device
         )
 
+        # normalize by the camera scale
+        if model.R == 3:
+            scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
+            coords_loss = coords_loss / scale
 
         total_loss = coords_loss
 

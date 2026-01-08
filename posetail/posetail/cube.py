@@ -63,6 +63,36 @@ def project_points_torch(camera_group, p3d):
                         for cam in camera_group])
 
 
+def projection_sensitivity(cam, p):
+    n_points = p.shape[0]
+    fx = cam['mat'][0,0]
+    fy = cam['mat'][1,1]
+    ext_t = cam['ext']
+    R = ext_t[:3,:3]
+    
+    p_cam = torch.matmul(to_homogeneous(p), ext_t.T)[:, :3]
+    X = p_cam[:, 0]
+    Y = p_cam[:, 1]
+    Z = p_cam[:, 2]
+    
+    J_proj = torch.zeros((n_points, 2, 3), dtype=p_cam.dtype, device=p_cam.device)
+    J_proj[:, 0, 0] = fx / Z
+    J_proj[:, 0, 2] = -fx * X / (Z**2)
+    J_proj[:, 1, 1] = fy / Z
+    J_proj[:, 1, 2] = -fy * Y / (Z**2)
+    
+    J = einsum(J_proj, R, 'n i j, j k -> n i k')
+    return J
+
+def get_camera_scale(camera_group, p):
+    total = 0
+    for cam in camera_group:
+        J  = projection_sensitivity(cam, p)
+        total += torch.mean(torch.linalg.svd(J).S[:,0])
+    sensitivity = total / len(camera_group)
+    scale = 1/sensitivity
+    return scale.item()
+
 class UnprojectViews:
 
     def __init__(self, 
