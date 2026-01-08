@@ -16,7 +16,7 @@ dependencies = [
     "wandb==0.19.5",
     "wget==3.2",
     "lightning>=2.5.6,<3",
-    "rerun-sdk[notebook]<=0.19"    
+    "rerun-sdk[notebook]<=0.22.1"    
     ]
 requires-python = ">=3.8"
 description = "a model for tracking 2d or 3d animal pose through time"
@@ -64,7 +64,6 @@ python = "3.10.*"
 cuda-toolkit = "12.8.*"
 numpy = "==1.26"
 pip = "*"
-
 
 [tool.pixi.feature.dev.dependencies]
 matplotlib = "*"

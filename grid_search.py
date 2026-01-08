@@ -5,37 +5,30 @@ import random
 import shutil
 import string
 import subprocess
+import toml
 
 import numpy as np 
 import pandas as pd 
 
-from train_utils import *
+from posetail.train_utils import *
 
 ''' 
-example script submission 
+example script submission. only use the auto-submit flag to submit each job to a slurm cluster
 
-python grid_search.py --config-path configs/config_default.toml --auto-submit
+python grid_search.py --config-path configs/config_default_3d.toml
 python grid_search.py --config-path configs/config_default_3d.toml --auto-submit
 '''
 
-BASE_DIR = '/home/katie.rupp/posetail/'
-TMP_DIR = '/allen/aind/scratch/katie.rupp/tmp'
-
-# list of parameter combinations to test 
-# PARAM_DICT = {'dataset.train.max_res': [256, 512], 
-#               'training.losses.pixel_thresh': [3, 6], 
-#               'model.latent_dim': [128, 128]}
-
-PARAM_DICT = {'training.losses.pixel_thresh': [3], 
-              'training.optimizer.learning_rate': [0.00001],
-              'training.optimizer.weight_decay': [0.000001],
-              'model.cube_dim': [64], 
-              'model.cube_extent': [500],
-              'training.losses.coords_loss_weight': [0.1],
-              'training.debug_ix': [-1],
-              'dataset.train.n_videos': [5], 
-              'model.corr_radius': [9]}
-# PARAM_DICT = None
+# list of parameter combinations to test - each must be the same length
+PARAM_DICT = {'training.losses.pixel_thresh': [3, 3], 
+              'training.optimizer.learning_rate': [0.00001, 0.00001],
+              'training.optimizer.weight_decay': [0.000001, 0.000001],
+              'model.cube_dim': [64, 64], 
+              'model.cube_extent': [500, 500],
+              'training.losses.coords_loss_weight': [0.1, 0.1],
+              'training.debug_ix': [-1, -1],
+              'dataset.train.n_videos': [1, 1], 
+              'model.corr_radius': [5, 7]}
 
 def parse_args(): 
     '''
@@ -45,7 +38,11 @@ def parse_args():
 
     parser.add_argument('--config-path', default = './configs/config_default.toml')
     parser.add_argument('--auto-submit', action = 'store_true', help = 'auto submits job to slurm')
-    
+    parser.add_argument('--base-dir', help = 'base repo path, used for auto-submit')
+    parser.add_argument('--tmp-dir', help = 'tmp dir path, used for auto-submit')
+    # base_dir = '/home/katie.rupp/posetail/'
+    # tmp_dir = '/allen/aind/scratch/katie.rupp/tmp'
+
     args = parser.parse_args()
 
     return args
@@ -148,19 +145,19 @@ if __name__ == '__main__':
     if args.auto_submit:
 
         # ensure we are in the main codebase
-        os.chdir(BASE_DIR)
+        os.chdir(args.base_dir)
         print(f'running from {os.getcwd()}')
 
         for config_path in config_paths:
 
             # generate uuid and create temp dir
             uuid = generate_uuid(n = 24)
-            temp_dir = safe_make(os.path.join(TMP_DIR, f'posetail_{uuid}'))
+            temp_dir = safe_make(os.path.join(args.tmp_dir, f'posetail_{uuid}'))
             print(f'\ncreated new uuid: {uuid}')
 
             # copy codebase to the temp dir
-            print(f'copying {BASE_DIR} to {temp_dir}')
-            shutil.copytree(BASE_DIR, temp_dir, dirs_exist_ok = True)
+            print(f'copying {args.base_dir} to {temp_dir}')
+            shutil.copytree(args.base_dir, temp_dir, dirs_exist_ok = True)
 
             # change to temp dir 
             os.chdir(temp_dir)
@@ -168,4 +165,4 @@ if __name__ == '__main__':
 
             # run the submission script from the temp dir
             print(f'submitting job with config {config_path}')
-            result = subprocess.run(['sbatch', 'train.sh', config_path])
+            result = subprocess.run(['sbatch', 'train_lightning.sh', config_path])

@@ -24,8 +24,10 @@ def to_homogeneous(p):
     ones = torch.ones(size=one_size, dtype=p.dtype, device=p.device)
     return torch.cat([p, ones], dim=-1)
 
+
 def from_homogeneous(p, eps=1e-6):
     return p[..., :-1] / (p[..., -1, None] + eps) 
+
 
 @torch.compile
 def project_cam(cam, p3d_t):
@@ -35,7 +37,7 @@ def project_cam(cam, p3d_t):
     ext_t = cam['ext']
     mat_t = cam['mat']
     dist = cam['dist']
-    
+
     p2d_proj_raw = torch.matmul(to_homogeneous(p3d_t), ext_t.T)
     p2d_proj_raw = from_homogeneous(p2d_proj_raw[..., :3])
 
@@ -95,40 +97,7 @@ class UnprojectViews:
         )
 
         return coords
-
-
-    # def get_cgroup_box(self):
-
-    #     p3ds = []
-
-    #     for a, b in itertools.combinations(range(len(self.cgroup.cameras)), 2):
-
-    #         cgroup_sub = self.cgroup.subset_cameras([a, b])
-    #         pts = []
-
-    #         for cam in cgroup_sub.cameras:
-
-    #             width, height = cam.get_size()
-    #             pcam = np.array(
-    #                 list(itertools.product(
-    #                 np.linspace(0, width, num = 5),
-    #                 np.linspace(0, height, num = 5)))
-    #             )
-    #             # mid = np.array(cam.get_size())/2
-    #             pts.append(pcam)
-
-    #         pts = np.array(pts)
-    #         p3d = cgroup_sub.triangulate(pts)
-    #         p3ds.append(p3d)
-
-    #     p3ds = np.vstack(p3ds)
-    #     crange = np.diff(np.percentile(p3ds, [5, 95], axis = 0), axis = 0)
-
-    #     center = np.median(p3ds, axis = 0)
-    #     cube_extent = np.max(crange) / 2
-
-    #     return center, cube_extent
-
+    
 
     def create_mesh_3d(self):
 

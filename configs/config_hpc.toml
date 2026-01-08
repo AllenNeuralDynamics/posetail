@@ -50,7 +50,6 @@ max_freq = 10
 n_iters = 4
 embedding_dim = 256 # 64
 latent_dim = 64 # 128
-encoding_dim = 64
 n_virtual = 64 
 n_heads = 8 # 2
 n_time_space_blocks = 6 # 2
@@ -83,9 +82,10 @@ gamma = 0.1
 gamma = 0.8
 pixel_thresh = 12
 delta = 6
-use_huber = true
+use_huber_loss = true
 
 # weights for computing total loss 
 vis_loss_weight = 2
 conf_loss_weight = 1
 coords_loss_weight = 0.05
+feature_loss_weight = 0.5

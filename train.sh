@@ -5,7 +5,7 @@
 #SBATCH -N 1                                                    # number of nodes requested
 #SBATCH --mem=64G                                               # cpu memory 
 #SBATCH --ntasks-per-node=1                                     # number of tasks to run on each node
-#SBATCH --time=120:00:00                                          # time limit hrs:min:sec
+#SBATCH --time=48:00:00                                         # time limit hrs:min:sec
 #SBATCH --gres=gpu:a100:1                                       # gpu(s) requested
 #SBATCH --output=/allen/aind/scratch/katie.rupp/slurm/%j.log    # standard output and error log
 #SBATCH --partition aind                                        # partition used for processing
@@ -16,6 +16,7 @@ CONDA_PATH="/allen/aind/scratch/katie.rupp/miniforge3"
 CONDA_ENV_NAME="posetail118"
 TEMP_DIR="/scratch/fast"
 DATA_DIR="/allen/aind/scratch/katie.rupp/data/rat7m"
+NUM_GPUS=1
 
 CONFIG_PATH=${1:-"configs/config_hpc_2d.toml"} 
 echo "using config $CONFIG_PATH"
@@ -41,7 +42,7 @@ wandb login $WANDB
 
 # run training script 
 echo "starting training..."
-python train_rat7m.py --config-path "${CONFIG_PATH}"
+python train_rat7m_lightning.py --config-path "${CONFIG_PATH}" --devices ${NUM_GPUS}
 echo "done!"
 
 # clean up the submission dir

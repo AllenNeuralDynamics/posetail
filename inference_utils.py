@@ -8,7 +8,6 @@ import torch
 from train_utils import *
 
 
-
 def get_checkpoint(wandb_prefix, run_id, checkpoint = None):
 
     if checkpoint is not None: 
@@ -43,9 +42,9 @@ def load_predictions(data_path, device):
 
 def format_camera(cam, device):
     return {
-        "ext": torch.as_tensor(cam.get_extrinsics_mat(), dtype=torch.float32, device=device),
-        "mat": torch.as_tensor(cam.get_camera_matrix(), dtype=torch.float32, device=device),
-        "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float32)
+        'ext': torch.as_tensor(cam.get_extrinsics_mat(), dtype = torch.float32, device = device),
+        'mat': torch.as_tensor(cam.get_camera_matrix(), dtype = torch.float32, device = device),
+        'dist': torch.as_tensor(cam.dist, device = device, dtype = torch.float32)
     }
 
 def format_camera_group(camera_group, device):
@@ -55,10 +54,10 @@ def format_camera_group(camera_group, device):
 
 def get_video_predictions(video_paths, model, dataloader, pred_path, device, debug_ix = -1):
 
+    torch.set_float32_matmul_precision('high')
     model.eval()
 
     start_time = time.time()
-    timestamp = get_timestamp()
 
     coords_pred = []
     vis_pred = []
@@ -79,24 +78,22 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
         cgroup = None 
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
-            cgroup = format_camera_group(cgroup, device)
+            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
-
-        print(len(views),views[0].shape, coords.shape, cgroup)
         
         # get model predictions
         with torch.no_grad():
-            coords_p, vis_p, conf_p, *_ = model(
+            outputs = model(
                 views = views, 
                 coords = coords[:, 0, ...], 
                 camera_group = cgroup, 
                 offset_dict = None
             )
 
-        coords_pred.append(torch.squeeze(coords_p, dim = 0))
-        vis_pred.append(torch.squeeze(vis_p, dim = 0))
-        conf_pred.append(torch.squeeze(conf_p, dim = 0))
+        coords_pred.append(torch.squeeze(outputs['coords_pred'], dim = 0))
+        vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0))
+        conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0))
         coords_true.append(torch.squeeze(coords, dim = 0))
         vis_true.append(torch.squeeze(vis, dim = 0))
         fnums.append(torch.squeeze(fnum, dim = 0))
@@ -119,6 +116,91 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
         vis_true = vis_true.cpu(),
         fnums = fnums.cpu(), 
         video_path = video_paths, 
+        elapsed_time = list(np.array([elapsed_time])), 
+        elapsed_time_hms = list(elapsed_time_hms))
+
+    return pred_path
+
+
+def pad_array(coords, n_kpts = 20): 
+
+    coords_new = []
+
+    for x in coords:
+        n, _ = x.shape
+        padding = [(0, n_kpts - n), (0, 0)]
+        x_new = np.pad(x, padding, mode = 'constant', constant_values = np.nan)
+        coords_new.append(x_new)
+
+    coords_new = np.array(coords_new)
+
+    return coords_new
+
+
+def get_predictions(data_prefix, model, dataloader, pred_path, device, n_kpts, debug_ix = -1):
+
+    torch.set_float32_matmul_precision('high')
+    model.eval()
+
+    start_time = time.time()
+
+    coords_pred = []
+    vis_pred = []
+    conf_pred = []
+    coords_true = []
+    vis_true = []
+    fnums = []
+
+    for j, batch in enumerate(dataloader):
+
+        views = [view.to(device) for view in batch.views]
+        coords = batch.coords.to(device)
+        fnum = batch.fnums.to(device)
+
+        if j == debug_ix: 
+            break
+
+        cgroup = None 
+        if 'cgroup' in batch: 
+            cgroup = batch.cgroup
+            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
+
+        vis = get_vis_true(coords)
+                      
+        # get model predictions
+        with torch.no_grad():
+            outputs = model(
+                views = views, 
+                coords = coords[:, 0, ...], 
+                camera_group = cgroup, 
+                offset_dict = None
+            )
+
+        coords_pred.append(pad_array(torch.squeeze(outputs['coords_pred'], dim = 0).cpu().numpy(), n_kpts = n_kpts))
+        vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0).cpu().numpy())
+        conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0).cpu().numpy())
+        coords_true.append(pad_array(torch.squeeze(coords, dim = 0).cpu().numpy(), n_kpts = n_kpts))
+        vis_true.append(torch.squeeze(vis, dim = 0).cpu().numpy())
+        fnums.append(torch.squeeze(fnum, dim = 0).cpu().numpy())
+
+    coords_pred = np.concatenate(coords_pred, axis = 0)
+    vis_pred = np.concatenate(vis_pred, axis = 0)
+    conf_pred = np.concatenate(conf_pred, axis = 0)
+    coords_true = np.concatenate(coords_true, axis = 0)
+    vis_true = np.concatenate(vis_true, axis = 0)
+    fnums = np.concatenate(fnums, axis = 0)
+
+    elapsed_time = time.time() - start_time
+    elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
+
+    np.savez(pred_path,
+        coords_pred = coords_pred, 
+        # vis_pred = vis_pred, 
+        # conf_pred = conf_pred,
+        coords_true = coords_true,
+        # vis_true = vis_true,
+        fnums = fnums, 
+        video_path = data_prefix, 
         elapsed_time = list(np.array([elapsed_time])), 
         elapsed_time_hms = list(elapsed_time_hms))
 

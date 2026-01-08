@@ -11,20 +11,19 @@ from torch.utils.data import DataLoader
 
 from lightning.fabric import Fabric
 
-from pytorch_memlab import MemReporter, LineProfiler, profile
+# from pytorch_memlab import MemReporter, LineProfiler, profile
 
-# from posetail.datasets.datasets import custom_collate_2d, custom_collate_3d
 from posetail.datasets.posetail_dataset import PosetailDataset, custom_collate
 from posetail.posetail.losses import *
 from posetail.posetail.tracker import Tracker
-from train_utils_lightning import *
+from train_utils import *
 
 
 ''' 
-python train_rat7m_lightning.py --config-path configs/config_default_2d.toml
-python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --devices 1
-python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --devices 1 2
-pixi run python train_rat7m_lightning.py --config-path configs/config_default_3d.toml --precision 32 --devices 1 
+python train.py --config-path configs/config_default_2d.toml
+python train.py --config-path configs/config_default_3d.toml --devices 1
+python train.py --config-path configs/config_default_3d.toml --devices 1 2
+pixi run python train.py --config-path configs/config_default_3d.toml --precision 32 --devices 1 
 '''
 
 def parse_args(): 
@@ -76,19 +75,13 @@ def run(config_path, fabric):
     set_seeds(config.training.seed)
 
     # set up training dataloader
-    # train_dataset = get_dataset(**config.dataset.train)
-
-    # train_loader = DataLoader(
-    #     train_dataset, 
-    #     batch_size = config.dataset.batch_size, 
-    #     collate_fn = custom_collate_3d if config.model.track_3d else custom_collate_2d)
-
-    # set up training dataloader
     train_dataset = PosetailDataset(
         data_path = config.dataset.train.prefix, 
         track_3d = config.model.track_3d, 
         n_frames = config.dataset.train.n_frames,
-        max_res = config.dataset.train.max_res)
+        max_res = config.dataset.train.max_res, 
+        cams_to_sample = config.dataset.train.cams_to_sample, 
+        kpts_to_sample = config.dataset.train.kpts_to_sample)
 
     train_loader = DataLoader(
         train_dataset, 
@@ -98,7 +91,6 @@ def run(config_path, fabric):
         num_workers = 8)
 
     train_loader = fabric.setup_dataloaders(train_loader)
-
     # torch.autograd.set_detect_anomaly(True)
     
     if 'steps_per_epoch' in config.training.scheduler and config.training.scheduler.steps_per_epoch == -1:
@@ -124,11 +116,10 @@ def run(config_path, fabric):
     model.cnn.compile()
     model.corr_mlp.compile()
     model.tsformer.compile()
-    model.minicube_v2v.compile()
-    # model.compile()
-    # torch.compile(model.cnn)
-    # torch.compile(model.corr_mlp)
-    # torch.compile(model.tsformer)
+
+    if model.mode_3d == 'minicubes':
+        model.minicube_v2v.compile()
+
     model = fabric.setup(model)
     model.mark_forward_method('get_feature_loss')
     
@@ -150,7 +141,7 @@ def run(config_path, fabric):
         lr = config.training.optimizer.learning_rate, 
         weight_decay = config.training.optimizer.weight_decay,
         amsgrad=config.training.optimizer.amsgrad,
-        fused=True)
+        fused = True)
 
     optimizer = fabric.setup_optimizers(optimizer)
 

@@ -4,7 +4,7 @@ import os
 from torch.utils.data import DataLoader
 
 from posetail.datasets.datasets import Rat7mDataset, custom_collate_3d
-from train_utils_lightning import *
+from posetail.train_utils import *
 from inference_utils import *
 from viz3d import *
 

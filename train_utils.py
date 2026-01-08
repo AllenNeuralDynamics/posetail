@@ -7,19 +7,21 @@ import yaml
 
 import numpy as np
 
-from torch.amp import GradScaler
-from torch.nn.utils import clip_grad_norm_
+# from torch.cuda.amp import GradScaler
+# from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, IterableDataset
 
 from datetime import datetime, timezone, timedelta
 from easydict import EasyDict
 # from pytorch_memlab import MemReporter, LineProfiler, profile
 
-from posetail.datasets.datasets import Rat7mIterableDataset
+# from posetail.datasets.datasets import Rat7mIterableDataset
 from posetail.datasets.utils import safe_make
 from posetail.posetail.eval_metrics import get_eval_metrics
 from posetail.posetail.losses import get_vis_true, unroll_batch
 from posetail.posetail.tracker import Tracker 
+
+from einops import rearrange
 
 
 def set_seeds(seed = 3, set_backends = True):
@@ -39,15 +41,14 @@ def set_seeds(seed = 3, set_backends = True):
         torch.backends.cudnn.benchmark = False
 
 
-def get_dataset(dataset_name, **kwargs):
+# def get_dataset(dataset_name, **kwargs):
 
-    if dataset_name == 'rat7m':
-        dataset = Rat7mIterableDataset(**kwargs)
-    else:
-        raise ValueError(f'no functionality for dataset named {dataset}')
+#     if dataset_name == 'rat7m':
+#         dataset = Rat7mIterableDataset(**kwargs)
+#     else:
+#         raise ValueError(f'no functionality for dataset named {dataset}')
 
-    return dataset
-
+#     return dataset
 
 def load_config(config_path, easy = True): 
     ''' 
@@ -135,6 +136,24 @@ def load_checkpoint(config_path, checkpoint_path):
 
     return model
 
+def load_checkpoint_no_inductor(config_path, checkpoint_path): 
+
+    config = load_config(config_path)
+
+    device = torch.device(config.devices.device)
+
+    if not torch.cuda.is_available(): 
+        device = torch.device('cpu')
+
+    model = Tracker(**config.model) 
+    model.to(device)
+
+    checkpoint = torch.load(checkpoint_path, map_location = device)
+    state_dict = checkpoint.get('model_state')
+    model.load_state_dict(state_dict)
+
+    return model
+
 
 def print_memory(device): 
 
@@ -169,29 +188,52 @@ def get_timestamp():
     timestamp = datetime.now(tz)
     timestamp_fmt = timestamp.strftime('%Y-%m-%d %H:%M:%S')
 
-    return timestamp_fmt 
+    return timestamp_fmt
+
+def format_camera(cam, device):
+    return {
+        "name": cam.get_name(),
+        "ext": torch.as_tensor(cam.get_extrinsics_mat(), device=device, dtype=torch.float),
+        "mat": torch.as_tensor(cam.get_camera_matrix(), device=device, dtype=torch.float),
+        "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float)
+    }
+
+def format_camera_group(camera_group, device):
+    return [format_camera(cam, device)
+            for cam in camera_group.cameras]
+
+def dict_to_device(dd, device):
+
+    dout = dict()
+
+    for k, v in dd.items():
+        if isinstance(v, torch.Tensor):
+            dout[k] = v.to(device)
+        else:
+            dout[k] = v
+
+    return dout
 
 # @profile
-def train_epoch(model, dataloader, optimizer, loss, device, scheduler = None,
-                use_amp = False, amp_type = torch.float16, max_grad_norm = 1,
-                prefix = 'train/', debug_ix = -1, evaluate = False): 
+def train_epoch(config, model, fabric, dataloader, 
+                optimizer, loss, scheduler = None,
+                prefix = 'train/',  evaluate = False): 
 
+    device = model.device
     model.train()
 
     start_time = time.time()
     timestamp = get_timestamp()
 
-    grad_scaler = GradScaler(device = device, enabled = use_amp)
     learning_rate = optimizer.param_groups[0]['lr']
 
     n_batches = 0
     n_frames = 0
-
     metric_dicts = []
-
+    
     for j, batch in enumerate(dataloader):
 
-        if j == debug_ix: 
+        if j == config.training.debug_ix: 
             break
     
         views = [view.to(device) for view in batch.views]
@@ -200,6 +242,7 @@ def train_epoch(model, dataloader, optimizer, loss, device, scheduler = None,
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
+            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
 
@@ -207,57 +250,68 @@ def train_epoch(model, dataloader, optimizer, loss, device, scheduler = None,
             coords = coords, 
             vis = vis, 
             stride = model.S, 
-            stride_overlap = model.stride_overlap
-        )
+            stride_overlap = model.stride_overlap)
 
-        # get model predictions
-        if use_amp:
+        optimizer.zero_grad()
 
-            with torch.autocast(device_type = device.type, dtype = amp_type, enabled = use_amp):
+        outputs = model(
+            views = list(views), 
+            coords = coords[:, 0, ...], 
+            camera_group = cgroup, 
+            offset_dict = None)
 
-                outputs = model(
-                    views = views, 
-                    coords = coords[:, 0, ...], 
-                    camera_group = cgroup, 
-                    offset_dict = None
-                )
+        coords_pred = outputs['coords_pred']
+        vis_pred = outputs['vis_pred']
+        total_loss = loss(
+            model = model, 
+            outputs = outputs,
+            coords_full = coords,
+            coords_true = coords_true, 
+            vis_true = vis_true, 
+            cgroup = cgroup, 
+            device = coords_pred.device)
 
-                total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
-
-            grad_scaler.scale(total_loss).backward()
-            clip_grad_norm_(model.parameters(), max_norm = max_grad_norm)
-
-            grad_scaler.step(optimizer)
-            grad_scaler.update()
-            optimizer.zero_grad(set_to_none = True)
-
-        else: 
-            outputs = model(
-                views = views, 
-                coords = coords[:, 0, ...], 
-                camera_group = cgroup, 
-                offset_dict = None
-            )
-
-            coords_pred = outputs[0]
-            vis_pred = outputs[1]
-            conf_pred = outputs[2]
-
-            total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
-
+        # if not torch.any(torch.isnan(total_loss)):
             # report = reporter.report()
 
-            total_loss.backward()
-            clip_grad_norm_(model.parameters(), max_norm = max_grad_norm)
+        # if torch.any(torch.isnan(total_loss)):
+        #     print(total_loss)
+            
+        fabric.backward(total_loss)
 
-            optimizer.step()
-            optimizer.zero_grad()
+        # bad = False
+        # for name, param in model.named_parameters():
+        #     if param.grad is not None:
+        #         grad_norm = param.grad.data.norm(2)
+        #         if not torch.isfinite(grad_norm):
+        #             print(f"{name}: {grad_norm}")
+        #             bad = True
+
+        # if bad:
+        #     import pickle
+        #     outname = '/data/results/lili/posetail/test/modeltest.pth'
+        #     state_dict = {'views': views,
+        #                   'coords': coords,
+        #                   'camera_group': cgroup,
+        #                   'model_state': model.state_dict(),
+        #                   'optimizer_state': optimizer.state_dict()}
+        #     torch.save(state_dict, outname)
+        #     print("torch state dumped")
+
+        fabric.clip_gradients(model, optimizer, 
+            max_norm = config.training.max_grad_norm, 
+            error_if_nonfinite = True)
+
+        optimizer.step()
+        optimizer.zero_grad()
+        # else:
+        #     print('WARNING: nan loss')
         
         if evaluate:
             metrics_dict = get_eval_metrics(
-                vis_pred = outputs[1], 
+                vis_pred = vis_pred, 
                 vis_true = vis, 
-                coords_pred = outputs[0], 
+                coords_pred = coords_pred, 
                 coords_true = coords,
                 prefix = prefix
             ) 
@@ -348,7 +402,6 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
         if loss is not None:
             total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
 
-
         metrics_dict = get_eval_metrics(
             vis_pred = outputs[1], 
             vis_true = vis, 
@@ -387,3 +440,32 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
     eval_dict.update(avg_metrics_dict)
 
     return eval_dict
+
+
+# in the process of moving this
+# vis_pred = outputs['vis_pred']
+# feature_planes_levels = outputs['feature_planes_levels']
+
+# if config.training.losses.use_feature_loss:
+
+#     feature_loss = model.get_feature_loss(
+#         feature_planes_levels = feature_planes_levels, 
+#         coords_full = coords, 
+#         camera_group = cgroup, 
+#         offset_dict = None)
+    
+#     outputs['feature_loss'] = feature_loss
+
+#     b, s, n, r = coords.shape
+#     coords_flat = rearrange(coords, 'b s n r -> (b s n) r')
+#     ixs_perm = torch.randperm(coords_flat.shape[0])
+#     coords_shuffle = rearrange(coords_flat[ixs_perm], '(b s n) r -> b s n r',
+#         b = b, s = s, n = n)
+
+#     bad_feature_loss = model.get_feature_loss(
+#         feature_planes_levels = feature_planes_levels, 
+#         coords_full = coords_shuffle, 
+#         camera_group = cgroup, 
+#         offset_dict = None)
+    
+#     outputs['bad_feature_loss'] = 1 - bad_feature_loss

@@ -59,7 +59,6 @@ n_iters = 4
 embedding_dim = 384
 # embedding_dim = 512
 latent_dim = 64
-# encoding_dim = 64 # this doesn't change anything
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 6
@@ -98,9 +97,10 @@ gamma = 0.8
 pixel_thresh = 6
 # delta = 0.1
 delta = 3
-use_huber = false
+use_huber_loss = false
 
 # weights for computing total loss
 vis_loss_weight = 2
 conf_loss_weight = 1
 coords_loss_weight = 0.05
+feature_loss_weight = 0.5

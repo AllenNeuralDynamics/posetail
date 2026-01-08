@@ -10,18 +10,21 @@ from einops import rearrange
 class TotalLoss(nn.Module): 
 
     def __init__(self, gamma = 0.8, pixel_thresh = 12, delta = 6, 
-                 use_huber = False, vis_loss_weight = 1,
-                 conf_loss_weight = 1, coords_loss_weight = 1):
+                 use_huber_loss = False, use_feature_loss = False, 
+                 vis_loss_weight = 1, conf_loss_weight = 1, 
+                 coords_loss_weight = 1, feature_loss_weight = 0.5):
         super().__init__()
 
         self.gamma = gamma
         self.pixel_thresh = pixel_thresh
         self.delta = delta
-        self.use_huber = use_huber
+        self.use_huber_loss = use_huber_loss
+        self.use_feature_loss = use_feature_loss
 
         self.vis_loss_weight = vis_loss_weight
         self.conf_loss_weight = conf_loss_weight
         self.coords_loss_weight = coords_loss_weight
+        self.feature_loss_weight = feature_loss_weight
 
         self.bce_loss_vis = BCELossVis(
             gamma = self.gamma, 
@@ -37,11 +40,17 @@ class TotalLoss(nn.Module):
         self.mae_loss_coords = WeightedMAELoss(
             gamma = self.gamma, 
             delta = self.delta, 
-            use_huber = self.use_huber, 
+            use_huber_loss = self.use_huber_loss, 
             weight = self.coords_loss_weight
         )
 
-        loss_names = ['vis_loss', 'conf_loss', 'coords_loss', 'feature_loss', 'bad_feature_loss', 'total_loss']
+        if self.use_feature_loss: 
+            self.feature_loss = FeatureLoss(
+                weight = self.feature_loss_weight)
+
+        loss_names = ['vis_loss', 'conf_loss', 'coords_loss',
+                      'feature_loss','bad_feature_loss',
+                      'total_loss']
         self.loss_history = {loss_name: [] for loss_name in loss_names}
 
     def collapse_history(self, prefix = ''): 
@@ -57,18 +66,22 @@ class TotalLoss(nn.Module):
         self.loss_history = {name: [] for name in list(self.loss_history.keys())}
 
 
-    def forward(self, outputs, coords_true, vis_true, device = None):
+    def forward(self, model, outputs, coords_full, coords_true, 
+                vis_true, cgroup = None, device = None):
 
-        (coords_pred, vis_pred, 
-        conf_pred, coords_pred_iters, 
-        vis_pred_iters, conf_pred_iters) = outputs[:6]
+        coords_pred = outputs['coords_pred']
+        vis_pred = outputs['vis_pred']
+        conf_pred = outputs['conf_pred']
+        coords_pred_iters = outputs['coords_pred_iters']
+        vis_pred_iters = outputs['vis_pred_iters']
+        conf_pred_iters = outputs['conf_pred_iters']
 
         # # compute losses
         # vis_loss = self.bce_loss_vis(
         #     vis_pred = vis_pred_iters,
         #     vis_true = vis_true,
         #     device = device
-        # )
+        # )x
 
         # conf_loss = self.bce_loss_conf(
         #     conf_pred = conf_pred_iters, 
@@ -85,19 +98,28 @@ class TotalLoss(nn.Module):
             device = device
         )
 
-        feature_loss = outputs[6] * 0.5
-        bad_feature_loss = outputs[7] * 0.5
 
-        # total_loss = vis_loss + conf_loss + coords_loss
-        # total_loss = coords_loss
-        total_loss = coords_loss + feature_loss + bad_feature_loss
+        total_loss = coords_loss
+
+        if self.use_feature_loss: 
+
+            feature_loss, bad_feature_loss = self.feature_loss(
+                model = model, 
+                coords_true = coords_full, 
+                feature_planes_levels = outputs['feature_planes_levels'], 
+                cgroup = cgroup
+            )
+
+            total_loss += feature_loss
+            total_loss += bad_feature_loss
+
+            self.loss_history['feature_loss'].append(feature_loss.item())
+            self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 
         # self.loss_history['vis_loss'].append(vis_loss.item())
         # self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
-        self.loss_history['feature_loss'].append(feature_loss.item())
-        self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 
         return total_loss
 
@@ -169,12 +191,12 @@ class BCELossConf(nn.Module):
 
 class WeightedMAELoss(nn.Module):
 
-    def __init__(self, gamma = 0.8, delta = 6, use_huber = False, weight = 1):
+    def __init__(self, gamma = 0.8, delta = 6, use_huber_loss = False, weight = 1):
         super().__init__()
 
         self.gamma = gamma
         self.delta = delta
-        self.use_huber = use_huber
+        self.use_huber_loss = use_huber_loss
         self.weight = weight
 
     def huber_loss(self, coords_pred, coords_true):
@@ -200,7 +222,7 @@ class WeightedMAELoss(nn.Module):
         for i in range(n_strides):
             for j in range(n_iters):
 
-                if self.use_huber: 
+                if self.use_huber_loss: 
                     loss = self.huber_loss(coords_pred[i][j], coords_true[i])
                 else:
                     loss = torch.abs(coords_pred[i][j] - coords_true[i])
@@ -210,6 +232,39 @@ class WeightedMAELoss(nn.Module):
         total_loss = self.weight * torch.mean(weights * torch.mean(losses, axis = 0), axis = 0)
 
         return total_loss
+
+
+class FeatureLoss(nn.Module): 
+
+    def __init__(self, weight):
+        super().__init__()
+
+        self.weight = weight
+
+    def forward(self, model, coords_true, feature_planes_levels, cgroup): 
+
+        feature_loss = model.get_feature_loss(
+            feature_planes_levels = feature_planes_levels, 
+            coords_full = coords_true, 
+            camera_group = cgroup, 
+            offset_dict = None)
+        
+        b, s, n, r = coords_true.shape
+        coords_flat = rearrange(coords_true, 'b s n r -> (b s n) r')
+        ixs_perm = torch.randperm(coords_flat.shape[0])
+        coords_shuffle = rearrange(coords_flat[ixs_perm], '(b s n) r -> b s n r',
+            b = b, s = s, n = n)
+
+        bad_feature_loss = model.get_feature_loss(
+            feature_planes_levels = feature_planes_levels, 
+            coords_full = coords_shuffle, 
+            camera_group = cgroup, 
+            offset_dict = None)
+        
+        feature_loss *= self.weight
+        bad_feature_loss *= self.weight
+    
+        return feature_loss, bad_feature_loss
 
 
 def get_vis_true(coords):
