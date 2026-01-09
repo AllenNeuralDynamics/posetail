@@ -246,13 +246,6 @@ def train_epoch(config, model, fabric, dataloader,
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
-
-        coords_true, vis_true = unroll_batch(
-            coords = coords, 
-            vis = vis, 
-            stride = model.S, 
-            stride_overlap = model.stride_overlap)
-
         optimizer.zero_grad()
 
         outputs = model(
@@ -266,9 +259,8 @@ def train_epoch(config, model, fabric, dataloader,
         total_loss = loss(
             model = model, 
             outputs = outputs,
-            coords_full = coords,
-            coords_true = coords_true, 
-            vis_true = vis_true, 
+            coords_true = coords, 
+            vis_true = vis, 
             cgroup = cgroup, 
             device = coords_pred.device)
 
@@ -384,12 +376,12 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
 
         vis = get_vis_true(coords)
 
-        coords_true, vis_true = unroll_batch(
-            coords = coords, 
-            vis = vis, 
-            stride = model.S, 
-            stride_overlap = model.stride_overlap
-        )
+        # coords_true, vis_true = unroll_batch(
+        #     coords = coords, 
+        #     vis = vis, 
+        #     stride = model.S, 
+        #     stride_overlap = model.stride_overlap
+        # )
                                    
         # get model predictions
         with torch.no_grad():
@@ -401,7 +393,14 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
                 )
         
         if loss is not None:
-            total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
+            # total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
+            total_loss = loss(
+                model = model, 
+                outputs = outputs,
+                coords_true = coords, 
+                vis_true = vis, 
+                cgroup = cgroup, 
+                device = coords_pred.device)
 
         metrics_dict = get_eval_metrics(
             vis_pred = outputs[1], 

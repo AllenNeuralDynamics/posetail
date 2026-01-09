@@ -196,7 +196,6 @@ class PosetailDataset(Dataset):
                     # get paths to metadata, 3d pose, and images
                     trial_path = os.path.join(session_path, trial)
 
-                    print(trial_path)
                     metadata_path = os.path.join(trial_path, 'metadata.yaml')
                     assert os.path.exists(metadata_path)
                     cam_metadata = load_yaml(metadata_path)
@@ -215,7 +214,6 @@ class PosetailDataset(Dataset):
                     # get starting indices 
                     coords = np.load(pose_path)[f'pose']
                     start_ixs = self._get_start_ixs(coords)
-
                     # n_batches = len(imgs) // self.n_frames
                     # start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
                     end_ixs = start_ixs + self.n_frames

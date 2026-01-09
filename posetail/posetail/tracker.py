@@ -833,14 +833,14 @@ class Tracker(nn.Module):
         result_dict = {
             'coords_pred': coords_pred,
             'vis_pred': vis_pred,
-            'conf_pred': conf_pred}
+            'conf_pred': conf_pred, 
+            'feature_planes_levels': feature_planes_levels}
 
         if self.training: 
             train_dict = {
                 'coords_pred_iters': coords_pred_iters,
                 'vis_pred_iters': vis_pred_iters, 
-                'conf_pred_iters': conf_pred_iters, 
-                'feature_planes_levels': feature_planes_levels}
+                'conf_pred_iters': conf_pred_iters}
             
             result_dict.update(train_dict)
 
