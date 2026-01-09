@@ -12,6 +12,9 @@ prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
 # prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-35000'
 n_frames = 16
 max_res = 256
+cams_to_sample = 5 # default: -1 
+kpts_to_sample = 60 # default: -1
+
 
 [dataset.test]
 dataset_name = 'rat7m'
@@ -78,16 +81,16 @@ print_freq = 1
 debug_ix = -1
 
 [training.optimizer]
-learning_rate = 3e-5
+learning_rate = 1e-4
 weight_decay = 1e-6
 # weight_decay = 0
-amsgrad = true
+amsgrad = false
 
 [training.scheduler]
-# milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
-# gamma = 0.6
-milestones = [200]
-gamma = 0.1
+milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
+gamma = 0.7
+# milestones = [200]
+# gamma = 0.1
 # steps_per_epoch = 218
 # pct_start = 0.05
 # cycle_momentum = false
@@ -98,9 +101,10 @@ pixel_thresh = 6
 # delta = 0.1
 delta = 3
 use_huber_loss = false
+use_feature_loss = true
 
 # weights for computing total loss
 vis_loss_weight = 2
 conf_loss_weight = 1
 coords_loss_weight = 0.05
-feature_loss_weight = 0.5
+feature_loss_weight = 1.0

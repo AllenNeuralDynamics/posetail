@@ -741,9 +741,6 @@ class Tracker(nn.Module):
             feature_planes = rearrange(feature_maps, '1 b t d h w -> b t d h w 1')
 
         # initialize feature planes and track features for each correlation level
-        (feature_planes_levels, 
-        track_features_levels) = self.init_levels(coords = coords, 
-                                                  feature_planes = feature_planes)
         
         if self.R == 3 and self.mode_3d == 'minicubes':
             # feature_planes_levels = [rearrange(f, 'b s d h w -> b s d h w 1')

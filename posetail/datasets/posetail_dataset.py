@@ -13,8 +13,8 @@ from easydict import EasyDict as edict
 from einops import rearrange
 
 from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
-from posetail.posetail.cube import project_points_torch
-from train_utils import format_camera_group
+from posetail.posetail.cube import project_points_torch, is_point_visible
+from train_utils import format_camera_group, dict_to_device
 
 
 def custom_collate(batch):
@@ -115,6 +115,17 @@ class PosetailDataset(Dataset):
         # s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
         # good = np.all(s >= 2, axis=1)
         # coords = coords[:, :, good[0]]
+        #
+        
+        # TODO: fix this for batch > 1
+        b, s, k, r = coords.shape
+        coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
+        all_visible = torch.stack([is_point_visible(cam, coords_flat) 
+                                   for cam in cgroup])
+        count_flat = torch.sum(all_visible, dim=0)
+        count = rearrange(count_flat, '(b s k) -> b s k', b=b, s=s, k=k)
+        good = torch.all(count >= 2, dim=1)
+        coords = coords[:, :, good[0]]
 
         # sample keypoints from available tracks 
         if self.kpts_to_sample != -1 and coords.shape[2] > self.kpts_to_sample:   

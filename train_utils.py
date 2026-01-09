@@ -195,7 +195,8 @@ def format_camera(cam, device):
         "name": cam.get_name(),
         "ext": torch.as_tensor(cam.get_extrinsics_mat(), device=device, dtype=torch.float),
         "mat": torch.as_tensor(cam.get_camera_matrix(), device=device, dtype=torch.float),
-        "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float)
+        "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float),
+        "size": torch.as_tensor(cam.get_size(), device=device, dtype=torch.int)
     }
 
 def format_camera_group(camera_group, device):

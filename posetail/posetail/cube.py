@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from einops import rearrange
+from einops import rearrange, einsum
 
 
 def project_volumes(volumes): 
@@ -29,7 +29,7 @@ def from_homogeneous(p, eps=1e-6):
     return p[..., :-1] / (p[..., -1, None] + eps) 
 
 
-@torch.compile
+# @torch.compile
 def project_cam(cam, p3d_t):
     # p3d_t = torch.as_tensor(p3d)
     # ext_t = torch.as_tensor(cam.get_extrinsics_mat(), dtype=p3d_t.dtype, device=p3d_t.device)
@@ -68,28 +68,54 @@ def projection_sensitivity(cam, p):
     fx = cam['mat'][0,0]
     fy = cam['mat'][1,1]
     ext_t = cam['ext']
-    R = ext_t[:3,:3]
     
     p_cam = torch.matmul(to_homogeneous(p), ext_t.T)[:, :3]
     X = p_cam[:, 0]
     Y = p_cam[:, 1]
     Z = p_cam[:, 2]
     
-    J_proj = torch.zeros((n_points, 2, 3), dtype=p_cam.dtype, device=p_cam.device)
+    J_proj = torch.zeros((n_points, 2, 3), dtype=torch.float64, device=p_cam.device)
     J_proj[:, 0, 0] = fx / Z
     J_proj[:, 0, 2] = -fx * X / (Z**2)
     J_proj[:, 1, 1] = fy / Z
     J_proj[:, 1, 2] = -fy * Y / (Z**2)
     
+    R = ext_t[:3,:3].to(torch.float64)
     J = einsum(J_proj, R, 'n i j, j k -> n i k')
     return J
 
+def is_point_visible(cam, p3d, margin=0):
+    """
+    Check if 3D points project into camera view.
+    margin: pixels from border (e.g., 10 to avoid edge effects)
+    """
+    p2d = project_cam(cam, p3d)
+    w, h = cam['size']
+
+    # check if in bounds
+    in_bounds = (
+        (p2d[:, 0] >= margin) & 
+        (p2d[:, 0] < w - margin) &
+        (p2d[:, 1] >= margin) & 
+        (p2d[:, 1] < h - margin)
+    )
+
+    # check if point is in front of camera
+    p_cam = torch.matmul(to_homogeneous(p3d), cam['ext'].T)[:, :3]
+    in_front = p_cam[:, 2] > 0
+
+    return in_bounds & in_front
+
 def get_camera_scale(camera_group, p):
-    total = 0
+    ps = []
     for cam in camera_group:
-        J  = projection_sensitivity(cam, p)
-        total += torch.mean(torch.linalg.svd(J).S[:,0])
-    sensitivity = total / len(camera_group)
+        visible = is_point_visible(cam, p)
+        if torch.sum(visible) > 0:
+            J  = projection_sensitivity(cam, p[visible])
+            ps.append(torch.median(torch.linalg.svd(J).S[:,0]))
+    if len(ps) == 0:
+        return torch.nan
+    sensitivity = torch.median(torch.as_tensor(ps))
     scale = 1/sensitivity
     return scale.item()
 

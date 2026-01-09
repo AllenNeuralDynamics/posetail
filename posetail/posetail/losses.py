@@ -101,7 +101,7 @@ class TotalLoss(nn.Module):
 
         # normalize by the camera scale
         if model.R == 3:
-            scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
+            scale = get_camera_scale(cgroup, coords_full.reshape(-1, 3))
             coords_loss = coords_loss / scale
 
         total_loss = coords_loss
@@ -265,6 +265,7 @@ class FeatureLoss(nn.Module):
             coords_full = coords_shuffle, 
             camera_group = cgroup, 
             offset_dict = None)
+        bad_feature_loss  = 1 - bad_feature_loss
         
         feature_loss *= self.weight
         bad_feature_loss *= self.weight
