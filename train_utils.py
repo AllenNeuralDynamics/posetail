@@ -441,32 +441,3 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
     eval_dict.update(avg_metrics_dict)
 
     return eval_dict
-
-
-# in the process of moving this
-# vis_pred = outputs['vis_pred']
-# feature_planes_levels = outputs['feature_planes_levels']
-
-# if config.training.losses.use_feature_loss:
-
-#     feature_loss = model.get_feature_loss(
-#         feature_planes_levels = feature_planes_levels, 
-#         coords_full = coords, 
-#         camera_group = cgroup, 
-#         offset_dict = None)
-    
-#     outputs['feature_loss'] = feature_loss
-
-#     b, s, n, r = coords.shape
-#     coords_flat = rearrange(coords, 'b s n r -> (b s n) r')
-#     ixs_perm = torch.randperm(coords_flat.shape[0])
-#     coords_shuffle = rearrange(coords_flat[ixs_perm], '(b s n) r -> b s n r',
-#         b = b, s = s, n = n)
-
-#     bad_feature_loss = model.get_feature_loss(
-#         feature_planes_levels = feature_planes_levels, 
-#         coords_full = coords_shuffle, 
-#         camera_group = cgroup, 
-#         offset_dict = None)
-    
-#     outputs['bad_feature_loss'] = 1 - bad_feature_loss
