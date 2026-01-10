@@ -47,8 +47,9 @@ def custom_collate(batch):
 
 class PosetailDataset(Dataset): 
 
-    def __init__(self, data_path, track_3d = True, n_frames = 16, max_res = -1, 
-                 cams_to_sample = -1, kpts_to_sample = -1): 
+    def __init__(self, data_path, track_3d = True, n_frames = 16, 
+                 max_res = -1, enable_kpt_filtering = False,
+                 cams_to_sample = None, kpts_to_sample = None): 
 
         self.data_path = data_path
         self.track_3d = track_3d
@@ -58,6 +59,7 @@ class PosetailDataset(Dataset):
         # for sampling cameras (None uses all available)
         self.cams_to_sample = cams_to_sample
         self.kpts_to_sample = kpts_to_sample
+        self.enable_kpt_filtering = enable_kpt_filtering
 
         # generate metadata for the provided data path (requires a specific format)
         self.metadata = self._generate_metadata(track_3d)
@@ -82,7 +84,6 @@ class PosetailDataset(Dataset):
         # load keypoints 
         pose = np.load(row['pose_path'])['pose']
         coords = pose[:, start_ix:end_ix, :, :]
-        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
         
         # load camera resolutions for resizing
         res_dict = json.loads(row['res_dict'])
@@ -95,7 +96,7 @@ class PosetailDataset(Dataset):
         views = []
 
         # sample views from cameras
-        if self.cams_to_sample != -1 and len(cam_names) > self.cams_to_sample:
+        if self.cams_to_sample and len(cam_names) > self.cams_to_sample:
             ix_cams = np.random.choice(len(cam_names), size = self.cams_to_sample, replace = False)
             cam_names = [cam_names[i] for i in ix_cams]
 
@@ -105,30 +106,33 @@ class PosetailDataset(Dataset):
         else: 
             cgroup = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
             cgroup = cgroup.subset_cameras_names(cam_names)
-            cgroup = format_camera_group(cgroup, coords.device) 
 
-        # filter points that are visible from at least 2 views
+            # filter points that are visible from at least 2 views
+            if self.enable_kpt_filtering:
+                b, s, k, r = coords.shape
+                coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
+                p2d_flat = cgroup.project(coords_flat)
+                p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
+                s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
+                good = np.all(s >= 2, axis=1)
+                coords = coords[:, :, good[0]]
+
+            cgroup = format_camera_group(cgroup, device = 'cpu') 
+        
+        # # TODO: fix this for batch > 1
         # b, s, k, r = coords.shape
         # coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
-        # p2d_flat = project_points_torch(cgroup, coords_flat)
-        # p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
-        # s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
-        # good = np.all(s >= 2, axis=1)
+        # all_visible = torch.stack([is_point_visible(cam, coords_flat) 
+        #                            for cam in cgroup])
+        # count_flat = torch.sum(all_visible, dim=0)
+        # count = rearrange(count_flat, '(b s k) -> b s k', b=b, s=s, k=k)
+        # good = torch.all(count >= 2, dim=1)
         # coords = coords[:, :, good[0]]
-        #
-        
-        # TODO: fix this for batch > 1
-        b, s, k, r = coords.shape
-        coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
-        all_visible = torch.stack([is_point_visible(cam, coords_flat) 
-                                   for cam in cgroup])
-        count_flat = torch.sum(all_visible, dim=0)
-        count = rearrange(count_flat, '(b s k) -> b s k', b=b, s=s, k=k)
-        good = torch.all(count >= 2, dim=1)
-        coords = coords[:, :, good[0]]
+
+        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
 
         # sample keypoints from available tracks 
-        if self.kpts_to_sample != -1 and coords.shape[2] > self.kpts_to_sample:   
+        if self.kpts_to_sample and coords.shape[2] > self.kpts_to_sample:   
             ix_p = np.random.choice(coords.shape[2], size = self.kpts_to_sample, replace = False)
             coords = coords[:, :, ix_p, :]
         

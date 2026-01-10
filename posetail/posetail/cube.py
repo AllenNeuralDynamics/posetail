@@ -58,9 +58,22 @@ def project_cam(cam, p3d_t):
     return p2d
 
 @torch.compile
-def project_points_torch(camera_group, p3d):
-    return torch.stack([project_cam(cam, p3d) 
-                        for cam in camera_group])
+def project_points_torch(camera_group, coords_3d, downsample_factor = 1, offset_dict = None):
+
+    coords_proj = torch.stack([project_cam(cam, coords_3d) for cam in camera_group])
+                
+    # TODO: test this once we have a dataset to do so
+    # account for camera offsets
+    camera_names = [cam['name'] for cam in camera_group]
+
+    if offset_dict: 
+        offsets = torch.tensor([offset_dict[name]] for name in camera_names).float()
+        coords_proj = coords_proj - offsets[:, None, :] / downsample_factor
+
+    # account for downsampling
+    coords_proj = coords_proj / downsample_factor
+
+    return coords_proj
 
 
 def projection_sensitivity(cam, p):
@@ -167,13 +180,12 @@ class UnprojectViews:
         coords_flat = torch.from_numpy(coords_flat).to(self.device).float()
 
         # project coordinates for each camera 
-        coords_proj = project_points_torch(self.cgroup, coords_flat) / self.downsample_factor
-        camera_names = [cam['name'] for cam in self.cgroup]
-                
-        # account for camera cropping # TODO: test this once we have a dataset to do so
-        if self.offset_dict: 
-            offsets = torch.tensor([self.offset_dict[name]] for name in camera_names).float()
-            coords_proj = coords - offsets[:, None, :] / self.downsample_factor
+        coords_proj = project_points_torch(
+            camera_group = self.cgroup, 
+            coords_3d = coords_flat,
+            downsample_factor = self.downsample_factor, 
+            offset_dict = self.offset_dict
+        )
 
         return coords_proj
 

@@ -381,7 +381,8 @@ class Tracker(nn.Module):
     @torch.compile
     def sample_feature_cubes(self, feature_planes, camera_group,
                              cube_centers, cube_interval,
-                             corr_radius=None, downsample_ratio=None):
+                             corr_radius = None, downsample_ratio = None, 
+                             offset_dict = None):
         """Inputs:
          feature_planes: cams bt d h w
          cube_centers: bt k 3
@@ -394,6 +395,7 @@ class Tracker(nn.Module):
             corr_radius = self.corr_radius
         if downsample_ratio is None:
             downsample_ratio = self.downsample_factor
+
         cube_size = corr_radius * 2 + 1
         n_cams = len(feature_planes)
         BT, K, _ = cube_centers.shape
@@ -406,8 +408,13 @@ class Tracker(nn.Module):
     
         cube_coords = cube_centers[..., None, :] + xyz
         cube_coords_flat = rearrange(cube_coords, 'bt k total r -> (bt k total) r')
-        p2d_flat = project_points_torch(camera_group, cube_coords_flat)
-        p2d_flat = p2d_flat / downsample_ratio # account for resnet
+        p2d_flat = project_points_torch(
+            camera_group = camera_group, 
+            coords_3d = cube_coords_flat, 
+            downsample_ratio = downsample_ratio,
+            offset_dict = offset_dict
+        )
+        
     
         p2d = rearrange(p2d_flat, 'ncams (bt k total) r -> ncams bt k total r',
                         bt=BT, k=K)
@@ -449,7 +456,9 @@ class Tracker(nn.Module):
         return mean_volume_normed
 
     
-    def get_corr_features_minicubes(self, coords, feature_planes_levels, track_features_levels, camera_group):
+    def get_corr_features_minicubes(self, coords, feature_planes_levels, 
+                                    track_features_levels, camera_group,
+                                    offset_dict = None):
         # for each scale
         # sample_feature_cubes to get cubes from feature planes at coords
         # einsum for correlations
@@ -460,16 +469,19 @@ class Tracker(nn.Module):
 
         corr_features_levels = []
         for i in range(self.corr_levels):
+
             feature_planes = [ffl[i] for ffl in feature_planes_levels]
             feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
                                  for f in feature_planes]
+            
             mv = self.sample_feature_cubes(
                 feature_planes_bs,
                 camera_group,
                 coords_bs,
                 self.cube_scale * (2**i),
                 corr_radius=self.corr_radius,
-                downsample_ratio=self.downsample_factor * (2**i)
+                downsample_ratio=self.downsample_factor * (2**i),
+                offset_dict = offset_dict
             )
 
             mv = rearrange(mv, '(b s) d n total -> b s total n d',
@@ -513,9 +525,8 @@ class Tracker(nn.Module):
         return track_features_levels
             
     def forward_iteration(self, coords, vis, conf, 
-                          feature_planes_levels, 
-                          track_features_levels,
-                          camera_group=None):
+                          feature_planes_levels, track_features_levels,
+                          camera_group = None, offset_dict = None):
 
         device = coords.device 
 
@@ -538,13 +549,15 @@ class Tracker(nn.Module):
                     coords = coords, 
                     feature_planes_levels = feature_planes_levels, 
                     track_features_levels = track_features_levels,
-                    camera_group = camera_group
+                    camera_group = camera_group, 
+                    offset_dict = offset_dict
                 )
             else:
                 corr_features = self.get_corr_features(
                     coords = coords, 
                     feature_planes_levels = feature_planes_levels, 
-                    track_features_levels = track_features_levels
+                    track_features_levels = track_features_levels,
+                    offset_dict = offset_dict
                 )
 
             # encodings for transformer input
@@ -807,7 +820,8 @@ class Tracker(nn.Module):
                 conf = conf_init,
                 feature_planes_levels = feature_plane_levels_subset, 
                 track_features_levels = track_features_levels,
-                camera_group = camera_group
+                camera_group = camera_group, 
+                offset_dict = offset_dict
             )
 
             # remove excess padding and store final iteration
@@ -816,12 +830,12 @@ class Tracker(nn.Module):
                 vis_pred_updates = [update[:, :-n_pad, ...] for update in vis_pred_updates]
                 conf_pred_updates = [update[:, :-n_pad, ...] for update in conf_pred_updates]
 
-            # store all iterative updates
+            # store final updates
             coords_pred[:, ix:ix + self.S, ...] = coords_pred_updates[-1] 
             vis_pred[:, ix:ix + self.S, ...] = vis_pred_updates[-1]
             conf_pred[:, ix:ix + self.S, ...] = conf_pred_updates[-1]
 
-            # coords_pred_iters.append([coords * self.downsample_factor for coords in coords_pred_updates])
+            # store all iterative updates
             coords_pred_iters.append([self.unscale(coords) for coords in coords_pred_updates])
             vis_pred_iters.append(vis_pred_updates)
             conf_pred_iters.append(conf_pred_updates)
