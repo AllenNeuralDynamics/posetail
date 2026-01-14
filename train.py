@@ -59,7 +59,7 @@ def parse_args():
         help = 'number of nodes to train the model on')
 
     parser.add_argument('--precision', 
-        default = '16-mixed', 
+        default = '32-true', 
         help = 'precision type with the option to use mixed precision, e.g. 32, 32-true, 16-mixed, bf16-mixed')
 
     args = parser.parse_args()
