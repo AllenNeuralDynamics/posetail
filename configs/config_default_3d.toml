@@ -1,6 +1,7 @@
 [wandb]
-project_name = '3d-tracker-test'
-path = '/data/results/katie'
+project_name = 'posetail-tests'
+# path = '/data/results/katie'
+path = '/groups/karashchuk/home/karashchukl/results/posetail'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 
@@ -9,7 +10,8 @@ batch_size = 1
 
 [dataset.train]
 # prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-filtered-3500'
-prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
+# prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/kubric-multiview'
 n_frames = 16
 max_res = 256
 cams_to_sample = 5 # default: -1 
@@ -32,7 +34,7 @@ project_2d = false
 
 
 [devices]
-device = 'cuda:1'
+device = 'cuda:0'
 
 
 [model]

@@ -1,13 +1,15 @@
 [wandb]
-project_name = '3d-tracker-test'
-path = '/data/results/lili/posetail'
+project_name = 'posetail-tests'
+# path = '/data/results/lili/posetail'
+path = '/groups/karashchuk/home/karashchukl/results/posetail'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
 
 [dataset.train]
-prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
+# prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/kubric-multiview'
 # prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-filtered-3500'
 # prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-35000'
 n_frames = 16
@@ -39,8 +41,8 @@ downsample_factor = 2
 
 # cube (only used for 3d)
 cube_dim = 64
-# cube_extent = 500 # rat7m
-cube_extent = 50 # kubric
+cube_extent = 500 # rat7m
+# cube_extent = 50 # kubric
 
 # correlation
 corr_levels = 4
