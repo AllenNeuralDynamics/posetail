@@ -56,7 +56,7 @@ def project_cam(cam, p3d_t, downsample_factor = 1):
     # handle camera offset
     if 'offset' in cam: 
         offset = cam['offset']
-        p2d = p2d - offset[None, :] / downsample_factor
+        p2d = p2d - (offset[None, :] / downsample_factor)
 
     # account for downsampling
     p2d = p2d / downsample_factor

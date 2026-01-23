@@ -5,21 +5,26 @@ mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
+# enable_kpt_filtering = False
+# prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/offsets/'
+prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/kubric-multiview-subset/'
 
 [dataset.train]
-prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
-# prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-filtered-3500'
-# prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-35000'
+split = 'train'
 n_frames = 16
 max_res = 256
-cams_to_sample = 5 # default: -1 
-kpts_to_sample = 60 # default: -1
+cams_to_sample = [5, 6] 
+kpts_to_sample = [60, 120] 
 
+[dataset.val]
+split = 'val'
+n_frames = 16
+max_res = 256
+cams_to_sample = [5, 6] 
+kpts_to_sample = [60, 120] 
 
 [dataset.test]
-dataset_name = 'rat7m'
-prefix = '/nvme1/data/animal-datasets/rat7m'
-sub_pattern = 's([5])-d([2])'
+split = 'test'
 n_frames = 16
 project_2d = false
 
