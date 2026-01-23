@@ -247,7 +247,6 @@ def train_epoch(config, model, fabric, dataloader,
         views = [view.to(device) for view in batch.views]
         coords = batch.coords.to(device)
         cgroup = None 
-        offset_dict = None
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
@@ -263,6 +262,7 @@ def train_epoch(config, model, fabric, dataloader,
 
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
+
         total_loss = loss(
             model = model, 
             outputs = outputs,
@@ -278,25 +278,6 @@ def train_epoch(config, model, fabric, dataloader,
         #     print(total_loss)
             
         fabric.backward(total_loss)
-
-        # bad = False
-        # for name, param in model.named_parameters():
-        #     if param.grad is not None:
-        #         grad_norm = param.grad.data.norm(2)
-        #         if not torch.isfinite(grad_norm):
-        #             print(f"{name}: {grad_norm}")
-        #             bad = True
-
-        # if bad:
-        #     import pickle
-        #     outname = '/data/results/lili/posetail/test/modeltest.pth'
-        #     state_dict = {'views': views,
-        #                   'coords': coords,
-        #                   'camera_group': cgroup,
-        #                   'model_state': model.state_dict(),
-        #                   'optimizer_state': optimizer.state_dict()}
-        #     torch.save(state_dict, outname)
-        #     print("torch state dumped")
 
         fabric.clip_gradients(model, optimizer, 
             max_norm = config.training.max_grad_norm, 
@@ -383,12 +364,6 @@ def eval_epoch(config, model, dataloader, loss = None,
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
-
-        coords_true, vis_true = unroll_batch(
-            coords = coords, 
-            vis = vis, 
-            stride = model.S, 
-            stride_overlap = model.stride_overlap)
                        
         # get model predictions
         with torch.no_grad():
@@ -406,9 +381,8 @@ def eval_epoch(config, model, dataloader, loss = None,
             total_loss = loss(
                 model = model, 
                 outputs = outputs,
-                coords_full = coords,
-                coords_true = coords_true, 
-                vis_true = vis_true, 
+                coords_true = coords, 
+                vis_true = vis, 
                 cgroup = cgroup, 
                 device = coords_pred.device)
 

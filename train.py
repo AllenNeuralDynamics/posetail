@@ -195,7 +195,7 @@ def run(config_path, fabric):
             **config.training.scheduler)
 
     train_loss = TotalLoss(**config.training.losses)
-    val_loss = None # TotalLoss(**config.training.losses)
+    val_loss = TotalLoss(**config.training.losses)
 
     # total_params = sum(p.numel() for p in model.parameters())
     # print(total_params)
@@ -253,7 +253,7 @@ def run(config_path, fabric):
             wandb.save(json_path, base_path = exp_dir)
             
         train_loss.reset_history()
-        # val_loss.reset_history()
+        val_loss.reset_history()
 
     wandb.finish()
 

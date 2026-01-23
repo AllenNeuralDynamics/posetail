@@ -74,7 +74,8 @@ class TotalLoss(nn.Module):
         vis_pred = outputs['vis_pred']
         conf_pred = outputs['conf_pred']
 
-        if model.training: 
+        if model.training:
+
             coords_pred_iters = outputs['coords_pred_iters']
             vis_pred_iters = outputs['vis_pred_iters']
             conf_pred_iters = outputs['conf_pred_iters']
@@ -85,20 +86,20 @@ class TotalLoss(nn.Module):
                 stride = model.S, 
                 stride_overlap = model.stride_overlap)
 
-        # # compute losses
-        # vis_loss = self.bce_loss_vis(
-        #     vis_pred = vis_pred_iters if model.training else vis_pred,
-        #     vis_true = vis_true_unrolled if model.training else vis_true,
-        #     device = device
-        # )x
+        # compute losses
+        vis_loss = self.bce_loss_vis(
+            vis_pred = vis_pred_iters if model.training else vis_pred,
+            vis_true = vis_true_unrolled if model.training else vis_true,
+            device = device
+        )
 
-        # conf_loss = self.bce_loss_conf(
-        #     conf_pred = conf_pred_iters, 
-        #     coords_pred = coords_pred_iters if model.training else coords_pred,  
-        #     coords_true = coords_true_unrolled if model.training else coords_true, 
-        #     vis_true = vis_true_unrolled if model.training else vis_true,
-        #     device = device
-        # )
+        conf_loss = self.bce_loss_conf(
+            conf_pred = conf_pred_iters if model.training else conf_pred, 
+            coords_pred = coords_pred_iters if model.training else coords_pred,  
+            coords_true = coords_true_unrolled if model.training else coords_true, 
+            vis_true = vis_true_unrolled if model.training else vis_true,
+            device = device
+        )
 
         coords_loss = self.mae_loss_coords(
             coords_pred = coords_pred_iters if model.training else coords_pred, 
@@ -111,7 +112,7 @@ class TotalLoss(nn.Module):
             scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
             coords_loss = coords_loss / scale
 
-        total_loss = coords_loss
+        total_loss = coords_loss + vis_loss + conf_loss # TODO: uncomment when ready
 
         if self.use_feature_loss: 
 
@@ -128,8 +129,8 @@ class TotalLoss(nn.Module):
             self.loss_history['feature_loss'].append(feature_loss.item())
             self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 
-        # self.loss_history['vis_loss'].append(vis_loss.item())
-        # self.loss_history['conf_loss'].append(conf_loss.item())
+        self.loss_history['vis_loss'].append(vis_loss.item())
+        self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
 
@@ -169,7 +170,7 @@ class BCELossVis(nn.Module):
             for j in range(n_iters):
                 losses[i, j] = self._compute_loss(vis_pred[i][j], vis_true[i])
 
-        total_loss = self.weight * torch.mean(weights * torch.mean(losses, axis = 0), axis = 0)
+        total_loss = self.weight * torch.nanmean(weights * torch.nanmean(losses, axis = 0), axis = 0)
 
         return total_loss
 
@@ -193,7 +194,7 @@ class BCELossConf(nn.Module):
             mask, 
             reduction = 'mean')
 
-        loss = torch.mean(loss * vis_true)
+        loss = torch.nanmean(loss * vis_true)
 
         return loss 
 
@@ -217,7 +218,7 @@ class BCELossConf(nn.Module):
                     coords_true[i], 
                     vis_true[i])
 
-        total_loss = self.weight * torch.mean(weights * torch.mean(losses, axis = 0), axis = 0)
+        total_loss = self.weight * torch.nanmean(weights * torch.nanmean(losses, axis = 0), axis = 0)
 
         return total_loss 
 
@@ -250,7 +251,7 @@ class WeightedMAELoss(nn.Module):
         else:
             loss = torch.abs(coords_pred - coords_true)
 
-        loss = torch.mean(loss * vis_true)
+        loss = torch.nanmean(loss * vis_true)
         
         return loss 
 
@@ -270,7 +271,7 @@ class WeightedMAELoss(nn.Module):
             for j in range(n_iters):
                 losses[i, j] = self._compute_loss(coords_pred[i][j], coords_true[i], vis_true[i])
 
-        total_loss = self.weight * torch.mean(weights * torch.mean(losses, axis = 0), axis = 0)
+        total_loss = self.weight * torch.nanmean(weights * torch.nanmean(losses, axis = 0), axis = 0)
 
         return total_loss
 
