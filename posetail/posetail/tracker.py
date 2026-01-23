@@ -381,8 +381,7 @@ class Tracker(nn.Module):
     @torch.compile
     def sample_feature_cubes(self, feature_planes, camera_group,
                              cube_centers, cube_interval,
-                             corr_radius = None, downsample_ratio = None, 
-                             offset_dict = None):
+                             corr_radius = None, downsample_ratio = None):
         """Inputs:
          feature_planes: cams bt d h w
          cube_centers: bt k 3
@@ -412,7 +411,6 @@ class Tracker(nn.Module):
             camera_group = camera_group, 
             coords_3d = cube_coords_flat, 
             downsample_ratio = downsample_ratio,
-            offset_dict = offset_dict
         )
         
     
@@ -457,8 +455,7 @@ class Tracker(nn.Module):
 
     
     def get_corr_features_minicubes(self, coords, feature_planes_levels, 
-                                    track_features_levels, camera_group,
-                                    offset_dict = None):
+                                    track_features_levels, camera_group):
         # for each scale
         # sample_feature_cubes to get cubes from feature planes at coords
         # einsum for correlations
@@ -481,7 +478,6 @@ class Tracker(nn.Module):
                 self.cube_scale * (2**i),
                 corr_radius=self.corr_radius,
                 downsample_ratio=self.downsample_factor * (2**i),
-                offset_dict = offset_dict
             )
 
             mv = rearrange(mv, '(b s) d n total -> b s total n d',
@@ -526,7 +522,7 @@ class Tracker(nn.Module):
             
     def forward_iteration(self, coords, vis, conf, 
                           feature_planes_levels, track_features_levels,
-                          camera_group = None, offset_dict = None):
+                          camera_group = None):
 
         device = coords.device 
 
@@ -550,14 +546,12 @@ class Tracker(nn.Module):
                     feature_planes_levels = feature_planes_levels, 
                     track_features_levels = track_features_levels,
                     camera_group = camera_group, 
-                    offset_dict = offset_dict
                 )
             else:
                 corr_features = self.get_corr_features(
                     coords = coords, 
                     feature_planes_levels = feature_planes_levels, 
                     track_features_levels = track_features_levels,
-                    offset_dict = offset_dict
                 )
 
             # encodings for transformer input
@@ -626,8 +620,7 @@ class Tracker(nn.Module):
         return coords_unscaled
 
 
-    def forward(self, views, coords, camera_group = None, 
-                offset_dict = None):
+    def forward(self, views, coords, camera_group = None):
         '''
         B: batch size
         T: number of frames in video
@@ -655,7 +648,6 @@ class Tracker(nn.Module):
                 with torch.no_grad():
                     cgroup = UnprojectViews(
                         camera_group = camera_group,
-                        offset_dict = offset_dict,
                         cube_center = self.cube_center,
                         cube_extent = self.cube_extent,
                         downsample_factor = self.downsample_factor,
@@ -821,7 +813,6 @@ class Tracker(nn.Module):
                 feature_planes_levels = feature_plane_levels_subset, 
                 track_features_levels = track_features_levels,
                 camera_group = camera_group, 
-                offset_dict = offset_dict
             )
 
             # remove excess padding and store final iteration
@@ -863,7 +854,7 @@ class Tracker(nn.Module):
 
     @torch.compile
     def get_feature_loss(self, feature_planes_levels, coords_full, 
-                         camera_group = None, offset_dict = None):
+                         camera_group = None):
 
         coords = coords_full[:, 0] # first frame coords
         B, S, N, R = coords_full.shape        

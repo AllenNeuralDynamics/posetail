@@ -190,8 +190,9 @@ def get_timestamp():
 
     return timestamp_fmt
 
-def format_camera(cam, device):
-    return {
+def format_camera(cam, offset_dict, device):
+
+    cam_dict = {
         "name": cam.get_name(),
         "ext": torch.as_tensor(cam.get_extrinsics_mat(), device=device, dtype=torch.float),
         "mat": torch.as_tensor(cam.get_camera_matrix(), device=device, dtype=torch.float),
@@ -199,8 +200,14 @@ def format_camera(cam, device):
         "size": torch.as_tensor(cam.get_size(), device=device, dtype=torch.int)
     }
 
-def format_camera_group(camera_group, device):
-    return [format_camera(cam, device)
+    if offset_dict: 
+        offset = offset_dict[cam_dict['name']]
+        cam_dict['offset'] = torch.as_tensor(offset, device = device, dtype = torch.float)
+
+    return cam_dict
+
+def format_camera_group(camera_group, offset_dict, device):
+    return [format_camera(cam, offset_dict, device)
             for cam in camera_group.cameras]
 
 def dict_to_device(dd, device):
@@ -246,17 +253,13 @@ def train_epoch(config, model, fabric, dataloader,
             cgroup = batch.cgroup
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
-        if 'offset_dict' in batch: 
-            offset_dict = batch.offset_dict
-
         vis = get_vis_true(coords)
         optimizer.zero_grad()
 
         outputs = model(
             views = list(views), 
             coords = coords[:, 0, ...], 
-            camera_group = cgroup, 
-            offset_dict = offset_dict)
+            camera_group = cgroup)
 
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
@@ -374,14 +377,10 @@ def eval_epoch(config, model, dataloader, loss = None,
         views = [view.to(device) for view in batch.views]
         coords = batch.coords.to(device)
         cgroup = None 
-        offset_dict = None
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
-
-        if 'offset_dict' in batch: 
-            offset_dict = batch.offset_dict
 
         vis = get_vis_true(coords)
 
@@ -396,8 +395,7 @@ def eval_epoch(config, model, dataloader, loss = None,
             outputs = model(
                 views = list(views), 
                 coords = coords[:, 0, ...], 
-                camera_group = cgroup, 
-                offset_dict = offset_dict)
+                camera_group = cgroup)
         
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']

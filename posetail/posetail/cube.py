@@ -30,7 +30,7 @@ def from_homogeneous(p, eps=1e-6):
 
 
 # @torch.compile
-def project_cam(cam, p3d_t):
+def project_cam(cam, p3d_t, downsample_factor = 1):
     # p3d_t = torch.as_tensor(p3d)
     # ext_t = torch.as_tensor(cam.get_extrinsics_mat(), dtype=p3d_t.dtype, device=p3d_t.device)
     # mat_t = torch.as_tensor(cam.get_camera_matrix(), dtype=p3d_t.dtype, device=p3d_t.device)
@@ -53,25 +53,21 @@ def project_cam(cam, p3d_t):
     p2d_raw = torch.matmul(to_homogeneous(p2d_dist), mat_t.T)
     p2d = from_homogeneous(p2d_raw)
 
-    #TODO: handle offset
+    # handle camera offset
+    if 'offset' in cam: 
+        offset = cam['offset']
+        p2d = p2d - offset[None, :] / downsample_factor
+
+    # account for downsampling
+    p2d = p2d / downsample_factor
     
     return p2d
 
 @torch.compile
-def project_points_torch(camera_group, coords_3d, downsample_factor = 1, offset_dict = None):
+def project_points_torch(camera_group, coords_3d, downsample_factor = 1):
 
-    coords_proj = torch.stack([project_cam(cam, coords_3d) for cam in camera_group])
-                
-    # TODO: test this once we have a dataset to do so
-    # account for camera offsets
-    camera_names = [cam['name'] for cam in camera_group]
-
-    if offset_dict: 
-        offsets = torch.tensor([offset_dict[name]] for name in camera_names).float()
-        coords_proj = coords_proj - offsets[:, None, :] / downsample_factor
-
-    # account for downsampling
-    coords_proj = coords_proj / downsample_factor
+    coords_proj = torch.stack([project_cam(cam, coords_3d, downsample_factor)
+                               for cam in camera_group])
 
     return coords_proj
 
@@ -139,7 +135,6 @@ class UnprojectViews:
                  cube_center,
                  cube_extent = None,
                  cube_dim = 64, 
-                 offset_dict = None, 
                  downsample_factor = 2, 
                  device = None):
 
@@ -147,7 +142,6 @@ class UnprojectViews:
         self.cube_center = cube_center.cpu()
         self.cube_extent = cube_extent
         self.cube_dim = cube_dim 
-        self.offset_dict = offset_dict
         self.downsample_factor = downsample_factor
         self.device = device
 
@@ -184,7 +178,6 @@ class UnprojectViews:
             camera_group = self.cgroup, 
             coords_3d = coords_flat,
             downsample_factor = self.downsample_factor, 
-            offset_dict = self.offset_dict
         )
 
         return coords_proj
