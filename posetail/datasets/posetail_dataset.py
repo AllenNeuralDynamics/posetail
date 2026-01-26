@@ -16,6 +16,7 @@ from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
 from posetail.posetail.cube import project_points_torch, is_point_visible
 from train_utils import format_camera_group, dict_to_device
 
+import imgaug.augmenters as iaa
 
 def custom_collate(batch):
     ''' 
@@ -62,14 +63,28 @@ class PosetailDataset(Dataset):
         self.kpts_to_sample = kpts_to_sample
         self.enable_kpt_filtering = enable_kpt_filtering
 
+        # augmentation
+        p = 0.15
+        self.aug = iaa.Sequential([
+            iaa.Sometimes(p, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
+            iaa.Sometimes(p, iaa.imgcorruptlike.Contrast(severity=(1,2))),
+            iaa.Sometimes(p, iaa.GammaContrast((0.5, 1.8))),
+            iaa.Sometimes(p, iaa.AddToSaturation((-150, 10))),
+            iaa.Sometimes(p, iaa.MotionBlur(k=(3,6))),
+            iaa.Sometimes(p, iaa.AdditiveGaussianNoise(scale=(0, 0.08*255))),
+            iaa.Sometimes(p, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
+            iaa.Sometimes(p, iaa.Grayscale(alpha=1.0)),
+            iaa.Sometimes(p, iaa.JpegCompression(compression=(30, 80))),
+        ])
+        
         # generate metadata for the provided data path (requires a specific format)
         self.metadata = self._generate_metadata(track_3d)
 
         self.metadata[['scale_dict', 'res_dict', 'new_res_dict']] = self.metadata.apply(
             self._get_scale, axis = 1, result_type = 'expand')
 
-        self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
-        self.metadata.to_csv(self.metadata_path, index = False)
+        # self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
+        # self.metadata.to_csv(self.metadata_path, index = False)
 
 
     def __len__(self): 
@@ -115,29 +130,18 @@ class PosetailDataset(Dataset):
         else: 
             cgroup, offset_dict = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
             cgroup = cgroup.subset_cameras_names(cam_names)
-
+            cgroup = format_camera_group(cgroup, offset_dict, device = 'cpu')
+            
             # filter points that are visible from at least 2 views
             if self.enable_kpt_filtering:
                 b, s, k, r = coords.shape
                 coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
-                p2d_flat = cgroup.project(coords_flat)
-                p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
-                s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
-                good = np.all(s >= 2, axis=1)
+                all_visible = torch.stack([is_point_visible(cam, coords_flat) 
+                                           for cam in cgroup])
+                count_flat = torch.sum(all_visible, dim=0)
+                count = rearrange(count_flat, '(b s k) -> b s k', b=b, s=s, k=k)
+                good = torch.all(count >= 2, dim=1)
                 coords = coords[:, :, good[0]]
-
-            cgroup = format_camera_group(cgroup, offset_dict, device = 'cpu') 
-            
-
-        # # TODO: fix this for batch > 1
-        # b, s, k, r = coords.shape
-        # coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
-        # all_visible = torch.stack([is_point_visible(cam, coords_flat) 
-        #                            for cam in cgroup])
-        # count_flat = torch.sum(all_visible, dim=0)
-        # count = rearrange(count_flat, '(b s k) -> b s k', b=b, s=s, k=k)
-        # good = torch.all(count >= 2, dim=1)
-        # coords = coords[:, :, good[0]]
 
         coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
 
@@ -155,7 +159,10 @@ class PosetailDataset(Dataset):
                 coords = coords[:, :, ix_p, :]
         
         for cam_name in cam_names:
-            
+
+            # we apply the same augmentation per camera
+            # (thus assuming that each recording is at least self-consistent)
+            aug_det = self.aug.to_deterministic()
             imgs = []
             
             # load images from paths and resize to desired resolution
@@ -168,6 +175,7 @@ class PosetailDataset(Dataset):
                     img = cv2.resize(img, dsize = new_res_dict[cam_name])
 
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img = aug_det(image=img)
                 imgs.append(img)
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32))
