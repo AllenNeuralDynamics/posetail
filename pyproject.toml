@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=64,<81", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -18,7 +18,8 @@ dependencies = [
     "lightning>=2.5.6,<3",
     "rerun-sdk[notebook]<=0.22.1",
     "numpy==1.26",
-    "imgaug", "imagecorruptions"
+    "imgaug", "imagecorruptions",
+    "setuptools<81"
     ]
 requires-python = ">=3.8"
 description = "a model for tracking 2d or 3d animal pose through time"

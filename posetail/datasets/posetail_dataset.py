@@ -16,6 +16,9 @@ from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
 from posetail.posetail.cube import project_points_torch, is_point_visible
 from train_utils import format_camera_group, dict_to_device
 
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='imagecorruptions')
+
 import imgaug.augmenters as iaa
 
 def custom_collate(batch):
@@ -59,6 +62,9 @@ class PosetailDataset(Dataset):
         self.n_frames = n_frames
         self.max_res = max_res # -1 means no resizing
 
+        print("data_path: ", self.data_path)
+        print("split", split)
+        
         # for sampling cameras (None uses all available)
         self.cams_to_sample = cams_to_sample
         self.kpts_to_sample = kpts_to_sample
@@ -216,10 +222,12 @@ class PosetailDataset(Dataset):
         rows = []
         mode = '3d' if track_3d else '2d'
 
-        for dataset in get_dirs(self.data_path): 
-
+        # for dataset in get_dirs(self.data_path): 
+        for dataset in [self.data_path]: 
+            
             # NOTE: split folder structure must match here
-            dataset_path = os.path.join(self.data_path, dataset, self.split)
+            # dataset_path = os.path.join(self.data_path, dataset, self.split)
+            dataset_path = os.path.join(self.data_path, self.split)
 
             for session in get_dirs(dataset_path): 
                 session_path = os.path.join(dataset_path, session)
