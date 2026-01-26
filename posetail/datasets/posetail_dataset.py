@@ -47,9 +47,11 @@ def custom_collate(batch):
 
 class PosetailDataset(Dataset): 
 
-    def __init__(self, data_path, track_3d = True, n_frames = 16, max_res = -1, 
-                 cams_to_sample = -1, kpts_to_sample = -1): 
+    def __init__(self, data_path, split, track_3d = True, n_frames = 16, 
+                 max_res = -1, enable_kpt_filtering = False,
+                 cams_to_sample = None, kpts_to_sample = None): 
 
+        self.split = split
         self.data_path = data_path
         self.track_3d = track_3d
         self.n_frames = n_frames
@@ -58,14 +60,16 @@ class PosetailDataset(Dataset):
         # for sampling cameras (None uses all available)
         self.cams_to_sample = cams_to_sample
         self.kpts_to_sample = kpts_to_sample
+        self.enable_kpt_filtering = enable_kpt_filtering
 
         # generate metadata for the provided data path (requires a specific format)
         self.metadata = self._generate_metadata(track_3d)
+
         self.metadata[['scale_dict', 'res_dict', 'new_res_dict']] = self.metadata.apply(
             self._get_scale, axis = 1, result_type = 'expand')
 
-        # self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
-        # self.metadata.to_csv(self.metadata_path, index = False)
+        self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
+        self.metadata.to_csv(self.metadata_path, index = False)
 
 
     def __len__(self): 
@@ -82,22 +86,33 @@ class PosetailDataset(Dataset):
         # load keypoints 
         pose = np.load(row['pose_path'])['pose']
         coords = pose[:, start_ix:end_ix, :, :]
-        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
         
         # load camera resolutions for resizing
         res_dict = json.loads(row['res_dict'])
         new_res_dict = json.loads(row['new_res_dict'])
         scale_dict = json.loads(row['scale_dict'])
 
+        offset_dict = None
+        camera_offsets = json.loads(row['camera_offsets'])
+        if len(camera_offsets) > 0: 
+            offset_dict = camera_offsets
+
         img_path = row['img_path']
         cam_names = sorted(get_dirs(img_path))
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
         views = []
 
-        # sample views from cameras
-        if self.cams_to_sample != -1 and len(cam_names) > self.cams_to_sample:
-            ix_cams = np.random.choice(len(cam_names), size = self.cams_to_sample, replace = False)
-            cam_names = [cam_names[i] for i in ix_cams]
+        # sample a number of camera views from a set of calibrated cameras
+        if self.cams_to_sample: 
+            
+            if isinstance(self.cams_to_sample, int): 
+                num_cams_to_sample = self.cams_to_sample
+            else: # sample between a high and low bound
+                num_cams_to_sample = np.random.randint(self.cams_to_sample[0], self.cams_to_sample[1])
+
+            if len(cam_names) > num_cams_to_sample:
+                ix_cams = np.random.choice(len(cam_names), size = num_cams_to_sample, replace = False)
+                cam_names = [cam_names[i] for i in ix_cams]
 
         # create camera group from camera parameters
         if len(cam_names) == 1: 
@@ -105,32 +120,44 @@ class PosetailDataset(Dataset):
         else: 
             cgroup = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
             cgroup = cgroup.subset_cameras_names(cam_names)
-            cgroup = format_camera_group(cgroup, coords.device) 
 
-        # filter points that are visible from at least 2 views
+            # filter points that are visible from at least 2 views
+            if self.enable_kpt_filtering:
+                b, s, k, r = coords.shape
+                coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
+                p2d_flat = cgroup.project(coords_flat)
+                p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
+                s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
+                good = np.all(s >= 2, axis=1)
+                coords = coords[:, :, good[0]]
+
+            cgroup = format_camera_group(cgroup, offset_dict, device = 'cpu') 
+            
+
+        # # TODO: fix this for batch > 1
         # b, s, k, r = coords.shape
         # coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
-        # p2d_flat = project_points_torch(cgroup, coords_flat)
-        # p2d = rearrange(p2d_flat, 'cams (b s k) r -> cams b s k r', b=b, s=s, k=k)
-        # s = np.sum(np.all((p2d > 0) & (p2d < 256), axis=-1), axis=0) 
-        # good = np.all(s >= 2, axis=1)
+        # all_visible = torch.stack([is_point_visible(cam, coords_flat) 
+        #                            for cam in cgroup])
+        # count_flat = torch.sum(all_visible, dim=0)
+        # count = rearrange(count_flat, '(b s k) -> b s k', b=b, s=s, k=k)
+        # good = torch.all(count >= 2, dim=1)
         # coords = coords[:, :, good[0]]
-        #
-        
-        # TODO: fix this for batch > 1
-        b, s, k, r = coords.shape
-        coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
-        all_visible = torch.stack([is_point_visible(cam, coords_flat) 
-                                   for cam in cgroup])
-        count_flat = torch.sum(all_visible, dim=0)
-        count = rearrange(count_flat, '(b s k) -> b s k', b=b, s=s, k=k)
-        good = torch.all(count >= 2, dim=1)
-        coords = coords[:, :, good[0]]
 
-        # sample keypoints from available tracks 
-        if self.kpts_to_sample != -1 and coords.shape[2] > self.kpts_to_sample:   
-            ix_p = np.random.choice(coords.shape[2], size = self.kpts_to_sample, replace = False)
-            coords = coords[:, :, ix_p, :]
+        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
+
+        # sample a random number of keypoints from available tracks 
+        if self.kpts_to_sample: 
+
+            if isinstance(self.kpts_to_sample, int): 
+                num_kpts_to_sample = self.kpts_to_sample
+            else: # sample between a high and low bound 
+                num_kpts_to_sample = np.random.randint(self.kpts_to_sample[0], self.kpts_to_sample[1])
+
+            # sample if there are more keypoints than the number to sample
+            if coords.shape[2] > num_kpts_to_sample:   
+                ix_p = np.random.choice(coords.shape[2], size = num_kpts_to_sample, replace = False)
+                coords = coords[:, :, ix_p, :]
         
         for cam_name in cam_names:
             
@@ -149,7 +176,7 @@ class PosetailDataset(Dataset):
                 imgs.append(img)
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32))
-        
+    
         return views, coords, fnums, cgroup
 
 
@@ -187,7 +214,9 @@ class PosetailDataset(Dataset):
         mode = '3d' if track_3d else '2d'
 
         for dataset in get_dirs(self.data_path): 
-            dataset_path = os.path.join(self.data_path, dataset)
+
+            # NOTE: split folder structure must match here
+            dataset_path = os.path.join(self.data_path, dataset, self.split)
 
             for session in get_dirs(dataset_path): 
                 session_path = os.path.join(dataset_path, session)
@@ -196,12 +225,16 @@ class PosetailDataset(Dataset):
                     # get paths to metadata, 3d pose, and images
                     trial_path = os.path.join(session_path, trial)
 
-                    print(trial_path)
                     metadata_path = os.path.join(trial_path, 'metadata.yaml')
                     assert os.path.exists(metadata_path)
                     cam_metadata = load_yaml(metadata_path)
+
                     camera_height_dict = cam_metadata['camera_heights']
                     camera_width_dict = cam_metadata['camera_widths']
+
+                    camera_offset_dict = {}
+                    if 'offset_dict' in cam_metadata: 
+                        camera_offset_dict = cam_metadata['offset_dict']
 
                     pose_path = os.path.join(trial_path, f'pose{mode}.npz')
                     assert os.path.exists(pose_path)
@@ -215,7 +248,6 @@ class PosetailDataset(Dataset):
                     # get starting indices 
                     coords = np.load(pose_path)[f'pose']
                     start_ixs = self._get_start_ixs(coords)
-
                     # n_batches = len(imgs) // self.n_frames
                     # start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
                     end_ixs = start_ixs + self.n_frames
@@ -224,17 +256,19 @@ class PosetailDataset(Dataset):
                     # to each sample within a batch
                     for start_ix, end_ix in zip(start_ixs, end_ixs): 
                         row = [dataset, session, trial, metadata_path,
-                            pose_path, img_path, start_ix, end_ix, 
-                            camera_height_dict, camera_width_dict]
+                               pose_path, img_path, start_ix, end_ix, 
+                               camera_height_dict, camera_width_dict, 
+                               camera_offset_dict]
                         rows.append(row)
 
         columns = ['dataset', 'session', 'trial', 'camera_metadata_path', 
                    'pose_path', 'img_path', 'start_ix', 'end_ix', 
-                   'camera_heights', 'camera_widths']
+                   'camera_heights', 'camera_widths', 'camera_offsets']
 
         df = pd.DataFrame(rows, columns = columns)
         df['camera_heights'] = df['camera_heights'].apply(json.dumps)
         df['camera_widths'] = df['camera_widths'].apply(json.dumps)
+        df['camera_offsets'] = df['camera_offsets'].apply(json.dumps)
 
         return df 
 

@@ -66,6 +66,14 @@ def parse_args():
 
     return args
 
+def format_sample_input(x):
+
+    if isinstance(x, int): 
+        return x
+    elif isinstance(x, list): 
+        return tuple(x) 
+    else: 
+        return None
 
 def run(config_path, fabric):
 
@@ -75,13 +83,17 @@ def run(config_path, fabric):
     set_seeds(config.training.seed)
 
     # set up training dataloader
+    cams_to_sample = format_sample_input(config.dataset.train.get('cams_to_sample', None))
+    kpts_to_sample = format_sample_input(config.dataset.train.get('kpts_to_sample', None))
+
     train_dataset = PosetailDataset(
-        data_path = config.dataset.train.prefix, 
+        data_path = config.dataset.prefix, 
+        split = config.dataset.train.split,
         track_3d = config.model.track_3d, 
         n_frames = config.dataset.train.n_frames,
         max_res = config.dataset.train.max_res, 
-        cams_to_sample = config.dataset.train.cams_to_sample, 
-        kpts_to_sample = config.dataset.train.kpts_to_sample)
+        cams_to_sample = cams_to_sample, 
+        kpts_to_sample = kpts_to_sample)
 
     train_loader = DataLoader(
         train_dataset, 
@@ -89,14 +101,37 @@ def run(config_path, fabric):
         collate_fn = custom_collate,
         shuffle = True,
         num_workers = 8)
-
-    train_loader = fabric.setup_dataloaders(train_loader)
-    # torch.autograd.set_detect_anomaly(True)
     
-    if 'steps_per_epoch' in config.training.scheduler and config.training.scheduler.steps_per_epoch == -1:
-        steps_per_epoch = get_steps_per_epoch(train_dataset, train_loader)
-        config.training.scheduler.steps_per_epoch = steps_per_epoch
+    train_loader = fabric.setup_dataloaders(train_loader)
 
+    # set up validation dataloader 
+    val = config.dataset.val.get('split', None)
+
+    if val: 
+
+        cams_to_sample = format_sample_input(config.dataset.val.get('cams_to_sample', None))
+        kpts_to_sample = format_sample_input(config.dataset.val.get('kpts_to_sample', None))
+
+        val_dataset = PosetailDataset(
+            data_path = config.dataset.prefix,
+            split = config.dataset.val.split, 
+            track_3d = config.model.track_3d, 
+            n_frames = config.dataset.val.n_frames,
+            max_res = config.dataset.val.max_res, 
+            cams_to_sample = cams_to_sample, 
+            kpts_to_sample = kpts_to_sample)
+
+        val_loader = DataLoader(
+            val_dataset, 
+            batch_size = config.dataset.batch_size, 
+            collate_fn = custom_collate,
+            shuffle = True,
+            num_workers = 8)
+        
+        val_loader = fabric.setup_dataloaders(val_loader)
+
+    torch.autograd.set_detect_anomaly(True)
+    
     if fabric.is_global_zero:
         wandb.init(
             project = config.wandb.project_name,  
@@ -140,7 +175,7 @@ def run(config_path, fabric):
         model.parameters(), 
         lr = config.training.optimizer.learning_rate, 
         weight_decay = config.training.optimizer.weight_decay,
-        amsgrad=config.training.optimizer.amsgrad,
+        amsgrad = config.training.optimizer.amsgrad,
         fused = True)
 
     optimizer = fabric.setup_optimizers(optimizer)
@@ -165,10 +200,10 @@ def run(config_path, fabric):
     # total_params = sum(p.numel() for p in model.parameters())
     # print(total_params)
  
+    # train model on training dataset
     for i in range(config.training.n_epochs):
 
         result_dict = {'epoch': i}
-
         evaluate = i % config.training.eval_freq == 0
 
         train_dict = train_epoch(
@@ -183,15 +218,18 @@ def run(config_path, fabric):
 
         result_dict.update(train_dict)
 
-        # if i % config.training.eval_freq == 0: 
+        # evaluate model on validation dataset
+        if val and i % config.training.eval_freq == 0: 
 
-        #     eval_dict = eval_epoch(
-        #         model = model, 
-        #         dataloader = val_loader,
-        #         prefix = 'val/'
-        #         debug_ix = self.training.debug_ix)
+            eval_dict = eval_epoch(
+                config = config,
+                model = model, 
+                dataloader = val_loader,
+                loss = val_loss,
+                prefix = 'val/',
+                evaluate = evaluate)
 
-        #     result_dict.update(eval_dict)
+            result_dict.update(eval_dict)
 
         # log to wandb and print to console 
         if fabric.is_global_zero:

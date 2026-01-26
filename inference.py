@@ -116,7 +116,7 @@ if __name__ == '__main__':
     outpath = '/home/ruppk2@hhmi.org/output'
     wandb_prefix = '/data/results/katie/wandb'
     
-    run_ids = ['run-20251208_032629-irntica4'] 
+    run_ids = ['run-20260102_144532-mer7avkt', 'run-20260105_023933-mlm9ar7u'] 
 
 
     video_paths = ['/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera1-0.mp4',

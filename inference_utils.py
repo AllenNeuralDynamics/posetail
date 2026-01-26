@@ -122,9 +122,13 @@ def get_video_predictions(video_paths, model, dataloader, pred_path, device, deb
     return pred_path
 
 
-def pad_array(coords, n_kpts = 20): 
+def pad_array(coords, n_kpts = None): 
 
     coords_new = []
+
+    # TODO: generalize later
+    if n_kpts is None: 
+        n_kpts = 20
 
     for x in coords:
         n, _ = x.shape
@@ -177,17 +181,17 @@ def get_predictions(data_prefix, model, dataloader, pred_path, device, n_kpts, d
             )
 
         coords_pred.append(pad_array(torch.squeeze(outputs['coords_pred'], dim = 0).cpu().numpy(), n_kpts = n_kpts))
-        vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0).cpu().numpy())
-        conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0).cpu().numpy())
+        # vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0).cpu().numpy())
+        # conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0).cpu().numpy())
         coords_true.append(pad_array(torch.squeeze(coords, dim = 0).cpu().numpy(), n_kpts = n_kpts))
-        vis_true.append(torch.squeeze(vis, dim = 0).cpu().numpy())
+        # vis_true.append(torch.squeeze(vis, dim = 0).cpu().numpy())
         fnums.append(torch.squeeze(fnum, dim = 0).cpu().numpy())
 
     coords_pred = np.concatenate(coords_pred, axis = 0)
-    vis_pred = np.concatenate(vis_pred, axis = 0)
-    conf_pred = np.concatenate(conf_pred, axis = 0)
+    # vis_pred = np.concatenate(vis_pred, axis = 0)
+    # conf_pred = np.concatenate(conf_pred, axis = 0)
     coords_true = np.concatenate(coords_true, axis = 0)
-    vis_true = np.concatenate(vis_true, axis = 0)
+    # vis_true = np.concatenate(vis_true, axis = 0)
     fnums = np.concatenate(fnums, axis = 0)
 
     elapsed_time = time.time() - start_time

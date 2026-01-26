@@ -190,8 +190,9 @@ def get_timestamp():
 
     return timestamp_fmt
 
-def format_camera(cam, device):
-    return {
+def format_camera(cam, offset_dict, device):
+
+    cam_dict = {
         "name": cam.get_name(),
         "ext": torch.as_tensor(cam.get_extrinsics_mat(), device=device, dtype=torch.float),
         "mat": torch.as_tensor(cam.get_camera_matrix(), device=device, dtype=torch.float),
@@ -199,8 +200,14 @@ def format_camera(cam, device):
         "size": torch.as_tensor(cam.get_size(), device=device, dtype=torch.int)
     }
 
-def format_camera_group(camera_group, device):
-    return [format_camera(cam, device)
+    if offset_dict: 
+        offset = offset_dict[cam_dict['name']]
+        cam_dict['offset'] = torch.as_tensor(offset, device = device, dtype = torch.float)
+
+    return cam_dict
+
+def format_camera_group(camera_group, offset_dict, device):
+    return [format_camera(cam, offset_dict, device)
             for cam in camera_group.cameras]
 
 def dict_to_device(dd, device):
@@ -246,29 +253,21 @@ def train_epoch(config, model, fabric, dataloader,
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
-
-        coords_true, vis_true = unroll_batch(
-            coords = coords, 
-            vis = vis, 
-            stride = model.S, 
-            stride_overlap = model.stride_overlap)
-
         optimizer.zero_grad()
 
         outputs = model(
             views = list(views), 
             coords = coords[:, 0, ...], 
-            camera_group = cgroup, 
-            offset_dict = None)
+            camera_group = cgroup)
 
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
+
         total_loss = loss(
             model = model, 
             outputs = outputs,
-            coords_full = coords,
-            coords_true = coords_true, 
-            vis_true = vis_true, 
+            coords_true = coords, 
+            vis_true = vis, 
             cgroup = cgroup, 
             device = coords_pred.device)
 
@@ -279,25 +278,6 @@ def train_epoch(config, model, fabric, dataloader,
         #     print(total_loss)
             
         fabric.backward(total_loss)
-
-        # bad = False
-        # for name, param in model.named_parameters():
-        #     if param.grad is not None:
-        #         grad_norm = param.grad.data.norm(2)
-        #         if not torch.isfinite(grad_norm):
-        #             print(f"{name}: {grad_norm}")
-        #             bad = True
-
-        # if bad:
-        #     import pickle
-        #     outname = '/data/results/lili/posetail/test/modeltest.pth'
-        #     state_dict = {'views': views,
-        #                   'coords': coords,
-        #                   'camera_group': cgroup,
-        #                   'model_state': model.state_dict(),
-        #                   'optimizer_state': optimizer.state_dict()}
-        #     torch.save(state_dict, outname)
-        #     print("torch state dumped")
 
         fabric.clip_gradients(model, optimizer, 
             max_norm = config.training.max_grad_norm, 
@@ -357,7 +337,8 @@ def train_epoch(config, model, fabric, dataloader,
     return train_dict
 
 
-def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1): 
+def eval_epoch(config, model, dataloader, loss = None, 
+               prefix = 'test/', evaluate = False): 
 
     device = model.device
     model.eval()
@@ -365,52 +346,55 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
     start_time = time.time()
     timestamp = get_timestamp()
 
-    metric_dicts = []
-
     n_batches = 0
     n_frames = 0
+    metric_dicts = []
 
     for j, batch in enumerate(dataloader):
 
-        if j == debug_ix: 
+        if j == config.training.debug_ix: 
             break
     
         views = [view.to(device) for view in batch.views]
-        coords = batch['coords'].to(device)
+        coords = batch.coords.to(device)
         cgroup = None 
         
         if 'cgroup' in batch: 
             cgroup = batch.cgroup
+            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
         vis = get_vis_true(coords)
-
-        coords_true, vis_true = unroll_batch(
-            coords = coords, 
-            vis = vis, 
-            stride = model.S, 
-            stride_overlap = model.stride_overlap
-        )
-                                   
+                       
         # get model predictions
         with torch.no_grad():
             outputs = model(
-                    views = views, 
-                    coords = coords[:, 0, ...], 
-                    camera_group = cgroup, 
-                    offset_dict = None
-                )
+                views = list(views), 
+                coords = coords[:, 0, ...], 
+                camera_group = cgroup)
         
-        if loss is not None:
-            total_loss = loss(outputs, coords_true, vis_true, device = outputs[0].device)
+        coords_pred = outputs['coords_pred']
+        vis_pred = outputs['vis_pred']
 
-        metrics_dict = get_eval_metrics(
-            vis_pred = outputs[1], 
-            vis_true = vis, 
-            coords_pred = outputs[0], 
-            coords_true = coords,
-            prefix = prefix
-        ) 
-        metric_dicts.append(metrics_dict)
+        # TODO: check if shapes are compatible since 
+        # we don't use iters during evaluation
+        if loss is not None:
+            total_loss = loss(
+                model = model, 
+                outputs = outputs,
+                coords_true = coords, 
+                vis_true = vis, 
+                cgroup = cgroup, 
+                device = coords_pred.device)
+
+        if evaluate:
+            metrics_dict = get_eval_metrics(
+                vis_pred = vis_pred, 
+                vis_true = vis, 
+                coords_pred = coords_pred, 
+                coords_true = coords,
+                prefix = prefix
+            ) 
+            metric_dicts.append(metrics_dict)
 
         n_batches += 1
         n_frames += coords.shape[1]
@@ -426,18 +410,32 @@ def eval_epoch(model, dataloader, loss = None, prefix = 'test/', debug_ix = -1):
                  f'{prefix}batches_per_epoch': n_batches,
                  f'{prefix}frames_per_epoch': n_frames}
 
+    # track time of eval loop
+    elapsed_time = time.time() - start_time
+    elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
+
+    eval_dict = {f'{prefix}timestamp': timestamp,
+                  f'{prefix}elapsed_time': elapsed_time,
+                  f'{prefix}elapsed_time_hms': elapsed_time_hms,
+                  f'{prefix}batches_per_epoch': n_batches,
+                  f'{prefix}frames_per_epoch': n_frames}
+
     if loss is not None:
         loss_dict = loss.collapse_history(prefix = prefix)
         eval_dict.update(loss_dict)
 
-    avg_metrics_dict = {}
-    metrics = list(metric_dicts[0].keys())
+    # average evaluation metrics if we evaluated
+    if evaluate: 
 
-    for metric in metrics: 
-        metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
-        avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
-        avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
+        avg_metrics_dict = {}
+        metrics = list(metric_dicts[0].keys())
 
-    eval_dict.update(avg_metrics_dict)
+        for metric in metrics: 
+            metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
+            avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
+            avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
+            
+        eval_dict.update(avg_metrics_dict)
+
 
     return eval_dict
