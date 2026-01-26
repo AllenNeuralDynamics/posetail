@@ -92,11 +92,6 @@ class PosetailDataset(Dataset):
         new_res_dict = json.loads(row['new_res_dict'])
         scale_dict = json.loads(row['scale_dict'])
 
-        offset_dict = None
-        camera_offsets = json.loads(row['camera_offsets'])
-        if len(camera_offsets) > 0: 
-            offset_dict = camera_offsets
-
         img_path = row['img_path']
         cam_names = sorted(get_dirs(img_path))
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
@@ -118,7 +113,7 @@ class PosetailDataset(Dataset):
         if len(cam_names) == 1: 
             cgroup = None
         else: 
-            cgroup = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
+            cgroup, offset_dict = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
             cgroup = cgroup.subset_cameras_names(cam_names)
 
             # filter points that are visible from at least 2 views
@@ -232,10 +227,6 @@ class PosetailDataset(Dataset):
                     camera_height_dict = cam_metadata['camera_heights']
                     camera_width_dict = cam_metadata['camera_widths']
 
-                    camera_offset_dict = {}
-                    if 'offset_dict' in cam_metadata: 
-                        camera_offset_dict = cam_metadata['offset_dict']
-
                     pose_path = os.path.join(trial_path, f'pose{mode}.npz')
                     assert os.path.exists(pose_path)
 
@@ -248,6 +239,7 @@ class PosetailDataset(Dataset):
                     # get starting indices 
                     coords = np.load(pose_path)[f'pose']
                     start_ixs = self._get_start_ixs(coords)
+
                     # n_batches = len(imgs) // self.n_frames
                     # start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
                     end_ixs = start_ixs + self.n_frames
@@ -257,18 +249,16 @@ class PosetailDataset(Dataset):
                     for start_ix, end_ix in zip(start_ixs, end_ixs): 
                         row = [dataset, session, trial, metadata_path,
                                pose_path, img_path, start_ix, end_ix, 
-                               camera_height_dict, camera_width_dict, 
-                               camera_offset_dict]
+                               camera_height_dict, camera_width_dict]
                         rows.append(row)
 
         columns = ['dataset', 'session', 'trial', 'camera_metadata_path', 
                    'pose_path', 'img_path', 'start_ix', 'end_ix', 
-                   'camera_heights', 'camera_widths', 'camera_offsets']
+                   'camera_heights', 'camera_widths']
 
         df = pd.DataFrame(rows, columns = columns)
         df['camera_heights'] = df['camera_heights'].apply(json.dumps)
         df['camera_widths'] = df['camera_widths'].apply(json.dumps)
-        df['camera_offsets'] = df['camera_offsets'].apply(json.dumps)
 
         return df 
 
@@ -308,10 +298,14 @@ class PosetailDataset(Dataset):
     def _load_cameras(self, camera_metadata_path, res_dict, scale_dict):
 
         cam_metadata = load_yaml(camera_metadata_path)
+        offset_dict = None
 
         intrinsics_dict = cam_metadata['intrinsic_matrices']
         extrinsics_dict = cam_metadata['extrinsic_matrices']
         distortions_dict = cam_metadata['distortion_matrices']
+
+        if 'offset_dict' in cam_metadata: 
+            offset_dict = cam_metadata['offset_dict']
 
         cam_names = sorted(list(intrinsics_dict.keys()))
         cams = []
@@ -331,6 +325,10 @@ class PosetailDataset(Dataset):
             cam.resize_camera(scale_dict[cam_name])
             cams.append(cam)
 
+            if offset_dict: 
+                offsets = offset_dict[cam_name]
+                offset_dict[cam_name] = [offsets[0] * scale_dict[cam_name], offsets[1] * scale_dict[cam_name]]
+
         cgroup = CameraGroup(cams)
 
-        return cgroup
+        return cgroup, offset_dict

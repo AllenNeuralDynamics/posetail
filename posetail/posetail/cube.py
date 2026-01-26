@@ -41,12 +41,12 @@ def project_cam(cam, p3d_t, downsample_factor = 1):
     p2d_proj_raw = torch.matmul(to_homogeneous(p3d_t), ext_t.T)
     p2d_proj_raw = from_homogeneous(p2d_proj_raw[..., :3])
 
-    # k1, k2, p1, p2, k3 = dist
-    # k4 = k5 = k6 = 0
-    # r2 = torch.sum(torch.square(p2d_proj_raw), axis=1)
-    # kscale = (1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2) / (1 + k4 * r2 + k5 * r2 * r2 + k6 * r2 * r2 * r2)
-    # #TODO: add p1, p2 effect
-    # p2d_dist = kscale[:, None] * p2d_proj_raw
+    k1, k2, p1, p2, k3 = dist
+    k4 = k5 = k6 = 0
+    r2 = torch.sum(torch.square(p2d_proj_raw), axis=1)
+    kscale = (1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2) / (1 + k4 * r2 + k5 * r2 * r2 + k6 * r2 * r2 * r2)
+    # TODO: add p1, p2 effect
+    p2d_dist = kscale[:, None] * p2d_proj_raw
 
     p2d_dist = p2d_proj_raw
     
@@ -56,7 +56,7 @@ def project_cam(cam, p3d_t, downsample_factor = 1):
     # handle camera offset
     if 'offset' in cam: 
         offset = cam['offset']
-        p2d = p2d - (offset[None, :] / downsample_factor)
+        p2d = p2d - offset[None, :]
 
     # account for downsampling
     p2d = p2d / downsample_factor
