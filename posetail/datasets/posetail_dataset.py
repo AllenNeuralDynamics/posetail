@@ -50,7 +50,8 @@ class PosetailDataset(Dataset):
 
     def __init__(self, data_path, split, track_3d = True, n_frames = 16, 
                  max_res = -1, enable_kpt_filtering = False,
-                 cams_to_sample = None, kpts_to_sample = None): 
+                 cams_to_sample = None, kpts_to_sample = None,
+                 aug_prob=0.25): 
 
         self.split = split
         self.data_path = data_path
@@ -64,17 +65,16 @@ class PosetailDataset(Dataset):
         self.enable_kpt_filtering = enable_kpt_filtering
 
         # augmentation
-        p = 0.15
         self.aug = iaa.Sequential([
-            iaa.Sometimes(p, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
-            iaa.Sometimes(p, iaa.imgcorruptlike.Contrast(severity=(1,2))),
-            iaa.Sometimes(p, iaa.GammaContrast((0.5, 1.8))),
-            iaa.Sometimes(p, iaa.AddToSaturation((-150, 10))),
-            iaa.Sometimes(p, iaa.MotionBlur(k=(3,6))),
-            iaa.Sometimes(p, iaa.AdditiveGaussianNoise(scale=(0, 0.08*255))),
-            iaa.Sometimes(p, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
-            iaa.Sometimes(p, iaa.Grayscale(alpha=1.0)),
-            iaa.Sometimes(p, iaa.JpegCompression(compression=(30, 80))),
+            iaa.Sometimes(aug_prob, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
+            iaa.Sometimes(aug_prob, iaa.imgcorruptlike.Contrast(severity=(1,2))),
+            iaa.Sometimes(aug_prob, iaa.GammaContrast((0.5, 1.8))),
+            iaa.Sometimes(aug_prob, iaa.AddToSaturation((-150, 10))),
+            iaa.Sometimes(aug_prob, iaa.MotionBlur(k=(3,6))),
+            iaa.Sometimes(aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.08*255))),
+            iaa.Sometimes(aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
+            iaa.Sometimes(aug_prob, iaa.Grayscale(alpha=1.0)),
+            iaa.Sometimes(aug_prob, iaa.JpegCompression(compression=(30, 80))),
         ])
         
         # generate metadata for the provided data path (requires a specific format)

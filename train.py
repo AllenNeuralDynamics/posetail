@@ -119,7 +119,9 @@ def run(config_path, fabric):
             n_frames = config.dataset.val.n_frames,
             max_res = config.dataset.val.max_res, 
             cams_to_sample = cams_to_sample, 
-            kpts_to_sample = kpts_to_sample)
+            kpts_to_sample = kpts_to_sample,
+            aug_prob = config.dataset.train.get('aug_prob', 0.25)
+        )
 
         val_loader = DataLoader(
             val_dataset, 
