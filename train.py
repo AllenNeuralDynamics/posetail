@@ -86,6 +86,8 @@ def run(config_path, fabric):
     cams_to_sample = format_sample_input(config.dataset.train.get('cams_to_sample', None))
     kpts_to_sample = format_sample_input(config.dataset.train.get('kpts_to_sample', None))
 
+    print(config.dataset.prefix)
+    
     train_dataset = PosetailDataset(
         data_path = config.dataset.prefix, 
         split = config.dataset.train.split,

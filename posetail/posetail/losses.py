@@ -288,8 +288,7 @@ class FeatureLoss(nn.Module):
         feature_loss = model.get_feature_loss(
             feature_planes_levels = feature_planes_levels, 
             coords_full = coords_true, 
-            camera_group = cgroup, 
-            offset_dict = None)
+            camera_group = cgroup)
         
         b, s, n, r = coords_true.shape
         coords_flat = rearrange(coords_true, 'b s n r -> (b s n) r')
@@ -300,8 +299,7 @@ class FeatureLoss(nn.Module):
         bad_feature_loss = model.get_feature_loss(
             feature_planes_levels = feature_planes_levels, 
             coords_full = coords_shuffle, 
-            camera_group = cgroup, 
-            offset_dict = None)
+            camera_group = cgroup)
         bad_feature_loss  = 1 - bad_feature_loss
         
         feature_loss *= self.weight
