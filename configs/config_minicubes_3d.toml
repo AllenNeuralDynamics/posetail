@@ -6,14 +6,14 @@ mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-# enable_kpt_filtering = False
 # prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/offsets/'
 # prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/kubric-multiview-subset/'
 # prefix = '/nvme1/data/animal-datasets-processed/kubric-multiview'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/kubric-multiview'
 # prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-filtered-3500'
 # prefix = '/data/animal-datasets-processed/posetail-tests/single-subject-35000'
-prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/kubric-multiview-subset'
+# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/kubric-multiview-subset'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
 
 [dataset.train]
 split = 'train'
@@ -21,14 +21,15 @@ n_frames = 16
 max_res = 256
 cams_to_sample = [2, 6] 
 kpts_to_sample = [60, 120]
-aug_prob = 0.25
+aug_prob = 0.0
+enable_kpt_filtering = true
 
 [dataset.val]
 split = 'val'
 n_frames = 16
 max_res = 256
-cams_to_sample = [5, 6] 
-kpts_to_sample = [60, 120]
+cams_to_sample = 5
+kpts_to_sample = 60
 aug_prob = 0.0
 
 [dataset.test]
@@ -62,10 +63,10 @@ corr_radius = 2
 # corr_hidden_dim = 384
 # corr_output_dim = 256
 # corr_output_dim = 125
-# corr_hidden_dim = 1024
-# corr_output_dim = 512
-corr_hidden_dim = 1586
-corr_output_dim = 1024
+corr_hidden_dim = 1024
+corr_output_dim = 512
+# corr_hidden_dim = 1586
+# corr_output_dim = 1024
 
 # triplane
 upsample_factor = 1
@@ -75,7 +76,7 @@ max_freq = 10
 n_iters = 4
 embedding_dim = 384
 # embedding_dim = 512
-latent_dim = 96
+latent_dim = 64
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 6
@@ -101,7 +102,7 @@ amsgrad = false
 
 [training.scheduler]
 milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
-gamma = 0.7
+gamma = 0.8
 # milestones = [200]
 # gamma = 0.1
 # steps_per_epoch = 218
@@ -114,10 +115,10 @@ pixel_thresh = 6
 # delta = 0.1
 delta = 3
 use_huber_loss = false
-use_feature_loss = true
+use_feature_loss = false
 
 # weights for computing total loss
-vis_loss_weight = 2
+vis_loss_weight = 1
 conf_loss_weight = 1
 coords_loss_weight = 0.05
 feature_loss_weight = 1.0

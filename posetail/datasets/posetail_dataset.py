@@ -130,6 +130,8 @@ class PosetailDataset(Dataset):
                 ix_cams = np.random.choice(len(cam_names), size = num_cams_to_sample, replace = False)
                 cam_names = [cam_names[i] for i in ix_cams]
 
+        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
+                
         # create camera group from camera parameters
         if len(cam_names) == 1: 
             cgroup = None
@@ -149,7 +151,6 @@ class PosetailDataset(Dataset):
                 good = torch.all(count >= 2, dim=1)
                 coords = coords[:, :, good[0]]
 
-        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
 
         # sample a random number of keypoints from available tracks 
         if self.kpts_to_sample: 
@@ -222,12 +223,11 @@ class PosetailDataset(Dataset):
         rows = []
         mode = '3d' if track_3d else '2d'
 
-        # for dataset in get_dirs(self.data_path): 
-        for dataset in [self.data_path]: 
+        for dataset in get_dirs(self.data_path): 
             
             # NOTE: split folder structure must match here
-            # dataset_path = os.path.join(self.data_path, dataset, self.split)
-            dataset_path = os.path.join(self.data_path, self.split)
+            dataset_path = os.path.join(self.data_path, dataset, self.split)
+            # dataset_path = os.path.join(self.data_path, self.split)
 
             for session in get_dirs(dataset_path): 
                 session_path = os.path.join(dataset_path, session)

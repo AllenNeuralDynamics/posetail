@@ -410,7 +410,7 @@ class Tracker(nn.Module):
         p2d_flat = project_points_torch(
             camera_group = camera_group, 
             coords_3d = cube_coords_flat, 
-            downsample_ratio = downsample_ratio,
+            downsample_factor = downsample_ratio,
         )
         
     
