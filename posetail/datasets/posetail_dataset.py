@@ -185,7 +185,7 @@ class PosetailDataset(Dataset):
                 img = aug_det(image=img)
                 imgs.append(img)
 
-            views.append(torch.tensor(np.array(imgs), dtype = torch.float32))
+            views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
     
         return views, coords, fnums, cgroup
 

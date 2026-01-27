@@ -14,16 +14,16 @@ prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-te
 [dataset.train]
 split = 'train'
 n_frames = 16
-max_res = 256
+max_res = 224
 cams_to_sample = [2, 6] 
 kpts_to_sample = [60, 120] 
-aug_prob = 0.0
+aug_prob = 0.25
 enable_kpt_filtering = true
 
 [dataset.val]
 split = 'val'
 n_frames = 16
-max_res = 256
+max_res = 224
 cams_to_sample = 5
 kpts_to_sample = 60
 aug_prob = 0.0
@@ -31,6 +31,7 @@ aug_prob = 0.0
 [dataset.test]
 split = 'test'
 n_frames = 16
+max_res = 224
 project_2d = false
 
 
@@ -47,7 +48,7 @@ stride_length = 8
 stride_overlap = 4
 
 # resnet
-downsample_factor = 2
+downsample_factor = 4
 
 # cube (only used for 3d)
 cube_dim = 64
@@ -90,15 +91,16 @@ print_freq = 1
 debug_ix = -1
 
 [training.optimizer]
-learning_rate = 1e-4
+learning_rate = 3e-5
 weight_decay = 1e-6
 amsgrad = false
 
 [training.scheduler]
 # milestones = [250]
 # gamma = 0.1
-milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
+# milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
 gamma = 0.8
+milestones = []
 # pct_start = 0.05
 # cycle_momentum = false
 
@@ -107,7 +109,7 @@ gamma = 0.8
 pixel_thresh = 6
 delta = 3
 use_huber_loss = false
-use_feature_loss = false
+use_feature_loss = true
 
 # weights for computing total loss 
 vis_loss_weight = 1

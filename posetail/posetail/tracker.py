@@ -9,9 +9,11 @@ from einops import rearrange, einsum, reduce
 
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
-from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor, MinicubesV2V
+from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor, MinicubesV2V, HieraFeatureExtractor
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
+from torchvision import transforms
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 class Tracker(nn.Module): 
 
@@ -82,15 +84,20 @@ class Tracker(nn.Module):
         # print(f'transformer input dimension: {self.input_dim}') 
 
         # networks
-        self.cnn = ResidualFeatureExtractor(
-            input_dim = 3, # RGB 
-            output_dim = self.latent_dim,
-            n_blocks = 4,
-            kernel_size = 3,
-            downsample_factor = self.downsample_factor,
-            spatial_res_factor = 2 
-        )
+        # self.cnn = ResidualFeatureExtractor(
+        #     input_dim = 3, # RGB 
+        #     output_dim = self.latent_dim,
+        #     n_blocks = 4,
+        #     kernel_size = 3,
+        #     downsample_factor = self.downsample_factor,
+        #     spatial_res_factor = 2 
+        # )
+        #
+        self.cnn = HieraFeatureExtractor(output_dim=self.latent_dim)
 
+        self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+
+        
         if self.R == 3:
             if self.mode_3d == 'triplane':
                 # triplane features
@@ -341,6 +348,7 @@ class Tracker(nn.Module):
                                     
         return corr_features_4d
 
+    @torch.compile
     def get_corr_features(self, coords, feature_planes_levels, track_features_levels): 
 
         B, S, N, R = coords.shape
@@ -519,7 +527,8 @@ class Tracker(nn.Module):
             track_features_levels.append(track_features_cube)        
 
         return track_features_levels
-            
+
+    # @torch.compile
     def forward_iteration(self, coords, vis, conf, 
                           feature_planes_levels, track_features_levels,
                           camera_group = None):
@@ -656,8 +665,10 @@ class Tracker(nn.Module):
 
         # normalize frames
         for i, frames in enumerate(views): 
-            frames = 2 * (frames / 255.0) - 1
-            views[i] = rearrange(frames, 'b t h w c -> b t c h w').to(device)
+            # frames = 2 * (frames / 255.0) - 1
+            frames = rearrange(frames, 'b t h w c -> b t c h w')
+            frames = self.transform_norm(frames)
+            views[i] = frames.to(device)
 
         # determine number of strides
         stride_remainder = self.S - self.stride_overlap

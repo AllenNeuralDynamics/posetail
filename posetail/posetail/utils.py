@@ -11,6 +11,7 @@ def init_kwargs(kwargs_dict):
 
     return d
 
+@torch.compile
 def get_pos_encoding(pos, dim, dtype = torch.double): 
     ''' 
     pos: positions to encode
@@ -33,6 +34,7 @@ def get_pos_encoding(pos, dim, dtype = torch.double):
     return encoding
 
 
+@torch.compile
 def get_fourier_encoding(coords, min_freq = 0, max_freq = 1):
 
     freqs = 2 ** torch.arange(min_freq, max_freq, device = coords.device).float()

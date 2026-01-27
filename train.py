@@ -104,7 +104,7 @@ def run(config_path, fabric):
         batch_size = config.dataset.batch_size, 
         collate_fn = custom_collate,
         shuffle = True,
-        num_workers = 8)
+        num_workers = 12)
     
     train_loader = fabric.setup_dataloaders(train_loader)
 
@@ -160,7 +160,9 @@ def run(config_path, fabric):
 
     if model.mode_3d == 'minicubes':
         model.minicube_v2v.compile()
-
+    elif model.mode_3d == 'triplane':
+        model.triplane_cnn.compile()
+        
     model = fabric.setup(model)
     model.mark_forward_method('get_feature_loss')
     

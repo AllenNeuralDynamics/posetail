@@ -19,7 +19,8 @@ dependencies = [
     "rerun-sdk[notebook]<=0.22.1",
     "numpy==1.26",
     "imgaug", "imagecorruptions",
-    "setuptools<81"
+    "setuptools<81",
+    "hiera-transformer", "timm"
     ]
 requires-python = ">=3.8"
 description = "a model for tracking 2d or 3d animal pose through time"
@@ -73,3 +74,4 @@ matplotlib = "*"
 ipython = "*"
 notebook = "*"
 ipympl = "*"
+av = "*"

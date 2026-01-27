@@ -328,6 +328,30 @@ class FeatureExtractor(nn.Module):
         return x
 
 
+from torchvision.ops import FeaturePyramidNetwork
+from collections import OrderedDict
+import hiera
+from einops import rearrange
+
+class HieraFeatureExtractor(nn.Module):
+    def __init__(self, output_dim=128, pretrained_model='facebook/hiera_base_224.mae_in1k'):
+        super().__init__()
+        
+        self.model = hiera.Hiera.from_pretrained(pretrained_model)
+
+        test_input = torch.randn([1, 3, 224, 224])
+        _, intermediates = self.model(test_input, return_intermediates=True)
+        hiera_channels = [x.shape[-1] for x in intermediates]
+        self.fpn = FeaturePyramidNetwork(hiera_channels, output_dim)
+
+    def forward(self, x):
+        _, intermediates = self.model(x, return_intermediates=True)
+        features = OrderedDict()
+        for i, x in enumerate(intermediates):
+            features[i] = rearrange(x, 'b h w c -> b c h w')
+        out = self.fpn(features)
+        return out[0]
+            
 class TriplaneFeatureExtractor(nn.Module):
 
     def __init__(self, input_dim, n_hidden_layers, 
