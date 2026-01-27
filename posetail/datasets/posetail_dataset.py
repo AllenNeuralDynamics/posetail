@@ -177,30 +177,48 @@ class PosetailDataset(Dataset):
 
     def _get_start_ixs(self, coords):
 
-        safe = 0
         start_ixs = []
 
-        for i in range(coords.shape[1]): 
+        for i in range(coords.shape[1] - self.n_frames + 1): 
 
-            if safe > 0:
-                safe = safe - 1 
-                continue
-
-            coords_subset = coords[:, i:i + self.n_frames, :, :]
-            enough_frames = coords_subset.shape[1] == self.n_frames
-            # no_nans = np.sum(~np.isfinite(coords_subset)) == 0
-            
+            coords_subset = coords[:, i:i + self.n_frames, :, :]        
             mask = np.isfinite(coords_subset)
             visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
 
-            # if no_nans and enough_frames: 
-            if np.sum(visible_coords) > 0 and enough_frames:
+            # if not all nans in the starting frame: 
+            if np.sum(visible_coords) > 0:
                 start_ixs.append(i)
-                safe = self.n_frames - 1
 
         start_ixs = np.array(start_ixs)
 
         return start_ixs
+    
+
+    # def _get_start_ixs(self, coords):
+
+        # safe = 0
+        # start_ixs = []
+
+        # for i in range(coords.shape[1]): 
+
+        #     if safe > 0:
+        #         safe = safe - 1 
+        #         continue
+
+        #     coords_subset = coords[:, i:i + self.n_frames, :, :]
+        #     enough_frames = coords_subset.shape[1] == self.n_frames
+            
+        #     mask = np.isfinite(coords_subset)
+        #     visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
+
+        #     # if not all nans in the starting frame and enough_frames: 
+        #     if np.sum(visible_coords) > 0 and enough_frames:
+        #         start_ixs.append(i)
+        #         safe = self.n_frames - 1
+
+        # start_ixs = np.array(start_ixs)
+
+        # return start_ixs
 
 
     def _generate_metadata(self, track_3d): 
