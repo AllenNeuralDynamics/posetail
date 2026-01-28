@@ -30,10 +30,5 @@ wandb login $WANDB
 
 # run training script 
 echo "starting training..."
-
+pixi run python train.py --config-path "${CONFIG_PATH}" --num_nodes ${NUM_GPUS} --precision ${PRECISION} --strategy ${STRATEGY}
 echo "done!"
-pixi run python train.py \
-	--config-path "${CONFIG_PATH}" \
- 	--num_nodes ${NUM_GPUS} \
- 	--precision ${PRECISION} \
- 	--strategy ${STRATEGY}
