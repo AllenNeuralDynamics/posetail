@@ -8,7 +8,7 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 enable_keypoint_filtering = false
 # prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/offsets/'
-prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset/'
 
 [dataset.train]
 split = 'train'
