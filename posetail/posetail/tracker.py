@@ -9,7 +9,8 @@ from einops import rearrange, einsum, reduce
 
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
-from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor, MinicubesV2V, HieraFeatureExtractor
+from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor, MinicubesV2V
+from posetail.posetail.networks import HieraFeatureExtractor, SAM2HieraFeatureExtractor 
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
 from torchvision import transforms
@@ -93,7 +94,11 @@ class Tracker(nn.Module):
         #     spatial_res_factor = 2 
         # )
         #
-        self.cnn = HieraFeatureExtractor(output_dim=self.latent_dim)
+        # self.cnn = HieraFeatureExtractor(output_dim=self.latent_dim)
+        # freeze_nonlast_fpn = not (self.R == 3 and self.mode_3d == 'minicubes')
+        freeze_nonlast_fpn = True
+        self.cnn = SAM2HieraFeatureExtractor(output_dim=self.latent_dim,
+                                             freeze_nonlast_fpn=freeze_nonlast_fpn)
 
         self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
@@ -348,7 +353,7 @@ class Tracker(nn.Module):
                                     
         return corr_features_4d
 
-    @torch.compile
+    # @torch.compile
     def get_corr_features(self, coords, feature_planes_levels, track_features_levels): 
 
         B, S, N, R = coords.shape
@@ -386,7 +391,7 @@ class Tracker(nn.Module):
         
         return corr_features
 
-    @torch.compile
+    # @torch.compile
     def sample_feature_cubes(self, feature_planes, camera_group,
                              cube_centers, cube_interval,
                              corr_radius = None, downsample_ratio = None):
@@ -645,6 +650,9 @@ class Tracker(nn.Module):
 
         assert R == self.R
 
+        # so we don't actually change the input
+        views = list(views)
+
         if self.R == 3:
             self.cube_scale = ( get_camera_scale(camera_group, coords.reshape(-1, 3)) * 
                                 self.downsample_factor * 1.5 )
@@ -688,6 +696,11 @@ class Tracker(nn.Module):
         for i, frames in enumerate(views):
 
             frames = rearrange(frames, 'b t c h w -> (b t) c h w')
+            # if self.R == 3 and self.mode_3d == 'minicubes':
+            #     feature_map_levels_flat = self.cnn(frames, return_all=True)
+            #     ff = [ rearrange(f, '(b t) d h2 w2 -> b t d h2 w2 1', b = B, t = T + n_pad)
+            #            for f in feature_map_levels_flat ]
+            # else:
             feature_map = self.cnn(frames)
             _, D, H2, W2 = feature_map.shape
 
@@ -759,9 +772,7 @@ class Tracker(nn.Module):
         # initialize feature planes and track features for each correlation level
         
         if self.R == 3 and self.mode_3d == 'minicubes':
-            # feature_planes_levels = [rearrange(f, 'b s d h w -> b s d h w 1')
-            #                          for f in feature_planes]
-
+            # feature_planes_levels = feature_planes
             feature_planes_levels = [
                 self.get_feature_planes_levels(rearrange(f, 'b s d h w -> b s d h w 1'))
                 for f in feature_planes]
@@ -863,7 +874,7 @@ class Tracker(nn.Module):
         return result_dict 
 
 
-    @torch.compile
+    # @torch.compile
     def get_feature_loss(self, feature_planes_levels, coords_full, 
                          camera_group = None):
 
@@ -926,7 +937,9 @@ class Tracker(nn.Module):
                     corr_features_triplanes.append(corr_features)
 
                 # stack xy, xz, and yz correlation features, then average
-                cf = torch.stack(corr_features_triplanes, dim = -1)
+                # product over xy, xz, yz
+                corr_features_triplanes = torch.stack(corr_features_triplanes)
+                cf = torch.prod(corr_features_triplanes, dim=0)
                 corr_features_levels.append(torch.mean(cf))
 
             mean_corr = sum(corr_features_levels) / len(corr_features_levels)

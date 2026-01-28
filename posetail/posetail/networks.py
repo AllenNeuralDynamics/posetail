@@ -339,10 +339,25 @@ class HieraFeatureExtractor(nn.Module):
         
         self.model = hiera.Hiera.from_pretrained(pretrained_model)
 
-        test_input = torch.randn([1, 3, 224, 224])
-        _, intermediates = self.model(test_input, return_intermediates=True)
+        # Ensure all parameters require gradients
+        for param in self.model.parameters():
+            param.requires_grad = True
+
+        # Remove unused Hiera head components
+        self.model.head = nn.Identity()
+        self.model.norm = nn.Identity()
+            
+        with torch.no_grad():  # Don't build computation graph during init
+            test_input = torch.randn([1, 3, 224, 224])
+            _, intermediates = self.model(test_input, return_intermediates=True)
         hiera_channels = [x.shape[-1] for x in intermediates]
+
         self.fpn = FeaturePyramidNetwork(hiera_channels, output_dim)
+
+        # Freeze unused FPN layer_blocks (keep only layer_blocks[0])
+        for name, param in self.fpn.named_parameters():
+            if 'layer_blocks' in name and not name.startswith('layer_blocks.0'):
+                param.requires_grad = False
 
     def forward(self, x):
         _, intermediates = self.model(x, return_intermediates=True)
@@ -351,7 +366,52 @@ class HieraFeatureExtractor(nn.Module):
             features[i] = rearrange(x, 'b h w c -> b c h w')
         out = self.fpn(features)
         return out[0]
+
+from sam2.sam2_image_predictor import SAM2ImagePredictor
+
+class SAM2HieraFeatureExtractor(nn.Module):
+    def __init__(self, output_dim=128, pretrained_model="facebook/sam2.1-hiera-small",
+                 freeze_nonlast_fpn=True):
+        super().__init__()
+
+        predictor = SAM2ImagePredictor.from_pretrained(pretrained_model)
+        self.model = predictor.model.image_encoder.trunk
+        
+        # Ensure all parameters require gradients
+        for param in self.model.parameters():
+            param.requires_grad = True
+            device = param.device
             
+        # with torch.no_grad():  # Don't build computation graph during init
+        #     test_input = torch.randn([1, 3, 400, 400]).to(device)
+        #     intermediates = self.model(test_input)
+        # hiera_channels = [x.shape[-1] for x in intermediates]
+
+        if pretrained_model == 'facebook/sam2.1-hiera-base-plus':
+            hiera_channels = [112, 224, 448, 896]
+        elif pretrained_model in ['facebook/sam2.1-hiera-small', 'facebook/sam2.1-hiera-tiny']:
+            hiera_channels = [96, 192, 384, 768]
+        self.fpn = FeaturePyramidNetwork(hiera_channels, output_dim)
+
+        if freeze_nonlast_fpn:
+            # Freeze unused FPN layer_blocks (keep only layer_blocks[0])
+            for name, param in self.fpn.named_parameters():
+                if 'layer_blocks' in name and not name.startswith('layer_blocks.0'):
+                    param.requires_grad = False
+
+    def forward(self, x, return_all=False):
+        intermediates = self.model(x)
+        features = OrderedDict()
+        for i, x in enumerate(intermediates):
+            features[i] = x
+        out = self.fpn(features)
+        if return_all:
+            return list(out.values())
+        else:
+            return out[0]
+    
+    
+
 class TriplaneFeatureExtractor(nn.Module):
 
     def __init__(self, input_dim, n_hidden_layers, 
