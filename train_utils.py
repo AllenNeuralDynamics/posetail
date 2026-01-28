@@ -41,15 +41,6 @@ def set_seeds(seed = 3, set_backends = True):
         torch.backends.cudnn.benchmark = False
 
 
-# def get_dataset(dataset_name, **kwargs):
-
-#     if dataset_name == 'rat7m':
-#         dataset = Rat7mIterableDataset(**kwargs)
-#     else:
-#         raise ValueError(f'no functionality for dataset named {dataset}')
-
-#     return dataset
-
 def load_config(config_path, easy = True): 
     ''' 
     loads and returns the toml configuration file in which
@@ -103,15 +94,15 @@ def write_json(json_path, results):
         json_file.write(json.dumps(results) + '\n')
 
 
-def save_checkpoint(model, optimizer, prefix, iter): 
+def save_checkpoint(model, optimizer, prefix, i): 
 
     checkpoint_dir = safe_make(os.path.join(prefix, 'checkpoints'))
 
     checkpoint_path = os.path.join(checkpoint_dir, 
-        f'checkpoint_{str(iter).zfill(6)}.pth')
+        f'checkpoint_{str(i).zfill(6)}.pth')
     
     state_dict = {
-        'iteration': iter,
+        'iteration': i,
         'model_state': model.state_dict(),
         'optimizer_state': optimizer.state_dict(),
     }
@@ -209,7 +200,10 @@ def dict_to_device(dd, device):
 
     return dout
 
-
+def total_to_per_gpu(i, world_size): 
+    per_gpu = (i + world_size - 1) // world_size
+    return per_gpu
+    
 def train_iteration(config, model, fabric, batch, 
                     optimizer, loss, scheduler = None,
                     prefix = 'train/',  evaluate = False): 

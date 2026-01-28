@@ -11,6 +11,7 @@ from posetail.posetail.cube import get_camera_scale
 class TotalLoss(nn.Module): 
 
     def __init__(self, gamma = 0.8, pixel_thresh = 12, delta = 6, 
+                 use_vis_loss = True, use_conf_loss = True, 
                  use_huber_loss = False, use_feature_loss = False, 
                  vis_loss_weight = 1, conf_loss_weight = 1, 
                  coords_loss_weight = 1, feature_loss_weight = 0.5):
@@ -19,6 +20,9 @@ class TotalLoss(nn.Module):
         self.gamma = gamma
         self.pixel_thresh = pixel_thresh
         self.delta = delta
+        
+        self.use_vis_loss = use_vis_loss
+        self.use_conf_loss = use_conf_loss
         self.use_huber_loss = use_huber_loss
         self.use_feature_loss = use_feature_loss
 
@@ -112,7 +116,13 @@ class TotalLoss(nn.Module):
             scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
             coords_loss = coords_loss / scale
 
-        total_loss = coords_loss + vis_loss + conf_loss # TODO: uncomment when ready
+        total_loss = coords_loss 
+        
+        if self.use_vis_loss: 
+            total_loss += vis_loss 
+            
+        if self.use_conf_loss: 
+            total_loss += conf_loss 
 
         if self.use_feature_loss: 
 

@@ -177,6 +177,16 @@ class PosetailDataset(Dataset):
 
     def _get_start_ixs(self, coords):
 
+        if self.split == 'train': 
+            start_ixs = self._get_start_ixs_train(coords)
+        else: 
+            start_ixs = self._get_start_ixs_test(coords)
+
+        return start_ixs
+    
+
+    def _get_start_ixs_train(self, coords):
+
         start_ixs = []
 
         for i in range(coords.shape[1] - self.n_frames + 1): 
@@ -192,33 +202,32 @@ class PosetailDataset(Dataset):
         start_ixs = np.array(start_ixs)
 
         return start_ixs
-    
 
-    # def _get_start_ixs(self, coords):
+    def _get_start_ixs_test(self, coords):
 
-        # safe = 0
-        # start_ixs = []
+        safe = 0
+        start_ixs = []
 
-        # for i in range(coords.shape[1]): 
+        for i in range(coords.shape[1]): 
 
-        #     if safe > 0:
-        #         safe = safe - 1 
-        #         continue
+            if safe > 0:
+                safe = safe - 1 
+                continue
 
-        #     coords_subset = coords[:, i:i + self.n_frames, :, :]
-        #     enough_frames = coords_subset.shape[1] == self.n_frames
+            coords_subset = coords[:, i:i + self.n_frames, :, :]
+            enough_frames = coords_subset.shape[1] == self.n_frames
             
-        #     mask = np.isfinite(coords_subset)
-        #     visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
+            mask = np.isfinite(coords_subset)
+            visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
 
-        #     # if not all nans in the starting frame and enough_frames: 
-        #     if np.sum(visible_coords) > 0 and enough_frames:
-        #         start_ixs.append(i)
-        #         safe = self.n_frames - 1
+            # if not all nans in the starting frame and enough_frames: 
+            if np.sum(visible_coords) > 0 and enough_frames:
+                start_ixs.append(i)
+                safe = self.n_frames - 1
 
-        # start_ixs = np.array(start_ixs)
+        start_ixs = np.array(start_ixs)
 
-        # return start_ixs
+        return start_ixs
 
 
     def _generate_metadata(self, track_3d): 

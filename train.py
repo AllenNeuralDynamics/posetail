@@ -7,7 +7,7 @@ import wandb
 import torch
 import torch.optim as optim
 # from torch.cuda.amp import GradScaler
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader, DistributedSampler
 
 from lightning.fabric import Fabric
 
@@ -95,10 +95,12 @@ def run(config_path, fabric):
         cams_to_sample = cams_to_sample, 
         kpts_to_sample = kpts_to_sample)
 
-    sampler = RandomSampler(
-        train_dataset, 
-        replacement = config.dataset.train.sample_with_replacement,
-        num_samples = int(1e12)
+    sampler = DistributedSampler(
+        train_dataset,
+        num_replicas = fabric.world_size, 
+        rank = fabric.global_rank,
+        shuffle = True, 
+        seed = config.training.get('seed', None)
     )
 
     train_loader = DataLoader(
@@ -137,7 +139,7 @@ def run(config_path, fabric):
         
         val_loader = fabric.setup_dataloaders(val_loader)
 
-    torch.autograd.set_detect_anomaly(True)
+    # torch.autograd.set_detect_anomaly(True)
     
     if fabric.is_global_zero:
         wandb.init(
@@ -193,7 +195,7 @@ def run(config_path, fabric):
         scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer = optimizer,
             max_lr = config.training.optimizer.learning_rate,
-            total_steps = config.training.n_iterations,
+            total_steps = config.training.iters_per_gpu,
             **config.training.scheduler)
 
     elif config.training.scheduler_type == 'multisteplr': 
@@ -203,18 +205,35 @@ def run(config_path, fabric):
 
     train_loss = TotalLoss(**config.training.losses)
     val_loss = TotalLoss(**config.training.losses)
-
+    
     # total_params = sum(p.numel() for p in model.parameters())
     # print(total_params)
- 
-    # train model on training dataset
-    for i, batch in enumerate(train_loader):
 
-        if i == config.training.n_iterations:
+    # put metrics in terms of one gpu, since all logging/checkpointing 
+    # will happen on the zero rank gpu
+    iters_per_gpu = total_to_per_gpu(config.training.n_iterations, fabric.world_size)
+    checkpoint_freq = total_to_per_gpu(config.training.checkpoint_freq, fabric.world_size) 
+    eval_metric_freq = total_to_per_gpu(config.training.eval_metric_freq, fabric.world_size)
+    val_freq = total_to_per_gpu(config.training.val_freq, fabric.world_size)
+    print_freq = total_to_per_gpu(config.training.print_freq, fabric.world_size) 
+
+    train_iter = iter(train_loader)
+    i = 0
+
+    while i < iters_per_gpu:
+
+        try:
+            batch = next(train_iter)
+        except StopIteration:
+            train_iter = iter(train_loader)
+            batch = next(train_iter)
+
+        if i == iters_per_gpu:
             break
 
-        result_dict = {'iteration': i}
-        evaluate = i % config.training.eval_metric_freq == 0
+        global_i = i * fabric.world_size + fabric.local_rank
+        result_dict = {'iteration': global_i}
+        evaluate = i % eval_metric_freq == 0
 
         train_dict = train_iteration(
             config = config,
@@ -229,7 +248,7 @@ def run(config_path, fabric):
         result_dict.update(train_dict)
 
         # evaluate model on validation dataset
-        if val and i % config.training.val_freq == 0: 
+        if val and i % val_freq == 0: 
 
             val_dict = test_epoch(
                 config = config,
@@ -248,18 +267,19 @@ def run(config_path, fabric):
             write_json(json_path, result_dict)
             wandb.save(json_path, base_path = exp_dir)
 
-            if i % config.training.print_freq == 0:
+            if i % print_freq == 0:
                 print(result_dict)
-
+                
         # save a model checkpoint when the condition is met
-        checkpoint_cond = ((i % config.training.checkpoint_freq == 0) or
-                           (i + 1 == config.training.n_iterations))
+        checkpoint_cond = ((i % checkpoint_freq == 0) or
+                           (i + 1 == iters_per_gpu))
 
         if checkpoint_cond and fabric.is_global_zero:
-            save_checkpoint(model, optimizer, prefix = exp_dir, iter = i)
+            save_checkpoint(model, optimizer, prefix = exp_dir, i = i)
 
         train_loss.reset_history()
         val_loss.reset_history()
+        i += 1
 
     wandb.finish()
 

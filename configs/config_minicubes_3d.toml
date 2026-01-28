@@ -5,9 +5,9 @@ mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-# enable_kpt_filtering = False
+enable_kpt_filtering = false
 # prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/offsets/'
-prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/kubric-multiview-subset/'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
 
 [dataset.train]
 split = 'train'
@@ -26,6 +26,7 @@ kpts_to_sample = [60, 120]
 [dataset.test]
 split = 'test'
 n_frames = 16
+max_res = 256
 project_2d = false
 
 
@@ -45,7 +46,7 @@ downsample_factor = 2
 # cube (only used for 3d)
 cube_dim = 64
 # cube_extent = 500 # rat7m
-cube_extent = 50 # kubric
+cube_extent = 5 # kubric
 
 # correlation
 corr_levels = 4
@@ -75,15 +76,16 @@ embedding_factor = 4
 
 [training]
 seed = 3
+n_iterations = 100
 n_epochs = 600
 scheduler_type = 'multisteplr'
 # scheduler_type = 'onecyclelr'
-use_half_precision = true
 max_grad_norm = 1.0
-checkpoint_freq = 20
-eval_freq = 1
-print_freq = 1
-debug_ix = -1
+checkpoint_freq = 25 # in iterations
+eval_metric_freq = 2 # in iterations
+val_freq = 2 # in iterations
+print_freq = 1 # in iterations
+debug_ix = -1 # only works for val 
 
 [training.optimizer]
 learning_rate = 1e-4
@@ -105,8 +107,10 @@ gamma = 0.8
 pixel_thresh = 6
 # delta = 0.1
 delta = 3
+use_vis_loss = true
+use_conf_loss = true
 use_huber_loss = false
-use_feature_loss = true
+use_feature_loss = false
 
 # weights for computing total loss
 vis_loss_weight = 2
