@@ -431,41 +431,56 @@ class Tracker(nn.Module):
                         bt=BT, k=K)
     
         all_samples = []
+        all_masks = []
         for ix_cam in range(n_cams):
             bt, d, h, w = feature_planes[ix_cam].shape
             scale = torch.tensor([h, w], device = p2d.device) 
             p2d_scaled = 2 * p2d[ix_cam] / scale - 1
+
+            # Create visibility mask: True if within [-1, 1] bounds
+            valid_mask = ((p2d_scaled[..., 0] >= -1) & (p2d_scaled[..., 0] <= 1) &
+                          (p2d_scaled[..., 1] >= -1) & (p2d_scaled[..., 1] <= 1))
+            
             samples = F.grid_sample(
                 input=feature_planes[ix_cam],
                 grid=p2d_scaled,
                 align_corners=False,
                 padding_mode="zeros")
-            all_samples.append(samples) 
+            all_samples.append(samples)
+            all_masks.append(valid_mask)
 
         # volumes: cams bt d k total            
         volumes = torch.stack(all_samples)
+        masks = torch.stack(all_masks)  # ncams bt k total
 
-        mean_volume = torch.mean(volumes, dim=0)
+        masks_expanded = masks.unsqueeze(2)  # ncams bt 1 k total
+        valid_counts = masks_expanded.sum(dim=0).clamp(min=1)  # Avoid div by zero
+        mean_volume = volumes.sum(dim=0) / valid_counts
+        # mean_volume = torch.mean(volumes, dim=0)
 
         mv_flat = rearrange(mean_volume, 'bt d k (x y z) -> (bt k) d z y x',
                             x=cube_size, y=cube_size, z=cube_size)
         mv_flat = self.minicube_v2v(mv_flat)
+
+        mv_flat = F.normalize(mv_flat, p=2, dim=1, eps=1e-6)
+        
         mean_volume = rearrange(mv_flat, '(bt k) d z y x -> bt d k (x y z)',
                                 bt=BT, k=K) 
 
-        # # normalize features
-        mv_norms = reduce(torch.square(mean_volume),
-                          'bt d k total -> bt 1 k total', 'sum')
+        # # # normalize features
+        # mv_norms = reduce(torch.square(mean_volume),
+        #                   'bt d k total -> bt 1 k total', 'sum')
 
-        # handle 0 norm case
-        mv_norms = torch.sqrt(torch.maximum(
-            mv_norms, torch.tensor(
-                1e-6, device=mv_norms.device, dtype=mv_norms.dtype)))
+        # # handle 0 norm case
+        # mv_norms = torch.sqrt(torch.maximum(
+        #     mv_norms, torch.tensor(
+        #         1e-6, device=mv_norms.device, dtype=mv_norms.dtype)))
         
-        mean_volume_normed = mean_volume / mv_norms
+        # mean_volume_normed = mean_volume / mv_norms
         
-        return mean_volume_normed
-
+        # return mean_volume_normed
+        return mean_volume
+        
     
     def get_corr_features_minicubes(self, coords, feature_planes_levels, 
                                     track_features_levels, camera_group):
@@ -938,7 +953,7 @@ class Tracker(nn.Module):
                 # stack xy, xz, and yz correlation features, then average
                 # product over xy, xz, yz
                 corr_features_triplanes = torch.stack(corr_features_triplanes)
-                cf = torch.prod(corr_features_triplanes, dim=0)
+                cf = torch.mean(corr_features_triplanes, dim=0)
                 corr_features_levels.append(torch.mean(cf))
 
             mean_corr = sum(corr_features_levels) / len(corr_features_levels)
