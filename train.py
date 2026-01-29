@@ -41,10 +41,9 @@ def parse_args():
         help = 'accelerator to use for training: cpu, gpu, tpu, auto')
 
     parser.add_argument('--devices', 
-        type = int, 
-        nargs = '+',
-        default = [0], 
-        help = 'list of gpu numbers to use')
+        nargs = '*',
+        default = 'auto', 
+        help = 'number of gpus to use, list of gpu indices to use, or auto to use all available gpus')
     
     # parser.add_argument('--devices', 
     #     default = 1, 
@@ -54,7 +53,7 @@ def parse_args():
         default = 'ddp_find_unused_parameters_true', 
         help = 'training strategy, e.g. dp, ddp, ddp_spawn, ddp_find_unused_parameters_true, xla, deepspeed, fsdp')
 
-    parser.add_argument('--num_nodes', 
+    parser.add_argument('--num-nodes', 
         default = 1, 
         help = 'number of nodes to train the model on')
 
@@ -227,18 +226,14 @@ def run(config_path, fabric):
     print_freq = total_to_per_gpu(config.training.print_freq, fabric.world_size) 
 
     train_iter = iter(train_loader)
-    i = 0
 
-    while i < iters_per_gpu:
+    for i in range(iters_per_gpu):
 
         try:
             batch = next(train_iter)
         except StopIteration:
             train_iter = iter(train_loader)
             batch = next(train_iter)
-
-        if i == iters_per_gpu:
-            break
 
         global_i = i * fabric.world_size + fabric.local_rank
         result_dict = {'iteration': global_i}
@@ -288,7 +283,6 @@ def run(config_path, fabric):
 
         train_loss.reset_history()
         val_loss.reset_history()
-        i += 1
 
     wandb.finish()
 
