@@ -96,7 +96,7 @@ print_freq = 1
 debug_ix = -1
 
 [training.optimizer]
-learning_rate = 1e-5
+learning_rate = 3e-5
 weight_decay = 1e-6
 # weight_decay = 0
 amsgrad = false
