@@ -279,7 +279,7 @@ def run(config_path, fabric):
                            (i + 1 == iters_per_gpu))
 
         if checkpoint_cond and fabric.is_global_zero:
-            save_checkpoint(model, optimizer, prefix = exp_dir, i = i)
+            save_checkpoint(model, optimizer, prefix = exp_dir, i = global_i)
 
         train_loss.reset_history()
         val_loss.reset_history()
