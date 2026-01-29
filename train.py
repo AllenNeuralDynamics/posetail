@@ -53,7 +53,7 @@ def parse_args():
         default = 'ddp', 
         help = 'training strategy, e.g. dp, ddp, ddp_spawn, ddp_find_unused_parameters_true, xla, deepspeed, fsdp')
 
-    parser.add_argument('--num_nodes', 
+    parser.add_argument('--num-nodes', 
         default = 1, 
         help = 'number of nodes to train the model on')
 
