@@ -192,6 +192,34 @@ class PosetailDataset(Dataset):
 
     def _get_start_ixs(self, coords):
 
+        if self.split == 'train': 
+            start_ixs = self._get_start_ixs_train(coords)
+        else: 
+            start_ixs = self._get_start_ixs_test(coords)
+
+        return start_ixs
+    
+
+    def _get_start_ixs_train(self, coords):
+
+        start_ixs = []
+
+        for i in range(coords.shape[1] - self.n_frames + 1): 
+
+            coords_subset = coords[:, i:i + self.n_frames, :, :]        
+            mask = np.isfinite(coords_subset)
+            visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
+
+            # if not all nans in the starting frame: 
+            if np.sum(visible_coords) > 0:
+                start_ixs.append(i)
+
+        start_ixs = np.array(start_ixs)
+
+        return start_ixs
+
+    def _get_start_ixs_test(self, coords):
+
         safe = 0
         start_ixs = []
 
@@ -203,12 +231,11 @@ class PosetailDataset(Dataset):
 
             coords_subset = coords[:, i:i + self.n_frames, :, :]
             enough_frames = coords_subset.shape[1] == self.n_frames
-            # no_nans = np.sum(~np.isfinite(coords_subset)) == 0
             
             mask = np.isfinite(coords_subset)
             visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
 
-            # if no_nans and enough_frames: 
+            # if not all nans in the starting frame and enough_frames: 
             if np.sum(visible_coords) > 0 and enough_frames:
                 start_ixs.append(i)
                 safe = self.n_frames - 1

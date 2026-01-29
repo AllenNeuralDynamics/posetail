@@ -20,15 +20,7 @@ python grid_search.py --config-path configs/config_default_3d.toml --auto-submit
 '''
 
 # list of parameter combinations to test - each must be the same length
-PARAM_DICT = {'training.losses.pixel_thresh': [3, 3], 
-              'training.optimizer.learning_rate': [0.00001, 0.00001],
-              'training.optimizer.weight_decay': [0.000001, 0.000001],
-              'model.cube_dim': [64, 64], 
-              'model.cube_extent': [500, 500],
-              'training.losses.coords_loss_weight': [0.1, 0.1],
-              'training.debug_ix': [-1, -1],
-              'dataset.train.n_videos': [1, 1], 
-              'model.corr_radius': [5, 7]}
+PARAM_DICT = {'training.losses.pixel_thresh': [3, 6]}
 
 def parse_args(): 
     '''
@@ -148,21 +140,8 @@ if __name__ == '__main__':
         os.chdir(args.base_dir)
         print(f'running from {os.getcwd()}')
 
+        # run the submission script for each config
         for config_path in config_paths:
 
-            # generate uuid and create temp dir
-            uuid = generate_uuid(n = 24)
-            temp_dir = safe_make(os.path.join(args.tmp_dir, f'posetail_{uuid}'))
-            print(f'\ncreated new uuid: {uuid}')
-
-            # copy codebase to the temp dir
-            print(f'copying {args.base_dir} to {temp_dir}')
-            shutil.copytree(args.base_dir, temp_dir, dirs_exist_ok = True)
-
-            # change to temp dir 
-            os.chdir(temp_dir)
-            print(f'moved to {os.getcwd()}')
-
-            # run the submission script from the temp dir
             print(f'submitting job with config {config_path}')
-            result = subprocess.run(['sbatch', 'train_lightning.sh', config_path])
+            result = subprocess.run(f'bsub {config_path} < train.sh', shell = True, check = True)

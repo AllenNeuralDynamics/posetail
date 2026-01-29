@@ -41,15 +41,6 @@ def set_seeds(seed = 3, set_backends = True):
         torch.backends.cudnn.benchmark = False
 
 
-# def get_dataset(dataset_name, **kwargs):
-
-#     if dataset_name == 'rat7m':
-#         dataset = Rat7mIterableDataset(**kwargs)
-#     else:
-#         raise ValueError(f'no functionality for dataset named {dataset}')
-
-#     return dataset
-
 def load_config(config_path, easy = True): 
     ''' 
     loads and returns the toml configuration file in which
@@ -103,15 +94,15 @@ def write_json(json_path, results):
         json_file.write(json.dumps(results) + '\n')
 
 
-def save_checkpoint(model, optimizer, prefix, epoch): 
+def save_checkpoint(model, optimizer, prefix, i): 
 
     checkpoint_dir = safe_make(os.path.join(prefix, 'checkpoints'))
 
     checkpoint_path = os.path.join(checkpoint_dir, 
-        f'checkpoint_{str(epoch).zfill(6)}.pth')
+        f'checkpoint_{str(i).zfill(6)}.pth')
     
     state_dict = {
-        'epoch': epoch,
+        'iteration': i,
         'model_state': model.state_dict(),
         'optimizer_state': optimizer.state_dict(),
     }
@@ -169,19 +160,6 @@ def print_memory(device):
     
     return memory_alloc, memory_res, memory_total
 
-
-def get_steps_per_epoch(dataset, dataloader):
-
-    steps_per_epoch = 0 
-
-    if isinstance(dataset, IterableDataset):
-        for i in dataloader: 
-            steps_per_epoch += 1
-    else: 
-        steps_per_epoch = len(dataset)
-
-    return steps_per_epoch
-
 def get_timestamp(): 
 
     tz = timezone(timedelta(hours = -8))
@@ -221,6 +199,101 @@ def dict_to_device(dd, device):
             dout[k] = v
 
     return dout
+
+def total_to_per_gpu(i, world_size): 
+    per_gpu = (i + world_size - 1) // world_size
+    return per_gpu
+    
+def train_iteration(config, model, fabric, batch, 
+                    optimizer, loss, scheduler = None,
+                    prefix = 'train/',  evaluate = False): 
+
+    device = model.device
+    model.train()
+
+    start_time = time.time()
+    timestamp = get_timestamp()
+
+    learning_rate = optimizer.param_groups[0]['lr']
+    metric_dicts = []
+    
+    views = [view.to(device) for view in batch.views]
+    coords = batch.coords.to(device)
+    cgroup = None 
+    
+    if 'cgroup' in batch: 
+        cgroup = batch.cgroup
+        cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
+
+    vis = get_vis_true(coords)
+    optimizer.zero_grad()
+
+    outputs = model(
+        views = list(views), 
+        coords = coords[:, 0, ...], 
+        camera_group = cgroup)
+
+    coords_pred = outputs['coords_pred']
+    vis_pred = outputs['vis_pred']
+
+    total_loss = loss(
+        model = model, 
+        outputs = outputs,
+        coords_true = coords, 
+        vis_true = vis, 
+        cgroup = cgroup, 
+        device = coords_pred.device)
+        
+    fabric.backward(total_loss)
+
+    fabric.clip_gradients(model, optimizer, 
+        max_norm = config.training.max_grad_norm, 
+        error_if_nonfinite = True)
+
+    optimizer.step()
+    optimizer.zero_grad()
+ 
+    if evaluate:
+        metrics_dict = get_eval_metrics(
+            vis_pred = vis_pred, 
+            vis_true = vis, 
+            coords_pred = coords_pred, 
+            coords_true = coords,
+            prefix = prefix
+        ) 
+        metric_dicts.append(metrics_dict)
+
+    if scheduler: 
+        scheduler.step()
+        learning_rate = scheduler.get_last_lr()[0]
+
+    loss_dict = loss.collapse_history(prefix = prefix)
+
+    # track time of training loop
+    elapsed_time = time.time() - start_time
+    elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
+
+    train_dict = {f'{prefix}timestamp': timestamp,
+                  f'{prefix}elapsed_time': elapsed_time,
+                  f'{prefix}elapsed_time_hms': elapsed_time_hms,
+                  f'{prefix}learning_rate': learning_rate}
+    train_dict.update(loss_dict)
+
+    # average evaluation metrics if we evaluated
+    if evaluate: 
+
+        avg_metrics_dict = {}
+        metrics = list(metric_dicts[0].keys())
+
+        for metric in metrics: 
+            metric_list = [float(metric_dict[metric]) for metric_dict in metric_dicts]
+            avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
+            avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
+            
+        train_dict.update(avg_metrics_dict)
+
+    return train_dict
+
 
 # @profile
 def train_epoch(config, model, fabric, dataloader, 
@@ -337,7 +410,7 @@ def train_epoch(config, model, fabric, dataloader,
     return train_dict
 
 
-def eval_epoch(config, model, dataloader, loss = None, 
+def test_epoch(config, model, dataloader, loss = None, 
                prefix = 'test/', evaluate = False): 
 
     device = model.device
@@ -375,8 +448,6 @@ def eval_epoch(config, model, dataloader, loss = None,
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
 
-        # TODO: check if shapes are compatible since 
-        # we don't use iters during evaluation
         if loss is not None:
             total_loss = loss(
                 model = model, 
@@ -399,30 +470,19 @@ def eval_epoch(config, model, dataloader, loss = None,
         n_batches += 1
         n_frames += coords.shape[1]
 
-    # track time of evaluation loop
-    elapsed_time = time.time() - start_time
-    elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
-
-    # collate evaluation data
-    eval_dict = {f'{prefix}timestamp': timestamp,
-                 f'{prefix}elapsed_time': elapsed_time,
-                 f'{prefix}elapsed_time_hms': elapsed_time_hms, 
-                 f'{prefix}batches_per_epoch': n_batches,
-                 f'{prefix}frames_per_epoch': n_frames}
-
     # track time of eval loop
     elapsed_time = time.time() - start_time
     elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
 
-    eval_dict = {f'{prefix}timestamp': timestamp,
-                  f'{prefix}elapsed_time': elapsed_time,
-                  f'{prefix}elapsed_time_hms': elapsed_time_hms,
-                  f'{prefix}batches_per_epoch': n_batches,
-                  f'{prefix}frames_per_epoch': n_frames}
+    val_dict = {f'{prefix}timestamp': timestamp,
+                f'{prefix}elapsed_time': elapsed_time,
+                f'{prefix}elapsed_time_hms': elapsed_time_hms,
+                f'{prefix}batches_per_epoch': n_batches,
+                f'{prefix}frames_per_epoch': n_frames}
 
     if loss is not None:
         loss_dict = loss.collapse_history(prefix = prefix)
-        eval_dict.update(loss_dict)
+        val_dict.update(loss_dict)
 
     # average evaluation metrics if we evaluated
     if evaluate: 
@@ -435,7 +495,7 @@ def eval_epoch(config, model, dataloader, loss = None,
             avg_metrics_dict[f'{metric}_avg'] = float(np.mean(metric_list))
             avg_metrics_dict[f'{metric}_std'] = float(np.std(metric_list))
             
-        eval_dict.update(avg_metrics_dict)
+        val_dict.update(avg_metrics_dict)
 
 
-    return eval_dict
+    return val_dict

@@ -7,7 +7,7 @@ import wandb
 import torch
 import torch.optim as optim
 # from torch.cuda.amp import GradScaler
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 
 from lightning.fabric import Fabric
 
@@ -99,12 +99,22 @@ def run(config_path, fabric):
         enable_kpt_filtering = config.dataset.train.enable_kpt_filtering
     )
 
+    sampler = DistributedSampler(
+        train_dataset,
+        num_replicas = fabric.world_size, 
+        rank = fabric.global_rank,
+        shuffle = True, 
+        seed = config.training.get('seed', None)
+    )
+
     train_loader = DataLoader(
         train_dataset, 
         batch_size = config.dataset.batch_size, 
         collate_fn = custom_collate,
-        shuffle = True,
-        num_workers = 12)
+        sampler = sampler,
+        shuffle = False,
+        num_workers = 8)
+
     
     train_loader = fabric.setup_dataloaders(train_loader)
 
@@ -194,7 +204,7 @@ def run(config_path, fabric):
         scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer = optimizer,
             max_lr = config.training.optimizer.learning_rate,
-            epochs = config.training.n_epochs,
+            total_steps = config.training.iters_per_gpu,
             **config.training.scheduler)
 
     elif config.training.scheduler_type == 'multisteplr': 
@@ -204,21 +214,41 @@ def run(config_path, fabric):
 
     train_loss = TotalLoss(**config.training.losses)
     val_loss = TotalLoss(**config.training.losses)
-
+    
     # total_params = sum(p.numel() for p in model.parameters())
     # print(total_params)
- 
-    # train model on training dataset
-    for i in range(config.training.n_epochs):
 
-        result_dict = {'epoch': i}
-        evaluate = i % config.training.eval_freq == 0
+    # put metrics in terms of one gpu, since all logging/checkpointing 
+    # will happen on the zero rank gpu
+    iters_per_gpu = total_to_per_gpu(config.training.n_iterations, fabric.world_size)
+    checkpoint_freq = total_to_per_gpu(config.training.checkpoint_freq, fabric.world_size) 
+    eval_metric_freq = total_to_per_gpu(config.training.eval_metric_freq, fabric.world_size)
+    val_freq = total_to_per_gpu(config.training.val_freq, fabric.world_size)
+    print_freq = total_to_per_gpu(config.training.print_freq, fabric.world_size) 
 
-        train_dict = train_epoch(
+    train_iter = iter(train_loader)
+    i = 0
+
+    while i < iters_per_gpu:
+
+        try:
+            batch = next(train_iter)
+        except StopIteration:
+            train_iter = iter(train_loader)
+            batch = next(train_iter)
+
+        if i == iters_per_gpu:
+            break
+
+        global_i = i * fabric.world_size + fabric.local_rank
+        result_dict = {'iteration': global_i}
+        evaluate = i % eval_metric_freq == 0
+
+        train_dict = train_iteration(
             config = config,
             model = model,
             fabric = fabric,
-            dataloader = train_loader, 
+            batch = batch, 
             optimizer = optimizer,
             loss = train_loss,
             scheduler = scheduler, 
@@ -227,9 +257,9 @@ def run(config_path, fabric):
         result_dict.update(train_dict)
 
         # evaluate model on validation dataset
-        if val and i % config.training.eval_freq == 0: 
+        if val and i % val_freq == 0: 
 
-            eval_dict = eval_epoch(
+            val_dict = test_epoch(
                 config = config,
                 model = model, 
                 dataloader = val_loader,
@@ -237,31 +267,28 @@ def run(config_path, fabric):
                 prefix = 'val/',
                 evaluate = evaluate)
 
-            result_dict.update(eval_dict)
+            result_dict.update(val_dict)
 
-        # log to wandb and print to console 
+        # log losses and eval metrics to wandb and print to console 
         if fabric.is_global_zero:
+
             wandb.log(result_dict)
-
-            if i % config.training.print_freq == 0:
-                print(result_dict)
-
-        # save a model checkpoint when the condition is met
-        checkpoint_cond = ((i % config.training.checkpoint_freq == 0) or
-                           (i + 1 == config.training.n_epochs))
-
-        if checkpoint_cond and fabric.is_global_zero:
-            save_checkpoint(model, optimizer, prefix = exp_dir, epoch = i)
-
-            # profiler.print_stats()
-            # print_memory(device)
-
-            # save losses and evaluation metrics to json
             write_json(json_path, result_dict)
             wandb.save(json_path, base_path = exp_dir)
-            
+
+            if i % print_freq == 0:
+                print(result_dict)
+                
+        # save a model checkpoint when the condition is met
+        checkpoint_cond = ((i % checkpoint_freq == 0) or
+                           (i + 1 == iters_per_gpu))
+
+        if checkpoint_cond and fabric.is_global_zero:
+            save_checkpoint(model, optimizer, prefix = exp_dir, i = i)
+
         train_loss.reset_history()
         val_loss.reset_history()
+        i += 1
 
     wandb.finish()
 
