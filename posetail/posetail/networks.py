@@ -379,7 +379,7 @@ class SAM2HieraFeatureExtractor(nn.Module):
         
         # Ensure all parameters require gradients
         for param in self.model.parameters():
-            param.requires_grad = True
+            param.requires_grad = False
             device = param.device
             
         # with torch.no_grad():  # Don't build computation graph during init
@@ -550,20 +550,33 @@ class MinicubesV2V(nn.Module):
         
     def forward(self, x):
         # s1 = self.skip1(x)
+        identity = x
         x = self.res1(x)
         x = self.res2(x)
         # x = x + s1
         x = self.conv_out(x)
-        return x
+        return x + identity
 
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
-                nn.init.xavier_normal_(m.weight)
-                # nn.init.normal_(m.weight, 0, 0.001)
+                # nn.init.xavier_normal_(m.weight)
+                nn.init.normal_(m.weight, 0, 0.001)
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.ConvTranspose3d):
-                nn.init.xavier_normal_(m.weight)
-                # nn.init.normal_(m.weight, 0, 0.001)
+                # nn.init.xavier_normal_(m.weight)
+                nn.init.normal_(m.weight, 0, 0.001)
                 nn.init.constant_(m.bias, 0)
+
+
+
+
+
+
+
+
+
+
+
+
 
