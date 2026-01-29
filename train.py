@@ -51,7 +51,7 @@ def parse_args():
     #     help = 'number of gpus to train the model on')
 
     parser.add_argument('--strategy', 
-        default = 'ddp', 
+        default = 'ddp_find_unused_parameters_true', 
         help = 'training strategy, e.g. dp, ddp, ddp_spawn, ddp_find_unused_parameters_true, xla, deepspeed, fsdp')
 
     parser.add_argument('--num_nodes', 
@@ -113,7 +113,7 @@ def run(config_path, fabric):
         collate_fn = custom_collate,
         sampler = sampler,
         shuffle = False,
-        num_workers = 8)
+        num_workers = 12)
 
     
     train_loader = fabric.setup_dataloaders(train_loader)
@@ -142,7 +142,7 @@ def run(config_path, fabric):
             batch_size = config.dataset.batch_size, 
             collate_fn = custom_collate,
             shuffle = True,
-            num_workers = 8)
+            num_workers = 12)
         
         val_loader = fabric.setup_dataloaders(val_loader)
 

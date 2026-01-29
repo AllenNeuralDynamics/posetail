@@ -37,7 +37,7 @@ project_2d = false
 
 
 [devices]
-device = 'cuda:0'
+device = 'cuda'
 
 
 [model]

@@ -33,7 +33,7 @@ project_2d = false
 
 
 [devices]
-device = 'cuda:0'
+device = 'cuda'
 
 
 [model]
@@ -113,7 +113,7 @@ delta = 6
 use_vis_loss = true
 use_conf_loss = true
 use_huber_loss = false
-use_feature_loss = false
+use_feature_loss = true
 
 # weights for computing total loss
 vis_loss_weight = 1
