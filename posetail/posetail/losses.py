@@ -51,7 +51,7 @@ class TotalLoss(nn.Module):
 
         loss_names = ['vis_loss', 'conf_loss', 'coords_loss',
                       'feature_loss','bad_feature_loss',
-                      'total_loss']
+                      'total_loss', 'cube_scale']
         self.loss_history = {loss_name: [] for loss_name in loss_names}
 
     def collapse_history(self, prefix = ''): 
@@ -111,6 +111,8 @@ class TotalLoss(nn.Module):
         if model.R == 3:
             scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
             coords_loss = coords_loss / scale
+        else:
+            scale = 1
 
         total_loss = coords_loss + vis_loss + conf_loss # TODO: uncomment when ready
 
@@ -134,6 +136,8 @@ class TotalLoss(nn.Module):
         self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
 
+        self.loss_history['cube_scale'].append(scale)
+        
         return total_loss
 
 
