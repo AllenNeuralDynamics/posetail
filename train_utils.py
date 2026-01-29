@@ -248,7 +248,7 @@ def train_iteration(config, model, fabric, batch,
 
     fabric.clip_gradients(model, optimizer, 
         max_norm = config.training.max_grad_norm, 
-        error_if_nonfinite = True)
+        error_if_nonfinite = False)
 
     optimizer.step()
     optimizer.zero_grad()

@@ -1,5 +1,5 @@
 [wandb]
-project_name = 'posetail-tests'
+project_name = 'posetail-big'
 # path = '/data/results/katie'
 path = '/groups/karashchuk/home/karashchukl/results/posetail'
 mode = 'online' # 'online', 'offline', 'disabled'
@@ -9,8 +9,9 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 # prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/offsets/'
 # prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/kubric-multiview-subset/'
-prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
+# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
 # prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/offsets/'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
 
 [dataset.train]
 split = 'train'
@@ -83,17 +84,17 @@ embedding_factor = 4
 
 [training]
 seed = 3
-n_iterations = 100
+n_iterations = 100000
 scheduler_type = 'multisteplr' # 'onecyclelr'
-max_grad_norm = 1
-checkpoint_freq = 25 # in iterations
-eval_metric_freq = 2 # in iterations
-val_freq = 2 # in iterations
+max_grad_norm = 1.0
+checkpoint_freq = 2000 # in iterations
+eval_metric_freq = 4 # in iterations
+val_freq = 4 # in iterations
 print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 3e-5
+learning_rate = 1e-5
 weight_decay = 1e-6
 amsgrad = false
 
