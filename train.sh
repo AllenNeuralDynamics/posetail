@@ -10,7 +10,7 @@
 
 # define model params
 CONFIG_PATH=${1:-"configs/config_default_3d.toml"}
-NUM_GPUS=${2:-8}
+NUM_NODES=${2:-1}
 PRECISION=${3:-"32"}
 STRATEGY=${4:-"ddp"}
 echo "using config $CONFIG_PATH"
@@ -30,5 +30,8 @@ wandb login $WANDB
 
 # run training script 
 echo "starting training..."
-pixi run python train.py --config-path "${CONFIG_PATH}" --num_nodes ${NUM_GPUS} --precision ${PRECISION} --strategy ${STRATEGY}
+pixi run python train.py --config-path "${CONFIG_PATH}" \
+                         --num-nodes ${NUM_NODES} \
+                         --precision ${PRECISION} \
+                         --strategy ${STRATEGY}
 echo "done!"
