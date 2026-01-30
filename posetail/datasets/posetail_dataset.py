@@ -164,7 +164,11 @@ class PosetailDataset(Dataset):
             if coords.shape[2] > num_kpts_to_sample:   
                 ix_p = np.random.choice(coords.shape[2], size = num_kpts_to_sample, replace = False)
                 coords = coords[:, :, ix_p, :]
-        
+
+        if coords.shape[2] < 1:
+            # failed to sample coordinates, just get another random sample
+            return self.__getitem__(np.random.randint(self.__len__()))
+                
         for cam_name in cam_names:
 
             # we apply the same augmentation per camera
