@@ -555,7 +555,7 @@ class MinicubesV2V(nn.Module):
         x = self.res2(x)
         # x = x + s1
         x = self.conv_out(x + identity)
-        return identity
+        return x
 
     def _initialize_weights(self):
         for m in self.modules():
