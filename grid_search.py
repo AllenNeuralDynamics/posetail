@@ -163,7 +163,8 @@ if __name__ == '__main__':
 
             subprocess.run([
                 'bsub', 
-                '-J' 'triexp', 
+                '-J' 'triexp',
+                '-W': '00:10',
                 '-e', '/groups/karashchuk/home/ruppk2/results/lsf/%J.err', 
                 '-o', '/groups/karashchuk/home/ruppk2/results/lsf/%J.out', 
                 '-n', '96', 
