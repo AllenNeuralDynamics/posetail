@@ -377,9 +377,8 @@ class SAM2HieraFeatureExtractor(nn.Module):
         predictor = SAM2ImagePredictor.from_pretrained(pretrained_model)
         self.model = predictor.model.image_encoder.trunk
         
-        # Ensure all parameters require gradients
         for param in self.model.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
             device = param.device
             
         # with torch.no_grad():  # Don't build computation graph during init
@@ -516,8 +515,10 @@ class Res3DBlock(nn.Module):
         self.res_branch = nn.Sequential(
             nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=1, padding=1),
             # nn.BatchNorm3d(out_planes),
+            nn.GroupNorm(num_groups=8, num_channels=out_planes),
             nn.ReLU(),
             nn.Conv3d(out_planes, out_planes, kernel_size=3, stride=1, padding=1),
+            nn.GroupNorm(num_groups=8, num_channels=out_planes),
             # nn.BatchNorm3d(out_planes)
         )
 
@@ -554,18 +555,20 @@ class MinicubesV2V(nn.Module):
         x = self.res1(x)
         x = self.res2(x)
         # x = x + s1
-        x = self.conv_out(x + identity)
+        x = self.conv_out(x)
         return x
 
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
                 # nn.init.xavier_normal_(m.weight)
-                nn.init.normal_(m.weight, 0, 0.001)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.ConvTranspose3d):
                 # nn.init.xavier_normal_(m.weight)
-                nn.init.normal_(m.weight, 0, 0.001)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
 
 

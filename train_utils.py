@@ -203,7 +203,34 @@ def dict_to_device(dd, device):
 def total_to_per_gpu(i, world_size): 
     per_gpu = (i + world_size - 1) // world_size
     return per_gpu
+
+def log_gradient_norms(model, prefix='grad_norm/'):
+    grad_norms = {}
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_norms[f'{prefix}{name}'] = param.grad.norm().item()
     
+    # Also log summary stats
+    all_norms = list(grad_norms.values())
+    if all_norms:
+        grad_norms[f'{prefix}max'] = max(all_norms)
+        grad_norms[f'{prefix}mean'] = sum(all_norms) / len(all_norms)
+    
+    return grad_norms
+
+def log_weight_norms(model, prefix='weight_norm/'):
+    weight_norms = {}
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            weight_norms[f'{prefix}{name}'] = param.norm().item()
+    
+    all_norms = list(weight_norms.values())
+    if all_norms:
+        weight_norms[f'{prefix}max'] = max(all_norms)
+        weight_norms[f'{prefix}mean'] = sum(all_norms) / len(all_norms)
+    
+    return weight_norms
+
 def train_iteration(config, model, fabric, batch, 
                     optimizer, loss, scheduler = None,
                     prefix = 'train/',  evaluate = False): 
@@ -246,6 +273,9 @@ def train_iteration(config, model, fabric, batch,
         
     fabric.backward(total_loss)
 
+    # grad_norms = log_gradient_norms(model)
+    # weight_norms = log_weight_norms(model)
+    
     fabric.clip_gradients(model, optimizer, 
         max_norm = config.training.max_grad_norm, 
         error_if_nonfinite = False)
@@ -278,6 +308,8 @@ def train_iteration(config, model, fabric, batch,
                   f'{prefix}elapsed_time_hms': elapsed_time_hms,
                   f'{prefix}learning_rate': learning_rate}
     train_dict.update(loss_dict)
+
+    # train_dict.update(weight_norms)
 
     # average evaluation metrics if we evaluated
     if evaluate: 

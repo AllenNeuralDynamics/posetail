@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
-from einops import rearrange, einsum, reduce
+from einops import rearrange, einsum, reduce, repeat
 
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
@@ -103,6 +103,9 @@ class Tracker(nn.Module):
         self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
 
         
+                
+
+
         if self.R == 3:
             if self.mode_3d == 'triplane':
                 # triplane features
@@ -115,11 +118,25 @@ class Tracker(nn.Module):
                 )
             elif self.mode_3d == 'minicubes':
                 self.minicube_v2v = MinicubesV2V(self.latent_dim)
+                # Cross-attention layer for cube matching
+                self.cube_cross_attn = nn.MultiheadAttention(
+                    embed_dim=self.latent_dim,
+                    num_heads=8,  # adjust based on latent_dim
+                    dropout=0.0,
+                    batch_first=True
+                )
+                # Project attention output to corr_output_dim
+                # self.attn_proj = nn.Linear(self.latent_dim, self.corr_output_dim)
+                self.cube_pos_encoding = nn.Parameter(
+                    torch.randn((2 * self.corr_radius + 1) ** 3, 16) * 0.02
+                )
+
 
         # correlation features
         if self.R == 3 and self.mode_3d == 'minicubes':
-            mlp_input_dim = (2 * self.corr_radius + 1) ** 6
-            # mlp_input_dim = (2 * self.corr_radius + 1) ** 3 * (3**3)
+            cube_size = (2 * self.corr_radius + 1)
+            # mlp_input_dim = (2 * self.corr_radius + 1) ** 6
+            mlp_input_dim = (1 + 16) * (cube_size ** 3) 
         else:
             mlp_input_dim = (2 * self.corr_radius + 1) ** 4
 
@@ -458,6 +475,9 @@ class Tracker(nn.Module):
         mean_volume = volumes.sum(dim=0) / valid_counts
         # mean_volume = torch.mean(volumes, dim=0)
 
+        # normalize before v2v
+        # mean_volume = F.normalize(mean_volume, p=2, dim=1, eps=1e-6)
+        
         mv_flat = rearrange(mean_volume, 'bt d k (x y z) -> (bt k) d z y x',
                             x=cube_size, y=cube_size, z=cube_size)
         mv_flat = self.minicube_v2v(mv_flat)
@@ -511,14 +531,44 @@ class Tracker(nn.Module):
             mv = rearrange(mv, '(b s) d n total -> b s total n d',
                            b=B, s=S)
 
-            corr_features = einsum(mv, track_features_levels[i],
-                                   'b s t1 n d, b t2 n d -> b s n t1 t2')
+            track = track_features_levels[i]
             
-            
-            corr_features = rearrange(corr_features,
-                                      'b s n t1 t2 -> (b s n) (t1 t2)')
 
-            mlp_corr_features = self.corr_mlp(corr_features) 
+            # corr_features = einsum(mv, track_features_levels[i],
+            #                        'b s t1 n d, b t2 n d -> b s n t1 t2')
+            
+            
+            # corr_features = rearrange(corr_features,
+            #                           'b s n t1 t2 -> (b s n) (t1 t2)')
+            
+            # mlp_corr_features = self.corr_mlp(corr_features) 
+
+            # Reshape for cross-attention: (batch, seq_len, feature_dim)
+            # Query: current frame cubes, Key/Value: track cubes
+            key_value = rearrange(mv, 'b s total n d -> (b s n) total d')
+            query = rearrange(track, 'b total n d -> (b n) total d')
+            query = repeat(query, '(b n) total d -> (b s n) total d', b=B, s=S)
+
+            attn_output, attn_weights = self.cube_cross_attn(
+                query=query,
+                key=key_value,
+                value=key_value,
+                need_weights=True
+            )
+            
+            # attn_output : (b s n) t1 d
+            # attn_weights: (b s n) t1 t2
+            # cube pos: t2 16
+            #
+            pos_embed = einsum(attn_weights, self.cube_pos_encoding,
+                               'bsn t1 t2, t2 d -> bsn t1 d')
+            pos_embed = rearrange(pos_embed, 'bsn t1 d -> bsn (t1 d)')
+            
+            attn_output = rearrange(attn_output, '(b s n) total d -> b s n total d', b=B, s=S, n=N)
+            corr_features = einsum(track, attn_output, 'b total n d, b s n total d -> b s n total')
+            corr_features = rearrange(corr_features, 'b s n total -> (b s n) total')
+
+            mlp_corr_features = self.corr_mlp(torch.cat([corr_features, pos_embed], dim=-1))
             
             corr_features_levels.append(mlp_corr_features)
 
@@ -544,6 +594,8 @@ class Tracker(nn.Module):
                 downsample_ratio=self.downsample_factor * (2**i))
             track_features_cube = rearrange(track_features_cube,
                                             'b d n total -> b total n d')
+            # center = track_features_cube.shape[1] // 2
+            # track_features_cube = track_features_cube[:, center]
             track_features_levels.append(track_features_cube)        
 
         return track_features_levels
@@ -915,9 +967,15 @@ class Tracker(nn.Module):
                 )
 
                 mv = rearrange(mv, '(b s) d n total -> b s total n d', b = B, s = S)
+
+                # only take the center
+                center = mv.shape[2] // 2
+                mv = mv[:, :, center]
+                
                 tv = mv[:, 0]
             
-                corr_features = einsum(mv, tv, 'b s t n d, b t n d -> b s n t')
+                # corr_features = einsum(mv, tv, 'b s t n d, b t n d -> b s n t')
+                corr_features = einsum(mv, tv, 'b s n d, b n d -> b s n')
                 corr_features_levels.append(torch.mean(corr_features))
 
             mean_corr = sum(corr_features_levels) / len(corr_features_levels)
