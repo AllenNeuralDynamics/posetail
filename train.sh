@@ -25,8 +25,9 @@ nvidia-smi
 # pixi environment 
 export PATH="$HOME/.pixi/bin:$PATH"
 pixi --version
-# pixi install 
-# echo "pixi env setup complete"
+
+pixi install 
+echo "pixi env setup complete"
 
 # wandb login 
 wandb login $WANDB_API_KEY
