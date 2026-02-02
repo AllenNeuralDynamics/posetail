@@ -2,15 +2,12 @@ import argparse
 import itertools 
 import os 
 import random
-import shutil
 import string
 import subprocess
 import toml
 
-import numpy as np 
-import pandas as pd 
+from easydict import EasyDict
 
-from posetail.train_utils import *
 
 ''' 
 example script submission. only use the auto-submit flag to submit each job to a slurm cluster
@@ -48,6 +45,21 @@ def parse_args():
 
     return args
 
+
+def load_config(config_path, easy = True): 
+    ''' 
+    loads and returns the toml configuration file in which
+    keys can be accessed.like.this
+    '''
+    with open(config_path, 'r') as toml_file:
+        config = toml.load(toml_file)
+
+    if easy: 
+        config = EasyDict(config)
+
+    return config
+
+
 def save_config(config, outpath):
     '''
     save config to the provided outpath
@@ -55,12 +67,6 @@ def save_config(config, outpath):
     with open(outpath, 'w') as toml_file:
         toml.dump(config, toml_file)
 
-def safe_make(path): 
-
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    return path
 
 def generate_uuid(n = 24):
     ''' 
@@ -72,6 +78,7 @@ def generate_uuid(n = 24):
 
     return uuid
 
+
 def get_combinations(param_dict): 
     ''' 
     gets a list of dictionaries of all possible parameter combinations
@@ -81,6 +88,7 @@ def get_combinations(param_dict):
     print(len(param_dicts))
 
     return param_dicts
+
 
 def get_combinations_simple(param_dict): 
 
