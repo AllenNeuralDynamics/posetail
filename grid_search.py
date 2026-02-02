@@ -28,9 +28,9 @@ PARAM_DICT = {'model.hiera_requires_grad': [True, True, True, False, False, Fals
               'training.scheduler.milestones': [[], [], [], [], [], [], []], 
               'training.scheduler.gamma': [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]}
 
-# FOR TESTING 
-PARAM_DICT = {'training.n_iterations': [25], 
-              'wandb.project_name': ['posetail-test']}
+# # FOR TESTING 
+# PARAM_DICT = {'training.n_iterations': [25], 
+#               'wandb.project_name': ['posetail-test']}
 
 def parse_args(): 
     '''
