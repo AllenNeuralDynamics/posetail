@@ -20,7 +20,20 @@ python grid_search.py --config-path configs/config_default_3d.toml --auto-submit
 '''
 
 # list of parameter combinations to test - each must be the same length
-PARAM_DICT = {'training.losses.pixel_thresh': [3, 6]}
+# SET MAX_RES
+PARAM_DICT = {'model.hiera_requires_grad': [True, True, True, False, False, False, False],
+              'model.latent_dim': [64, 64, 64, 128, 64, 64, 64], 
+              'model.corr_hidden_dim': [384, 384, 384, 384, 384, 1024, 1024], 
+              'model.corr_output_dim': [256, 256, 256, 256, 256, 512, 512],
+              'dataset.train.cams_to_sample': [[2, 6], [2, 6], [2, 6], [2, 6], [2, 6], [2, 6], [2, 6]],
+              'dataset.train.kpts_to_sample': [[64, 128], [128, 256], [256, 512], [256, 512], [128, 256], [256, 512], [512, 1024]],
+              'training.optimizer.learning_rate': [3e-4, 3e-4, 3e-4, 3e-4, 3e-4, 3e-4, 3e-4], 
+              'training.scheduler.milestones': [[], [], [], [], [], [], []], 
+              'training.scheduler.gamma': [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]}
+
+# FOR TESTING 
+PARAM_DICT = {'training.n_iterations': [25], 
+              'wandb.project_name': ['posetail-test']}
 
 def parse_args(): 
     '''
@@ -29,11 +42,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--config-path', default = './configs/config_default.toml')
-    parser.add_argument('--auto-submit', action = 'store_true', help = 'auto submits job to slurm')
-    parser.add_argument('--base-dir', help = 'base repo path, used for auto-submit')
-    parser.add_argument('--tmp-dir', help = 'tmp dir path, used for auto-submit')
-    # base_dir = '/home/katie.rupp/posetail/'
-    # tmp_dir = '/allen/aind/scratch/katie.rupp/tmp'
+    parser.add_argument('--auto-submit', action = 'store_true', help = 'auto submits job using train.sh')
 
     args = parser.parse_args()
 
@@ -137,7 +146,6 @@ if __name__ == '__main__':
     if args.auto_submit:
 
         # ensure we are in the main codebase
-        os.chdir(args.base_dir)
         print(f'running from {os.getcwd()}')
 
         # run the submission script for each config

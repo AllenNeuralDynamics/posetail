@@ -20,11 +20,11 @@ class Tracker(nn.Module):
 
     def __init__(self, track_3d = True, stride_length = 8, 
                  stride_overlap = None, downsample_factor = 4, 
-                 cube_dim = 20, cube_extent = None,
-                 upsample_factor = 1, corr_levels = 4, 
-                 corr_radius = 3, corr_hidden_dim = 384,
-                 corr_output_dim = 256, max_freq = 10, 
-                 n_iters = 4, embedding_dim = 256, 
+                 hiera_requires_grad = False, cube_dim = 20, 
+                 cube_extent = None, upsample_factor = 1, 
+                 corr_levels = 4, corr_radius = 3, 
+                 corr_hidden_dim = 384, corr_output_dim = 256, 
+                 max_freq = 10, n_iters = 4, embedding_dim = 256, 
                  latent_dim = 128, n_virtual = 64, n_heads = 8, 
                  n_time_space_blocks = 6, embedding_factor = 4,
                  mode_3d = 'triplane'): 
@@ -48,6 +48,7 @@ class Tracker(nn.Module):
         # cnn params
         self.downsample_factor = downsample_factor
         self.latent_dim = latent_dim 
+        self.hiera_requires_grad = hiera_requires_grad
 
         # cube params
         self.cube_dim = cube_dim 
@@ -98,6 +99,7 @@ class Tracker(nn.Module):
         freeze_nonlast_fpn = not (self.R == 3 and self.mode_3d == 'minicubes')
         # freeze_nonlast_fpn = True
         self.cnn = SAM2HieraFeatureExtractor(output_dim=self.latent_dim,
+                                             requires_grad=self.hiera_requires_grad,
                                              freeze_nonlast_fpn=freeze_nonlast_fpn)
 
         self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
