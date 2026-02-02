@@ -915,9 +915,15 @@ class Tracker(nn.Module):
                 )
 
                 mv = rearrange(mv, '(b s) d n total -> b s total n d', b = B, s = S)
+
+                # only take the center
+                center = mv.shape[2] // 2
+                mv = mv[:, :, center]
+                
                 tv = mv[:, 0]
             
-                corr_features = einsum(mv, tv, 'b s t n d, b t n d -> b s n t')
+                # corr_features = einsum(mv, tv, 'b s t n d, b t n d -> b s n t')
+                corr_features = einsum(mv, tv, 'b s n d, b n d -> b s n')
                 corr_features_levels.append(torch.mean(corr_features))
 
             mean_corr = sum(corr_features_levels) / len(corr_features_levels)
