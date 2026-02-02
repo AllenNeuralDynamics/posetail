@@ -37,10 +37,7 @@ def parse_args():
     parse command line arguments
     ''' 
     parser = argparse.ArgumentParser()
-
     parser.add_argument('--config-path', default = './configs/config_defaul_3d.toml')
-    parser.add_argument('--auto-submit', action = 'store_true', help = 'auto submits job to lsf')
-
     args = parser.parse_args()
 
     return args
@@ -135,7 +132,7 @@ def main(args):
         for i, param_dict in enumerate(param_dicts): 
 
             new_config = update_config(default_config, param_dict)
-            outpath = os.path.join(prefix, f'config{i}.toml')
+            outpath = os.path.join(prefix, f'gs_config{i}.toml')
             save_config(new_config, outpath)
             config_paths.append(outpath)
             print(f'creating config {outpath}')
@@ -151,25 +148,5 @@ if __name__ == '__main__':
     args = parse_args()
     config_paths = main(args)
 
-    if args.auto_submit:
-
-        # ensure we are in the main codebase
-        print(f'running from {os.getcwd()}')
-
-        # run the submission script for each config
-        for config_path in config_paths:
-
-            print(f'submitting job with config {config_path}')
-
-            subprocess.run([
-                'bsub', 
-                '-J' 'triexp',
-                '-W', '00:10',
-                '-e', '/groups/karashchuk/home/ruppk2/results/lsf/%J.err', 
-                '-o', '/groups/karashchuk/home/ruppk2/results/lsf/%J.out', 
-                '-n', '96', 
-                '-q', 'gpu_a100', 
-                '-gpu', 'num=8', 
-                'pixi', 'run', 'python', 'train.py', 
-                '--config-path', config_path], check = True
-            )
+    print('generated configs: ')
+    print(config_paths)
