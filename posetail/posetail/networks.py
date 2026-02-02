@@ -377,9 +377,9 @@ class SAM2HieraFeatureExtractor(nn.Module):
         predictor = SAM2ImagePredictor.from_pretrained(pretrained_model)
         self.model = predictor.model.image_encoder.trunk
         
-        # Ensure all parameters require gradients
+
         for param in self.model.parameters():
-            param.requires_grad = True
+            param.requires_grad = False
             device = param.device
             
         # with torch.no_grad():  # Don't build computation graph during init
