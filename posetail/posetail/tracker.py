@@ -118,7 +118,8 @@ class Tracker(nn.Module):
 
         # correlation features
         if self.R == 3 and self.mode_3d == 'minicubes':
-            mlp_input_dim = (2 * self.corr_radius + 1) ** 6
+            # mlp_input_dim = (2 * self.corr_radius + 1) ** 6
+            mlp_input_dim = (2 * self.corr_radius + 1) ** 3
             # mlp_input_dim = (2 * self.corr_radius + 1) ** 3 * (3**3)
         else:
             mlp_input_dim = (2 * self.corr_radius + 1) ** 4
@@ -544,6 +545,10 @@ class Tracker(nn.Module):
                 downsample_ratio=self.downsample_factor * (2**i))
             track_features_cube = rearrange(track_features_cube,
                                             'b d n total -> b total n d')
+            
+            center = track_features_cube.shape[1] // 2
+            track_features_cube = track_features_cube[:, center:center+1]
+
             track_features_levels.append(track_features_cube)        
 
         return track_features_levels
