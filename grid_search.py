@@ -28,6 +28,16 @@ PARAM_DICT = {'model.hiera_requires_grad': [True, True, True, False, False, Fals
               'training.scheduler.milestones': [[], [], [], [], [], [], []], 
               'training.scheduler.gamma': [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]}
 
+PARAM_DICT = {'model.hiera_requires_grad': [True, True, True, False, False, False, False],
+              'model.latent_dim': [64, 64, 64, 128, 64, 64, 64], 
+              'model.corr_hidden_dim': [384, 384, 384, 384, 384, 1024, 1024], 
+              'model.corr_output_dim': [256, 256, 256, 256, 256, 512, 512],
+              'dataset.train.cams_to_sample': [[2, 6], [2, 6], [2, 6], [2, 6], [2, 6], [2, 6], [2, 6]],
+              'dataset.train.kpts_to_sample': [[64, 128], [128, 256], [256, 512], [256, 512], [128, 256], [256, 512], [512, 1024]],
+              'training.optimizer.learning_rate': [1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4], 
+              'training.scheduler.milestones': [[10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000]], 
+              'training.scheduler.gamma': [0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7]}
+
 # # FOR TESTING 
 # PARAM_DICT = {'training.n_iterations': [25], 
 #               'wandb.project_name': ['posetail-test']}
@@ -132,7 +142,7 @@ def main(args):
         for i, param_dict in enumerate(param_dicts): 
 
             new_config = update_config(default_config, param_dict)
-            outpath = os.path.join(prefix, f'gs_config{i}.toml')
+            outpath = os.path.join(prefix, f'gs2_config{i}.toml')
             save_config(new_config, outpath)
             config_paths.append(outpath)
             print(f'creating config {outpath}')
