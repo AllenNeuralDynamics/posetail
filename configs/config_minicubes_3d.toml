@@ -54,7 +54,7 @@ cube_extent = 5 # kubric
 
 # correlation
 corr_levels = 4
-corr_radius = 2
+corr_radius = 3
 # corr_hidden_dim = 384
 # corr_output_dim = 256
 corr_hidden_dim = 256
@@ -92,7 +92,7 @@ print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 1e-5
+learning_rate = 5e-6
 weight_decay = 1e-5
 # weight_decay = 0
 amsgrad = false

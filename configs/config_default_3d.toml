@@ -54,7 +54,7 @@ downsample_factor = 4
 
 # cube (only used for 3d)
 cube_dim = 64
-cube_extent = 5 # kubric
+cube_extent = 15 # kubric
 # cube_extent = 500
 
 # correlation
@@ -65,8 +65,11 @@ corr_radius = 3
 # corr_output_dim = 256 
 # corr_hidden_dim = 1586
 # corr_output_dim = 1024
-corr_hidden_dim = 1024
-corr_output_dim = 512
+# corr_hidden_dim = 1024
+# corr_output_dim = 512
+corr_hidden_dim = 384
+corr_output_dim = 256
+
 
 # triplane 
 upsample_factor = 1
@@ -94,8 +97,8 @@ print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 1e-5
-weight_decay = 1e-6
+learning_rate = 5e-6
+weight_decay = 1e-5
 amsgrad = false
 
 [training.scheduler]
@@ -120,3 +123,4 @@ vis_loss_weight = 1
 conf_loss_weight = 1
 coords_loss_weight = 0.05
 feature_loss_weight = 1.0
+

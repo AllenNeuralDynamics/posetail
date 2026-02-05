@@ -574,7 +574,88 @@ class MinicubesV2V(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 
+class SimpleV2V(nn.Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.conv1 = nn.Conv3d(latent_dim, latent_dim, kernel_size=3, padding=1)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv3d(latent_dim, latent_dim, kernel_size=3, padding=1)
 
+        self._initialize_weights()
+        
+    def forward(self, x):
+        return self.conv2(self.relu(self.conv1(x))) + x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.ConvTranspose3d):
+                nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+
+
+class DepthwiseSeparableResBlock(nn.Module):
+    def __init__(self, latent_dim, expansion=2):
+        super().__init__()
+        hidden_dim = latent_dim * expansion
+        
+        self.net = nn.Sequential(
+            # expand channels
+            nn.Conv3d(latent_dim, hidden_dim, 1),
+            nn.GroupNorm(8, hidden_dim),
+            nn.ReLU(),
+            # depthwise spatial
+            nn.Conv3d(hidden_dim, hidden_dim, 3, padding=1, groups=hidden_dim),
+            nn.GroupNorm(8, hidden_dim),
+            nn.ReLU(),
+            # another depthwise for more spatial mixing
+            nn.Conv3d(hidden_dim, hidden_dim, 3, padding=1, groups=hidden_dim),
+            nn.GroupNorm(8, hidden_dim),
+            nn.ReLU(),
+            # project back
+            nn.Conv3d(hidden_dim, latent_dim, 1),
+            nn.GroupNorm(8, latent_dim),
+        )
+        self.relu = nn.ReLU()
+        
+    def forward(self, x):
+        return self.relu(x + self.net(x))
+
+
+class DepthwiseSeparableV2V(nn.Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.block1 = DepthwiseSeparableResBlock(latent_dim)
+        self.block2 = DepthwiseSeparableResBlock(latent_dim)
+        self.conv_out = nn.Conv3d(latent_dim, latent_dim, 1)
+
+        self._initialize_weights()
+        
+    def forward(self, x):
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.conv_out(x)
+        return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.ConvTranspose3d):
+                nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+    
 
 
 

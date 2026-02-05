@@ -9,7 +9,8 @@ from einops import rearrange, einsum, reduce
 
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
-from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor, MinicubesV2V
+from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor
+from posetail.posetail.networks import MinicubesV2V, SimpleV2V, DepthwiseSeparableV2V
 from posetail.posetail.networks import HieraFeatureExtractor, SAM2HieraFeatureExtractor 
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
@@ -114,8 +115,11 @@ class Tracker(nn.Module):
                     upsample_factor = self.upsample_factor
                 )
             elif self.mode_3d == 'minicubes':
-                self.minicube_v2v = MinicubesV2V(self.latent_dim)
-
+                # self.minicube_v2v = MinicubesV2V(self.latent_dim)
+                # self.minicube_v2v = nn.Identity()
+                # self.minicube_v2v = SimpleV2V(self.latent_dim)
+                self.minicube_v2v = DepthwiseSeparableV2V(self.latent_dim)
+                
         # correlation features
         if self.R == 3 and self.mode_3d == 'minicubes':
             # mlp_input_dim = (2 * self.corr_radius + 1) ** 6
@@ -166,12 +170,15 @@ class Tracker(nn.Module):
 
         return init
 
-    def get_feature_planes_levels(self, feature_planes):
+    def get_feature_planes_levels(self, feature_planes, corr_levels=None):
 
+        if corr_levels is None:
+            corr_levels = self.corr_levels
+        
         B, T, D, V1, V2, R = feature_planes.shape
         feature_planes_levels = []
         
-        for i, corr_level in enumerate(range(1, self.corr_levels + 1)): 
+        for i, corr_level in enumerate(range(1, corr_levels + 1)): 
 
             # downsize image features according to corr level
             if corr_level > 1: 
@@ -613,7 +620,7 @@ class Tracker(nn.Module):
                               .view(1, 1, 1, -1)
                               .to(device))
             elif self.mode_3d == 'minicubes':
-                scale = self.cube_scale
+                scale = self.cube_scale * 30
 
             coord_flow = torch.cat([forward_flow, backward_flow], dim = -1) / scale
             flow_encoding = get_fourier_encoding(coord_flow, min_freq = 0, max_freq = self.max_freq)
@@ -627,7 +634,7 @@ class Tracker(nn.Module):
             # update coords, vis, and conf
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
             if self.R == 3 and self.mode_3d == 'minicubes':
-                delta_coords = delta_coords * self.cube_scale
+                delta_coords = delta_coords * self.cube_scale * 8
             # delta_coords[:, 0] = 0 # initial coordinates should not change
             coords = coords + delta_coords # b s n 3
             vis = torch.sigmoid(vis + delta_vis) # b s n 1 
@@ -675,7 +682,7 @@ class Tracker(nn.Module):
 
         if self.R == 3:
             self.cube_scale = ( get_camera_scale(camera_group, coords.reshape(-1, 3)) * 
-                                self.downsample_factor * 1.5 )
+                                self.downsample_factor * 2 )
             if self.mode_3d == 'triplane':
                 # dynamically compute the cube center and extent based
                 # on the coord from the first frame
