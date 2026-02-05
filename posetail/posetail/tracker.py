@@ -556,12 +556,12 @@ class Tracker(nn.Module):
                           camera_group = None):
 
         device = coords.device 
+        B, S, N, R = coords.shape
 
         if self.R == 3 and self.mode_3d == 'minicubes':
             B, S, D, V1, V2, R = feature_planes_levels[0][0].shape
         else:
             B, S, D, V1, V2, R = feature_planes_levels[0].shape
-        B, S, N, R = coords.shape
 
         # iterative updates
         coords_pred = []

@@ -92,7 +92,8 @@ def run(config_path, fabric):
         split = config.dataset.train.split,
         track_3d = config.model.track_3d, 
         n_frames = config.dataset.train.n_frames,
-        max_res = config.dataset.train.max_res, 
+        max_res = config.dataset.train.max_res,
+        cam_thresh_for_vis = config.dataset.train.cam_thresh_for_vis, 
         cams_to_sample = cams_to_sample, 
         kpts_to_sample = kpts_to_sample,
         enable_kpt_filtering = config.dataset.train.enable_kpt_filtering
