@@ -39,8 +39,8 @@ def custom_collate(batch):
     coords_masked = coords[:, :, mask, :]
 
     # get corresponding visibilities if present
-    vis = batch[2]
-    if vis is not None: 
+    vis_masked = None
+    if batch[2][0] is not None: 
         vis = torch.stack(batch[2], axis = 0)
         vis_masked = vis[:, :, mask].unsqueeze(-1)
 
