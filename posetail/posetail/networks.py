@@ -601,31 +601,17 @@ class SimpleV2V(nn.Module):
 
 
 class DepthwiseSeparableResBlock(nn.Module):
-    def __init__(self, latent_dim, expansion=2):
+    def __init__(self, latent_dim):
         super().__init__()
-        hidden_dim = latent_dim * expansion
         
-        self.net = nn.Sequential(
-            # expand channels
-            nn.Conv3d(latent_dim, hidden_dim, 1),
-            nn.GroupNorm(8, hidden_dim),
-            nn.ReLU(),
-            # depthwise spatial
-            nn.Conv3d(hidden_dim, hidden_dim, 3, padding=1, groups=hidden_dim),
-            nn.GroupNorm(8, hidden_dim),
-            nn.ReLU(),
-            # another depthwise for more spatial mixing
-            nn.Conv3d(hidden_dim, hidden_dim, 3, padding=1, groups=hidden_dim),
-            nn.GroupNorm(8, hidden_dim),
-            nn.ReLU(),
-            # project back
-            nn.Conv3d(hidden_dim, latent_dim, 1),
-            nn.GroupNorm(8, latent_dim),
-        )
+        self.depthwise = nn.Conv3d(latent_dim, latent_dim, 3, padding=1, groups=latent_dim)
+        self.pointwise = nn.Conv3d(latent_dim, latent_dim, 1)
+        self.skip = nn.Conv3d(latent_dim, latent_dim, 1)
         self.relu = nn.ReLU()
         
     def forward(self, x):
-        return self.relu(x + self.net(x))
+        return self.relu(self.pointwise(self.relu(self.depthwise(x))) +
+                         self.skip(x))
 
 
 class DepthwiseSeparableV2V(nn.Module):
