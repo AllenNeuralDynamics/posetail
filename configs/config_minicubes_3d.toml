@@ -54,11 +54,14 @@ cube_extent = 5 # kubric
 
 # correlation
 corr_levels = 4
-corr_radius = 3
+corr_radius = 2
 # corr_hidden_dim = 384
 # corr_output_dim = 256
-corr_hidden_dim = 256
-corr_output_dim = 128
+# corr_hidden_dim = 256
+# corr_output_dim = 128
+corr_hidden_dim = 128
+corr_output_dim = 64
+
 # corr_hidden_dim = 1024
 # corr_output_dim = 512
 # corr_hidden_dim = 1586

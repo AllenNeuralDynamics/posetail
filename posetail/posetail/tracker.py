@@ -82,7 +82,7 @@ class Tracker(nn.Module):
 
         # add up the dimensions for transformer input
         self.input_dim = (2 + 2 * self.R + 4 * self.R * self.max_freq +
-                          self.corr_levels * self.corr_output_dim * len(self.plane_ixs))
+                          (1+self.corr_levels) * self.corr_output_dim * len(self.plane_ixs))
         # print(f'transformer input dimension: {self.input_dim}') 
 
         # networks
@@ -501,19 +501,26 @@ class Tracker(nn.Module):
         coords_bs = rearrange(coords, 'b s n r -> (b s) n r')
 
         corr_features_levels = []
-        for i in range(self.corr_levels):
+        for i in range(self.corr_levels + 1):
 
             feature_planes = [ffl[i] for ffl in feature_planes_levels]
             feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
                                  for f in feature_planes]
             
+            if i == 0: # detail cube
+                cube_interval = self.cube_scale / 4
+                downsample_ratio = self.downsample_factor
+            else:
+                cube_interval = self.cube_scale * (2**(i-1))
+                downsample_ratio = self.downsample_factor * (2**(i-1))
+
             mv = self.sample_feature_cubes(
                 feature_planes_bs,
                 camera_group,
                 coords_bs,
-                self.cube_scale * (2**i),
+                cube_interval,
                 corr_radius=self.corr_radius,
-                downsample_ratio=self.downsample_factor * (2**i),
+                downsample_ratio=downsample_ratio,
             )
 
             mv = rearrange(mv, '(b s) d n total -> b s total n d',
@@ -542,14 +549,20 @@ class Tracker(nn.Module):
                                      camera_group): 
 
         track_features_levels = []
-        for i in range(self.corr_levels):
+        for i in range(self.corr_levels+1):
             feature_planes = [ffl[i] for ffl in feature_planes_levels]
             feature_planes_first = [ff[:, 0, ..., 0] for ff in feature_planes]
+            if i == 0: # detail cube
+                cube_interval = self.cube_scale / 4
+                downsample_ratio = self.downsample_factor
+            else:
+                cube_interval = self.cube_scale * (2**(i-1))
+                downsample_ratio = self.downsample_factor * (2**(i-1))
             track_features_cube = self.sample_feature_cubes(
                 feature_planes_first, camera_group, 
-                coords, self.cube_scale * (2**i),
+                coords, cube_interval,
                 corr_radius=self.corr_radius,
-                downsample_ratio=self.downsample_factor * (2**i))
+                downsample_ratio=downsample_ratio)
             track_features_cube = rearrange(track_features_cube,
                                             'b d n total -> b total n d')
             
@@ -802,6 +815,8 @@ class Tracker(nn.Module):
             # feature_planes_levels = [
             #     self.get_feature_planes_levels(rearrange(f, 'b s d h w -> b s d h w 1'))
             #     for f in feature_planes]
+            for ff in feature_planes_levels: # for detail cube
+                ff.insert(0, ff[0])
             track_features_levels = self.get_track_features_minicubes(
                 coords, feature_planes_levels, camera_group
             )
