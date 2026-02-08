@@ -168,7 +168,8 @@ def run(config_path, fabric):
     model.tsformer.compile()
 
     if model.mode_3d == 'minicubes':
-        model.minicube_v2v.compile()
+        for v2v in model.minicube_v2v:
+            v2v.compile()
     elif model.mode_3d == 'triplane':
         model.triplane_cnn.compile()
         

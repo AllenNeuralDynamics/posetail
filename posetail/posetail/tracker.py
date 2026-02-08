@@ -10,7 +10,7 @@ from einops import rearrange, einsum, reduce
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor
-from posetail.posetail.networks import MinicubesV2V, SimpleV2V, DepthwiseSeparableV2V
+from posetail.posetail.networks import MinicubesV2V, SimpleV2V, DepthwiseSeparableV2V, PlanesV2V
 from posetail.posetail.networks import HieraFeatureExtractor, SAM2HieraFeatureExtractor 
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
 
@@ -82,7 +82,7 @@ class Tracker(nn.Module):
 
         # add up the dimensions for transformer input
         self.input_dim = (2 + 2 * self.R + 4 * self.R * self.max_freq +
-                          (1+self.corr_levels) * self.corr_output_dim * len(self.plane_ixs))
+                          self.corr_levels * self.corr_output_dim * len(self.plane_ixs))
         # print(f'transformer input dimension: {self.input_dim}') 
 
         # networks
@@ -118,7 +118,9 @@ class Tracker(nn.Module):
                 # self.minicube_v2v = MinicubesV2V(self.latent_dim)
                 # self.minicube_v2v = nn.Identity()
                 # self.minicube_v2v = SimpleV2V(self.latent_dim)
-                self.minicube_v2v = DepthwiseSeparableV2V(self.latent_dim)
+                self.minicube_v2v = nn.ModuleList([SimpleV2V(self.latent_dim) for _ in range(self.corr_levels)])
+                # self.minicube_v2v = DepthwiseSeparableV2V(self.latent_dim)
+                # self.minicube_v2v = PlanesV2V(self.latent_dim)
                 
         # correlation features
         if self.R == 3 and self.mode_3d == 'minicubes':
@@ -402,7 +404,8 @@ class Tracker(nn.Module):
     # @torch.compile
     def sample_feature_cubes(self, feature_planes, camera_group,
                              cube_centers, cube_interval,
-                             corr_radius = None, downsample_ratio = None):
+                             corr_radius = None, downsample_ratio = None,
+                             v2v = None):
         """Inputs:
          feature_planes: cams bt d h w
          cube_centers: bt k 3
@@ -415,7 +418,9 @@ class Tracker(nn.Module):
             corr_radius = self.corr_radius
         if downsample_ratio is None:
             downsample_ratio = self.downsample_factor
-
+        if v2v is None:
+            v2v = self.minicube_v2v
+            
         cube_size = corr_radius * 2 + 1
         n_cams = len(feature_planes)
         BT, K, _ = cube_centers.shape
@@ -468,7 +473,7 @@ class Tracker(nn.Module):
 
         mv_flat = rearrange(mean_volume, 'bt d k (x y z) -> (bt k) d z y x',
                             x=cube_size, y=cube_size, z=cube_size)
-        mv_flat = self.minicube_v2v(mv_flat)
+        mv_flat = v2v(mv_flat)
 
         mv_flat = F.normalize(mv_flat, p=2, dim=1, eps=1e-6)
         
@@ -501,14 +506,14 @@ class Tracker(nn.Module):
         coords_bs = rearrange(coords, 'b s n r -> (b s) n r')
 
         corr_features_levels = []
-        for i in range(self.corr_levels + 1):
+        for i in range(self.corr_levels):
 
             feature_planes = [ffl[i] for ffl in feature_planes_levels]
             feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
                                  for f in feature_planes]
             
             if i == 0: # detail cube
-                cube_interval = self.cube_scale / 4
+                cube_interval = self.cube_scale / 2
                 downsample_ratio = self.downsample_factor
             else:
                 cube_interval = self.cube_scale * (2**(i-1))
@@ -521,6 +526,7 @@ class Tracker(nn.Module):
                 cube_interval,
                 corr_radius=self.corr_radius,
                 downsample_ratio=downsample_ratio,
+                v2v = self.minicube_v2v[i]
             )
 
             mv = rearrange(mv, '(b s) d n total -> b s total n d',
@@ -549,11 +555,11 @@ class Tracker(nn.Module):
                                      camera_group): 
 
         track_features_levels = []
-        for i in range(self.corr_levels+1):
+        for i in range(self.corr_levels):
             feature_planes = [ffl[i] for ffl in feature_planes_levels]
             feature_planes_first = [ff[:, 0, ..., 0] for ff in feature_planes]
             if i == 0: # detail cube
-                cube_interval = self.cube_scale / 4
+                cube_interval = self.cube_scale / 2
                 downsample_ratio = self.downsample_factor
             else:
                 cube_interval = self.cube_scale * (2**(i-1))
@@ -562,7 +568,8 @@ class Tracker(nn.Module):
                 feature_planes_first, camera_group, 
                 coords, cube_interval,
                 corr_radius=self.corr_radius,
-                downsample_ratio=downsample_ratio)
+                downsample_ratio=downsample_ratio,
+                v2v = self.minicube_v2v[i])
             track_features_cube = rearrange(track_features_cube,
                                             'b d n total -> b total n d')
             
@@ -932,13 +939,22 @@ class Tracker(nn.Module):
                 feature_planes = [ffl[i] for ffl in feature_planes_levels]
                 feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
                                     for f in feature_planes]
+
+                if i == 0: # detail cube
+                    cube_interval = self.cube_scale / 2
+                    downsample_ratio = self.downsample_factor
+                else:
+                    cube_interval = self.cube_scale * (2**(i-1))
+                    downsample_ratio = self.downsample_factor * (2**(i-1))
+                
                 mv = self.sample_feature_cubes(
                     feature_planes_bs,
                     camera_group,
                     coords_bs,
-                    self.cube_scale * (2**i),
+                    cube_interval,
                     corr_radius=self.corr_radius,
-                    downsample_ratio=self.downsample_factor * (2**i)
+                    downsample_ratio=downsample_ratio,
+                    v2v = self.minicube_v2v[i]
                 )
 
                 mv = rearrange(mv, '(b s) d n total -> b s total n d', b = B, s = S)

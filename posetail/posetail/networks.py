@@ -546,7 +546,7 @@ class MinicubesV2V(nn.Module):
         self.res1 = Res3DBlock(latent_dim, latent_dim)
         self.conv_out = nn.Conv3d(latent_dim, latent_dim,
                                   kernel_size=3, stride=1, padding=1)
-        self.res2 = Res3DBlock(latent_dim, latent_dim)
+        # self.res2 = Res3DBlock(latent_dim, latent_dim)
         # self.skip1 = Res3DBlock(latent_dim, latent_dim)
 
         self._initialize_weights()
@@ -555,7 +555,7 @@ class MinicubesV2V(nn.Module):
         # s1 = self.skip1(x)
         identity = x
         x = self.res1(x)
-        x = self.res2(x)
+        # x = self.res2(x)
         # x = x + s1
         x = self.conv_out(x)
         return x
@@ -589,14 +589,14 @@ class SimpleV2V(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
-                nn.init.xavier_normal_(m.weight)
+                # nn.init.xavier_normal_(m.weight)
                 # nn.init.normal_(m.weight, 0, 0.001)
-                # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.ConvTranspose3d):
-                nn.init.xavier_normal_(m.weight)
+                # nn.init.xavier_normal_(m.weight)
                 # nn.init.normal_(m.weight, 0, 0.001)
-                # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
 
 
@@ -632,23 +632,58 @@ class DepthwiseSeparableV2V(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
-                nn.init.xavier_normal_(m.weight)
+                # nn.init.xavier_normal_(m.weight)
                 # nn.init.normal_(m.weight, 0, 0.001)
-                # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.ConvTranspose3d):
-                nn.init.xavier_normal_(m.weight)
+                # nn.init.xavier_normal_(m.weight)
                 # nn.init.normal_(m.weight, 0, 0.001)
-                # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
     
 
+class PlanesV2V(nn.Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.conv_1 = nn.Conv2d(latent_dim, latent_dim*2, 3, padding=1)
+        self.conv_2 = nn.Conv2d(latent_dim*2, latent_dim, 3, padding=1)
+        self.conv_3d = nn.Conv3d(latent_dim, latent_dim, 3, padding=1)
+        self.conv_out = nn.Conv3d(latent_dim, latent_dim, 1)
+        self.relu = nn.ReLU()
+        
+        self._init_weights()
 
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Conv3d)):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
-
-
-
-
-
-
+    def forward(self, x):
+        b, c, d, h, w = x.shape
+        
+        # xy planes (along z)
+        x_xy = rearrange(x, 'b c d h w -> (b d) c h w')
+        x_xy = self.relu(self.conv_1(x_xy))
+        x_xy = self.relu(self.conv_2(x_xy))
+        x_xy = rearrange(x_xy, '(b d) c h w -> b c d h w', b=b)
+        
+        # xz planes (along y)
+        x_xz = rearrange(x, 'b c d h w -> (b h) c d w')
+        x_xz = self.relu(self.conv_1(x_xz))
+        x_xz = self.relu(self.conv_2(x_xz))
+        x_xz = rearrange(x_xz, '(b h) c d w -> b c d h w', b=b)
+        
+        # yz planes (along x)
+        x_yz = rearrange(x, 'b c d h w -> (b w) c d h')
+        x_yz = self.relu(self.conv_1(x_yz))
+        x_yz = self.relu(self.conv_2(x_yz))
+        x_yz = rearrange(x_yz, '(b w) c d h -> b c d h w', b=b)
+        
+        # combine and mix with 3d conv
+        out = x_xy + x_xz + x_yz
+        out = self.relu(self.conv_3d(out))
+        return self.conv_out(out)
 
