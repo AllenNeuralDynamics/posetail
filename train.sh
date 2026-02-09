@@ -17,9 +17,7 @@ STRATEGY=${4:-"ddp"}
 echo "using config $CONFIG_PATH"
 echo "pwd: $PWD"
 
-cd /groups/karashchuk/home/karashchukl/projects/posetail
-
-source setup_env_vars.sh
+source ~/.setup_env_vars.sh
 
 # gpu specs
 nvidia-smi
@@ -27,11 +25,12 @@ nvidia-smi
 # pixi environment 
 export PATH="$HOME/.pixi/bin:$PATH"
 pixi --version
-# pixi install 
-# echo "pixi env setup complete"
+
+pixi install 
+echo "pixi env setup complete"
 
 # wandb login 
-# wandb login $WANDB
+wandb login $WANDB_API_KEY
 
 # run training script 
 echo "starting training..."

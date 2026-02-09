@@ -2,15 +2,12 @@ import argparse
 import itertools 
 import os 
 import random
-import shutil
 import string
 import subprocess
 import toml
 
-import numpy as np 
-import pandas as pd 
+from easydict import EasyDict
 
-from posetail.train_utils import *
 
 ''' 
 example script submission. only use the auto-submit flag to submit each job to a slurm cluster
@@ -20,24 +17,55 @@ python grid_search.py --config-path configs/config_default_3d.toml --auto-submit
 '''
 
 # list of parameter combinations to test - each must be the same length
-PARAM_DICT = {'training.losses.pixel_thresh': [3, 6]}
+# SET MAX_RES
+PARAM_DICT = {'model.hiera_requires_grad': [True, True, True, False, False, False, False],
+              'model.latent_dim': [64, 64, 64, 128, 64, 64, 64], 
+              'model.corr_hidden_dim': [384, 384, 384, 384, 384, 1024, 1024], 
+              'model.corr_output_dim': [256, 256, 256, 256, 256, 512, 512],
+              'dataset.train.cams_to_sample': [[2, 6], [2, 6], [2, 6], [2, 6], [2, 6], [2, 6], [2, 6]],
+              'dataset.train.kpts_to_sample': [[64, 128], [128, 256], [256, 512], [256, 512], [128, 256], [256, 512], [512, 1024]],
+              'training.optimizer.learning_rate': [3e-4, 3e-4, 3e-4, 3e-4, 3e-4, 3e-4, 3e-4], 
+              'training.scheduler.milestones': [[], [], [], [], [], [], []], 
+              'training.scheduler.gamma': [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]}
+
+PARAM_DICT = {'model.hiera_requires_grad': [True, True, True, False, False, False, False],
+              'model.latent_dim': [64, 64, 64, 128, 64, 64, 64], 
+              'model.corr_hidden_dim': [384, 384, 384, 384, 384, 1024, 1024], 
+              'model.corr_output_dim': [256, 256, 256, 256, 256, 512, 512],
+              'dataset.train.cams_to_sample': [[2, 6], [2, 6], [2, 6], [2, 6], [2, 6], [2, 6], [2, 6]],
+              'dataset.train.kpts_to_sample': [[64, 128], [128, 256], [256, 512], [256, 512], [128, 256], [256, 512], [512, 1024]],
+              'training.optimizer.learning_rate': [1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4], 
+              'training.scheduler.milestones': [[10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000], [10000, 15000, 20000]], 
+              'training.scheduler.gamma': [0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7]}
+
+# # FOR TESTING 
+# PARAM_DICT = {'training.n_iterations': [25], 
+#               'wandb.project_name': ['posetail-test']}
 
 def parse_args(): 
     '''
     parse command line arguments
     ''' 
     parser = argparse.ArgumentParser()
-
-    parser.add_argument('--config-path', default = './configs/config_default.toml')
-    parser.add_argument('--auto-submit', action = 'store_true', help = 'auto submits job to slurm')
-    parser.add_argument('--base-dir', help = 'base repo path, used for auto-submit')
-    parser.add_argument('--tmp-dir', help = 'tmp dir path, used for auto-submit')
-    # base_dir = '/home/katie.rupp/posetail/'
-    # tmp_dir = '/allen/aind/scratch/katie.rupp/tmp'
-
+    parser.add_argument('--config-path', default = './configs/config_defaul_3d.toml')
     args = parser.parse_args()
 
     return args
+
+
+def load_config(config_path, easy = True): 
+    ''' 
+    loads and returns the toml configuration file in which
+    keys can be accessed.like.this
+    '''
+    with open(config_path, 'r') as toml_file:
+        config = toml.load(toml_file)
+
+    if easy: 
+        config = EasyDict(config)
+
+    return config
+
 
 def save_config(config, outpath):
     '''
@@ -46,12 +74,6 @@ def save_config(config, outpath):
     with open(outpath, 'w') as toml_file:
         toml.dump(config, toml_file)
 
-def safe_make(path): 
-
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    return path
 
 def generate_uuid(n = 24):
     ''' 
@@ -63,6 +85,7 @@ def generate_uuid(n = 24):
 
     return uuid
 
+
 def get_combinations(param_dict): 
     ''' 
     gets a list of dictionaries of all possible parameter combinations
@@ -72,6 +95,7 @@ def get_combinations(param_dict):
     print(len(param_dicts))
 
     return param_dicts
+
 
 def get_combinations_simple(param_dict): 
 
@@ -118,7 +142,7 @@ def main(args):
         for i, param_dict in enumerate(param_dicts): 
 
             new_config = update_config(default_config, param_dict)
-            outpath = os.path.join(prefix, f'config{i}.toml')
+            outpath = os.path.join(prefix, f'gs2_config{i}.toml')
             save_config(new_config, outpath)
             config_paths.append(outpath)
             print(f'creating config {outpath}')
@@ -134,14 +158,5 @@ if __name__ == '__main__':
     args = parse_args()
     config_paths = main(args)
 
-    if args.auto_submit:
-
-        # ensure we are in the main codebase
-        os.chdir(args.base_dir)
-        print(f'running from {os.getcwd()}')
-
-        # run the submission script for each config
-        for config_path in config_paths:
-
-            print(f'submitting job with config {config_path}')
-            result = subprocess.run(f'bsub {config_path} < train.sh', shell = True, check = True)
+    print('generated configs: ')
+    print(config_paths)

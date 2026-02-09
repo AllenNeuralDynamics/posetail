@@ -371,7 +371,7 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 class SAM2HieraFeatureExtractor(nn.Module):
     def __init__(self, output_dim=128, pretrained_model="facebook/sam2.1-hiera-small",
-                 freeze_nonlast_fpn=True):
+                 requires_grad=False, freeze_nonlast_fpn=True):
         super().__init__()
 
         predictor = SAM2ImagePredictor.from_pretrained(pretrained_model)
@@ -379,7 +379,7 @@ class SAM2HieraFeatureExtractor(nn.Module):
         
 
         for param in self.model.parameters():
-            param.requires_grad = False
+            param.requires_grad = requires_grad
             device = param.device
             
         # with torch.no_grad():  # Don't build computation graph during init

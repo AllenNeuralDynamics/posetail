@@ -30,21 +30,25 @@ def custom_collate(batch):
     batch = list(zip(*batch))
 
     views = [torch.stack(v, dim = 0) for v in zip(*list(batch[0]))]
-    coords = torch.stack(batch[1], axis = 0).squeeze(1)
+    fnums = torch.stack(batch[3], axis = 0)
+    cgroup = batch[4][0]
+
+    # mask nan coordinates in the first frame
+    coords = torch.stack(batch[1], axis = 0)
     mask = torch.isfinite(coords).all(dim = -1).all(dim = 1).all(dim = 0)
     coords_masked = coords[:, :, mask, :]
-    fnums = torch.stack(batch[2], axis = 0)
 
-    if len(batch) == 3:
-        batch = edict({'views': views, 
-                       'coords': coords_masked,
-                       'fnums': fnums})
-    else: 
-        cgroup = batch[3][0]
-        batch = edict({'views': views, 
-                       'coords': coords_masked,
-                       'fnums': fnums, 
-                       'cgroup': cgroup})
+    # get corresponding visibilities if present
+    vis_masked = None
+    if batch[2][0] is not None: 
+        vis = torch.stack(batch[2], axis = 0)
+        vis_masked = vis[:, :, mask].unsqueeze(-1)
+
+    batch = edict({'views': views, 
+                   'coords': coords_masked,
+                   'vis': vis_masked,
+                   'fnums': fnums, 
+                   'cgroup': cgroup})
 
     return batch
 
@@ -53,8 +57,8 @@ class PosetailDataset(Dataset):
 
     def __init__(self, data_path, split, track_3d = True, n_frames = 16, 
                  max_res = -1, enable_kpt_filtering = False,
-                 cams_to_sample = None, kpts_to_sample = None,
-                 aug_prob=0.25): 
+                 cam_thresh_for_vis = 1, cams_to_sample = None, 
+                 kpts_to_sample = None, aug_prob=0.25): 
 
         self.split = split
         self.data_path = data_path
@@ -62,10 +66,8 @@ class PosetailDataset(Dataset):
         self.n_frames = n_frames
         self.max_res = max_res # -1 means no resizing
 
-        print("data_path: ", self.data_path)
-        print("split", split)
-        
         # for sampling cameras (None uses all available)
+        self.cam_thresh_for_vis = cam_thresh_for_vis
         self.cams_to_sample = cams_to_sample
         self.kpts_to_sample = kpts_to_sample
         self.enable_kpt_filtering = enable_kpt_filtering
@@ -104,10 +106,18 @@ class PosetailDataset(Dataset):
         end_ix = row['end_ix']
         fnums = torch.arange(start_ix, end_ix)
 
-        # load keypoints 
-        pose = np.load(row['pose_path'])['pose']
-        coords = pose[:, start_ix:end_ix, :, :]
-        
+        # load keypoints and visibilities (if present)
+        data = np.load(row['pose_path'])
+        coords = data['pose'][:, start_ix:end_ix, :, :] 
+        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
+        coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
+
+        vis = None
+        if 'vis' in data: 
+            vis = data['vis'][:, start_ix:end_ix, :, :]
+            vis = torch.tensor(vis, dtype = torch.float32, device = 'cpu')
+            vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
+
         # load camera resolutions for resizing
         res_dict = json.loads(row['res_dict'])
         new_res_dict = json.loads(row['new_res_dict'])
@@ -130,11 +140,21 @@ class PosetailDataset(Dataset):
                 ix_cams = np.random.choice(len(cam_names), size = num_cams_to_sample, replace = False)
                 cam_names = [cam_names[i] for i in ix_cams]
 
-        coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
+            # determine visibilities only from the sampled cameras
+            if vis is not None: 
+                vis = vis[:, :, ix_cams].sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
                 
+        # filter coords based on which coords are visible
+        # in the first frame (will sample from these)
+        if vis is not None: 
+            mask = vis[0].bool()
+            coords = coords[:, mask, :].squeeze()
+            vis = vis[:, mask].squeeze()
+
         # create camera group from camera parameters
         if len(cam_names) == 1: 
             cgroup = None
+
         else: 
             cgroup, offset_dict = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
             cgroup = cgroup.subset_cameras_names(cam_names)
@@ -142,15 +162,19 @@ class PosetailDataset(Dataset):
             
             # filter points that are visible from at least 2 views
             if self.enable_kpt_filtering:
-                b, s, k, r = coords.shape
-                coords_flat = rearrange(coords, 'b s k r -> (b s k) r')
+
+                s, n, _ = coords.shape
+                coords_flat = rearrange(coords, 's n r -> (s n) r')
                 all_visible = torch.stack([is_point_visible(cam, coords_flat) 
                                            for cam in cgroup])
-                count_flat = torch.sum(all_visible, dim=0)
-                count = rearrange(count_flat, '(b s k) -> b s k', b=b, s=s, k=k)
-                good = torch.all(count >= 2, dim=1)
-                coords = coords[:, :, good[0]]
+                count_flat = torch.sum(all_visible, dim = 0)
+                count = rearrange(count_flat, '(s n) -> s n', s = s, n = n)
+                good = torch.all(count >= 2, dim = 0)
+                coords = coords[:, good, :]
 
+                # filter vis if available
+                if vis is not None: 
+                    vis = vis[:, good]
 
         # sample a random number of keypoints from available tracks 
         if self.kpts_to_sample: 
@@ -161,12 +185,16 @@ class PosetailDataset(Dataset):
                 num_kpts_to_sample = np.random.randint(self.kpts_to_sample[0], self.kpts_to_sample[1])
 
             # sample if there are more keypoints than the number to sample
-            if coords.shape[2] > num_kpts_to_sample:   
-                ix_p = np.random.choice(coords.shape[2], size = num_kpts_to_sample, replace = False)
-                coords = coords[:, :, ix_p, :]
+            if coords.shape[1] > num_kpts_to_sample:   
+                ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample, replace = False)
+                coords = coords[:, ix_p]
 
-        if coords.shape[2] < 1:
-            # failed to sample coordinates, just get another random sample
+                # sample corresponding visibilities
+                if vis is not None: 
+                    vis = vis[:, ix_p]
+
+        # failed to sample coordinates, just get another random sample
+        if coords.shape[1] < 1:
             return self.__getitem__(np.random.randint(self.__len__()))
                 
         for cam_name in cam_names:
@@ -191,7 +219,7 @@ class PosetailDataset(Dataset):
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
     
-        return views, coords, fnums, cgroup
+        return views, coords, vis, fnums, cgroup
 
 
     def _get_start_ixs(self, coords):
@@ -281,10 +309,9 @@ class PosetailDataset(Dataset):
                     cams = os.listdir(img_path)
                     assert len(cams) > 0
 
-                    imgs = sorted(os.listdir(os.path.join(img_path, cams[0])))
-
                     # get starting indices 
-                    coords = np.load(pose_path)[f'pose']
+                    data = np.load(pose_path)
+                    coords = data['pose']
                     start_ixs = self._get_start_ixs(coords)
 
                     # n_batches = len(imgs) // self.n_frames

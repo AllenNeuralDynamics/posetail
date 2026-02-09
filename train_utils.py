@@ -219,18 +219,21 @@ def train_iteration(config, model, fabric, batch,
     
     views = [view.to(device) for view in batch.views]
     coords = batch.coords.to(device)
-    cgroup = None 
+    vis = batch.vis
+    cgroup = batch.cgroup 
     
-    if 'cgroup' in batch: 
-        cgroup = batch.cgroup
+    # fallback if visibilities are not provided
+    if vis is None: 
+        vis = get_vis_true(coords)
+
+    if cgroup: 
         cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
-    vis = get_vis_true(coords)
     optimizer.zero_grad()
 
     outputs = model(
         views = list(views), 
-        coords = coords[:, 0, ...], 
+        coords = coords[:, 0, ...], # coords for first frame
         camera_group = cgroup)
 
     coords_pred = outputs['coords_pred']
@@ -319,13 +322,16 @@ def train_epoch(config, model, fabric, dataloader,
     
         views = [view.to(device) for view in batch.views]
         coords = batch.coords.to(device)
-        cgroup = None 
+        vis = batch.vis
+        cgroup = batch.cgroup 
         
-        if 'cgroup' in batch: 
-            cgroup = batch.cgroup
+        # fallback if visibilities are not provided
+        if vis is None: 
+            vis = get_vis_true(coords)
+
+        if cgroup: 
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
 
-        vis = get_vis_true(coords)
         optimizer.zero_grad()
 
         outputs = model(
@@ -430,13 +436,15 @@ def test_epoch(config, model, dataloader, loss = None,
     
         views = [view.to(device) for view in batch.views]
         coords = batch.coords.to(device)
-        cgroup = None 
+        vis = batch.vis
+        cgroup = batch.cgroup 
         
-        if 'cgroup' in batch: 
-            cgroup = batch.cgroup
-            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
+        # fallback if visibilities are not provided
+        if vis is None: 
+            vis = get_vis_true(coords)
 
-        vis = get_vis_true(coords)
+        if cgroup: 
+            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
                        
         # get model predictions
         with torch.no_grad():

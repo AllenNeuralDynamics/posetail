@@ -1,31 +1,28 @@
 [wandb]
-project_name = 'posetail-big'
+project_name = 'posetail-big-triplane-tuning'
 # path = '/data/results/katie'
-path = '/groups/karashchuk/home/karashchukl/results/posetail'
+path = '/groups/karashchuk/home/ruppk2/results'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 
 [dataset]
 batch_size = 1
-# prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/offsets/'
-# prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/kubric-multiview-subset/'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
-# prefix = '/nvme1/data/animal-datasets-processed/posetail-tests/offsets/'
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
 
 [dataset.train]
 split = 'train'
 n_frames = 16
-max_res = 288
+max_res = 256
 cams_to_sample = [2, 6] 
-kpts_to_sample = [60, 120] 
+kpts_to_sample = [256, 512] 
 aug_prob = 0.25
 enable_kpt_filtering = true
 
 [dataset.val]
 split = 'val'
 n_frames = 16
-max_res = 288
+max_res = 256
 cams_to_sample = 5
 kpts_to_sample = 60
 aug_prob = 0.0
@@ -33,7 +30,7 @@ aug_prob = 0.0
 [dataset.test]
 split = 'test'
 n_frames = 16
-max_res = 288
+max_res = 256
 project_2d = false
 
 
@@ -51,6 +48,7 @@ stride_overlap = 4
 
 # resnet
 downsample_factor = 4
+hiera_requires_grad = true
 
 # cube (only used for 3d)
 cube_dim = 64
@@ -61,15 +59,14 @@ cube_extent = 15 # kubric
 corr_levels = 4 
 corr_radius = 3
 
+corr_hidden_dim = 384 
+corr_output_dim = 256
 # corr_hidden_dim = 1024
 # corr_output_dim = 256 
 # corr_hidden_dim = 1586
 # corr_output_dim = 1024
 # corr_hidden_dim = 1024
 # corr_output_dim = 512
-corr_hidden_dim = 384
-corr_output_dim = 256
-
 
 # triplane 
 upsample_factor = 1
@@ -87,7 +84,7 @@ embedding_factor = 4
 
 [training]
 seed = 3
-n_iterations = 100000
+n_iterations = 25000
 scheduler_type = 'multisteplr' # 'onecyclelr'
 max_grad_norm = 1.0
 checkpoint_freq = 20000 # in iterations
