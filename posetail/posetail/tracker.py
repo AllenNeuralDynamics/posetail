@@ -987,12 +987,22 @@ class Tracker(nn.Module):
                     corr_features_2d = self.get_corr_features_2d(
                         coords = coords_scaled, 
                         feature_planes = feature_planes_levels[i][..., j]
-                        ) 
+                        )
+
+                    # only take the center
+                    corr_features_2d = corr_features_2d[:, :, :,
+                                                        self.corr_radius,
+                                                        self.corr_radius]
 
                     track_features = corr_features_2d[:, 0]
 
+                    # corr_features = torch.einsum(
+                    #     'bsnxyd,bnxyd->bsnxy', 
+                    #     corr_features_2d, 
+                    #     track_features
+                    # )
                     corr_features = torch.einsum(
-                        'bsnxyd,bnxyd->bsnxy', 
+                        'bsnd,bnd->bsn', 
                         corr_features_2d, 
                         track_features
                     )
@@ -1000,7 +1010,7 @@ class Tracker(nn.Module):
                     corr_features_triplanes.append(corr_features)
 
                 # stack xy, xz, and yz correlation features, then average
-                # product over xy, xz, yz
+                # average over xy, xz, yz
                 corr_features_triplanes = torch.stack(corr_features_triplanes)
                 cf = torch.mean(corr_features_triplanes, dim=0)
                 corr_features_levels.append(torch.mean(cf))
