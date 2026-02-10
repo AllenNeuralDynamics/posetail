@@ -1,28 +1,31 @@
 [wandb]
-project_name = 'posetail-big-triplane-tuning'
+project_name = 'posetail-pretrain'
 # path = '/data/results/katie'
-path = '/groups/karashchuk/home/ruppk2/results'
+# path = '/groups/karashchuk/home/ruppk2/results'
+path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 
 [dataset]
 batch_size = 1
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
-prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
+# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility'
 
 [dataset.train]
 split = 'train'
 n_frames = 16
-max_res = 256
-cams_to_sample = [2, 6] 
+max_res = 288
+cams_to_sample = [1, 6] 
 kpts_to_sample = [256, 512] 
 aug_prob = 0.25
 enable_kpt_filtering = true
+cam_thresh_for_vis = 1
 
 [dataset.val]
 split = 'val'
 n_frames = 16
-max_res = 256
+max_res = 288
 cams_to_sample = 5
 kpts_to_sample = 60
 aug_prob = 0.0
@@ -30,7 +33,7 @@ aug_prob = 0.0
 [dataset.test]
 split = 'test'
 n_frames = 16
-max_res = 256
+max_res = 288
 project_2d = false
 
 
@@ -48,7 +51,7 @@ stride_overlap = 4
 
 # resnet
 downsample_factor = 4
-hiera_requires_grad = true
+hiera_requires_grad = false
 
 # cube (only used for 3d)
 cube_dim = 64
@@ -84,27 +87,28 @@ embedding_factor = 4
 
 [training]
 seed = 3
-n_iterations = 25000
-scheduler_type = 'multisteplr' # 'onecyclelr'
+n_iterations = 250000
+# scheduler_type = 'multisteplr' # 'onecyclelr'
+scheduler_type = 'onecyclelr'
 max_grad_norm = 1.0
-checkpoint_freq = 20000 # in iterations
-eval_metric_freq = 4 # in iterations
-val_freq = 4 # in iterations
+checkpoint_freq = 20480 # in iterations
+eval_metric_freq = 16 # in iterations
+val_freq = 16 # in iterations
 print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 5e-6
+learning_rate = 1e-4
 weight_decay = 1e-5
 amsgrad = false
 
 [training.scheduler]
-milestones = []
+# milestones = []
 # milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
-gamma = 0.1
+# gamma = 0.1
 
-# pct_start = 0.05
-# cycle_momentum = false
+pct_start = 0.05
+cycle_momentum = false
 
 [training.losses]
 gamma = 0.8

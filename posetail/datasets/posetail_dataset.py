@@ -152,29 +152,29 @@ class PosetailDataset(Dataset):
             vis = vis[:, mask].squeeze()
 
         # create camera group from camera parameters
-        if len(cam_names) == 1: 
-            cgroup = None
+        # if len(cam_names) == 1: 
+        #     cgroup = None
 
-        else: 
-            cgroup, offset_dict = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
-            cgroup = cgroup.subset_cameras_names(cam_names)
-            cgroup = format_camera_group(cgroup, offset_dict, device = 'cpu')
-            
-            # filter points that are visible from at least 2 views
-            if self.enable_kpt_filtering:
+        # else: 
+        cgroup, offset_dict = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
+        cgroup = cgroup.subset_cameras_names(cam_names)
+        cgroup = format_camera_group(cgroup, offset_dict, device = 'cpu')
 
-                s, n, _ = coords.shape
-                coords_flat = rearrange(coords, 's n r -> (s n) r')
-                all_visible = torch.stack([is_point_visible(cam, coords_flat) 
-                                           for cam in cgroup])
-                count_flat = torch.sum(all_visible, dim = 0)
-                count = rearrange(count_flat, '(s n) -> s n', s = s, n = n)
-                good = torch.all(count >= 2, dim = 0)
-                coords = coords[:, good, :]
+        # filter points that are visible from at least 2 views
+        if self.enable_kpt_filtering:
 
-                # filter vis if available
-                if vis is not None: 
-                    vis = vis[:, good]
+            s, n, _ = coords.shape
+            coords_flat = rearrange(coords, 's n r -> (s n) r')
+            all_visible = torch.stack([is_point_visible(cam, coords_flat) 
+                                       for cam in cgroup])
+            count_flat = torch.sum(all_visible, dim = 0)
+            count = rearrange(count_flat, '(s n) -> s n', s = s, n = n)
+            good = torch.all(count >= 2, dim = 0)
+            coords = coords[:, good, :]
+
+            # filter vis if available
+            if vis is not None: 
+                vis = vis[:, good]
 
         # sample a random number of keypoints from available tracks 
         if self.kpts_to_sample: 

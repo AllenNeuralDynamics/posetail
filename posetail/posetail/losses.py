@@ -118,6 +118,8 @@ class TotalLoss(nn.Module):
         else:
             scale = 1
 
+        self.loss_history['coords_loss'].append(coords_loss.item())
+            
         total_loss = coords_loss 
         
         if self.use_vis_loss: 
@@ -143,7 +145,6 @@ class TotalLoss(nn.Module):
 
         self.loss_history['vis_loss'].append(vis_loss.item())
         self.loss_history['conf_loss'].append(conf_loss.item())
-        self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
 
         self.loss_history['cube_scale'].append(scale)
