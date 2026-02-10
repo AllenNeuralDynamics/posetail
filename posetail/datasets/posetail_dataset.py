@@ -160,7 +160,7 @@ class PosetailDataset(Dataset):
         cgroup = cgroup.subset_cameras_names(cam_names)
         cgroup = format_camera_group(cgroup, offset_dict, device = 'cpu')
 
-        # filter points that are visible from at least 2 views
+        # filter points that are visible from enough views
         if self.enable_kpt_filtering:
 
             s, n, _ = coords.shape
@@ -169,7 +169,7 @@ class PosetailDataset(Dataset):
                                        for cam in cgroup])
             count_flat = torch.sum(all_visible, dim = 0)
             count = rearrange(count_flat, '(s n) -> s n', s = s, n = n)
-            good = torch.all(count >= 2, dim = 0)
+            good = torch.all(count >= self.cam_thresh_for_vis, dim = 0)
             coords = coords[:, good, :]
 
             # filter vis if available
