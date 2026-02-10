@@ -1,8 +1,8 @@
 [wandb]
-project_name = 'posetail-big-triplane-tuning'
+project_name = 'posetail-test' # 'posetail-big-triplane-tuning'
 # path = '/data/results/katie'
 path = '/groups/karashchuk/home/ruppk2/results'
-mode = 'online' # 'online', 'offline', 'disabled'
+mode = 'offline' # 'online', 'offline', 'disabled'
 
 
 [dataset]
@@ -14,6 +14,7 @@ prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pr
 split = 'train'
 n_frames = 16
 max_res = 256
+cam_thresh_for_vis = 1
 cams_to_sample = [2, 6] 
 kpts_to_sample = [256, 512] 
 aug_prob = 0.25
@@ -84,7 +85,7 @@ embedding_factor = 4
 
 [training]
 seed = 3
-n_iterations = 25000
+n_iterations = 25
 scheduler_type = 'multisteplr' # 'onecyclelr'
 max_grad_norm = 1.0
 checkpoint_freq = 2000 # in iterations

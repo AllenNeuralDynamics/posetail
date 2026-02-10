@@ -13,6 +13,7 @@ prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pr
 split = 'train'
 n_frames = 16
 max_res = 288
+cam_thresh_for_vis = 1
 cams_to_sample = [2, 6] 
 kpts_to_sample = [60, 120]
 aug_prob = 0.25
