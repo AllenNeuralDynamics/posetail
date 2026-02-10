@@ -53,7 +53,7 @@ hiera_requires_grad = true
 
 # cube (only used for 3d)
 cube_dim = 64
-cube_extent = 5 # kubric
+cube_extent = 15 # kubric
 # cube_extent = 500
 
 # correlation
@@ -88,15 +88,15 @@ seed = 3
 n_iterations = 25
 scheduler_type = 'multisteplr' # 'onecyclelr'
 max_grad_norm = 1.0
-checkpoint_freq = 2000 # in iterations
+checkpoint_freq = 20000 # in iterations
 eval_metric_freq = 4 # in iterations
 val_freq = 4 # in iterations
 print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 1e-5
-weight_decay = 1e-6
+learning_rate = 5e-6
+weight_decay = 1e-5
 amsgrad = false
 
 [training.scheduler]
@@ -121,3 +121,4 @@ vis_loss_weight = 1
 conf_loss_weight = 1
 coords_loss_weight = 0.05
 feature_loss_weight = 1.0
+

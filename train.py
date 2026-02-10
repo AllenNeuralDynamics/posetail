@@ -50,7 +50,7 @@ def parse_args():
         help = 'number of gpus to train the model on')
 
     parser.add_argument('--strategy', 
-        default = 'ddp_find_unused_parameters_true', 
+        default = 'ddp', 
         help = 'training strategy, e.g. dp, ddp, ddp_spawn, ddp_find_unused_parameters_true, xla, deepspeed, fsdp')
 
     parser.add_argument('--num-nodes', 
@@ -169,7 +169,8 @@ def run(config_path, fabric):
     model.tsformer.compile()
 
     if model.mode_3d == 'minicubes':
-        model.minicube_v2v.compile()
+        for v2v in model.minicube_v2v:
+            v2v.compile()
     elif model.mode_3d == 'triplane':
         model.triplane_cnn.compile()
         

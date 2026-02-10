@@ -25,7 +25,7 @@ def to_homogeneous(p):
     return torch.cat([p, ones], dim=-1)
 
 
-def from_homogeneous(p, eps=1e-6):
+def from_homogeneous(p, eps=1e-10):
     return p[..., :-1] / (p[..., -1, None] + eps) 
 
 
