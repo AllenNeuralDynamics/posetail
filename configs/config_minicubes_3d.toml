@@ -14,7 +14,7 @@ prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pr
 split = 'train'
 n_frames = 16
 max_res = 288
-cams_to_sample = [1, 6] 
+cams_to_sample = [1, 10] 
 kpts_to_sample = [256, 512]
 aug_prob = 0.25
 enable_kpt_filtering = false
@@ -88,7 +88,7 @@ embedding_factor = 4
 
 [training]
 seed = 3
-n_iterations = 250000
+n_iterations = 600000
 # scheduler_type = 'multisteplr'
 scheduler_type = 'onecyclelr'
 max_grad_norm = 1.0
