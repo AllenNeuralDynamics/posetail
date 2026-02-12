@@ -163,13 +163,21 @@ def run(config_path, fabric):
 
     optimizer = fabric.setup_optimizers(optimizer)
 
+    # put metrics in terms of one gpu, since all logging/checkpointing 
+    # will happen on the zero rank gpu
+    iters_per_gpu = total_to_per_gpu(config.training.n_iterations, fabric.world_size)
+    checkpoint_freq = total_to_per_gpu(config.training.checkpoint_freq, fabric.world_size) 
+    eval_metric_freq = total_to_per_gpu(config.training.eval_metric_freq, fabric.world_size)
+    val_freq = total_to_per_gpu(config.training.val_freq, fabric.world_size)
+    print_freq = total_to_per_gpu(config.training.print_freq, fabric.world_size) 
+    
     # set up LR scheduler
     scheduler = None
     if config.training.scheduler_type == 'onecyclelr': 
         scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer = optimizer,
             max_lr = config.training.optimizer.learning_rate,
-            total_steps = config.training.iters_per_gpu,
+            total_steps = iters_per_gpu,
             **config.training.scheduler)
 
     elif config.training.scheduler_type == 'multisteplr': 
@@ -183,13 +191,6 @@ def run(config_path, fabric):
     # total_params = sum(p.numel() for p in model.parameters())
     # print(total_params)
 
-    # put metrics in terms of one gpu, since all logging/checkpointing 
-    # will happen on the zero rank gpu
-    iters_per_gpu = total_to_per_gpu(config.training.n_iterations, fabric.world_size)
-    checkpoint_freq = total_to_per_gpu(config.training.checkpoint_freq, fabric.world_size) 
-    eval_metric_freq = total_to_per_gpu(config.training.eval_metric_freq, fabric.world_size)
-    val_freq = total_to_per_gpu(config.training.val_freq, fabric.world_size)
-    print_freq = total_to_per_gpu(config.training.print_freq, fabric.world_size) 
 
     train_iter = iter(train_loader)
 

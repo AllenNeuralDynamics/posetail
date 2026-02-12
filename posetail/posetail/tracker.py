@@ -12,7 +12,7 @@ from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor
 from posetail.posetail.networks import MinicubesV2V, SimpleV2V, DepthwiseSeparableV2V, PlanesV2V
 from posetail.posetail.networks import HieraFeatureExtractor, SAM2HieraFeatureExtractor 
-from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding
+from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding, PadToMultiple
 
 from torchvision import transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
@@ -104,8 +104,11 @@ class Tracker(nn.Module):
                                              requires_grad=self.hiera_requires_grad,
                                              freeze_nonlast_fpn=freeze_nonlast_fpn)
 
-        self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
-
+        # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+        self.transform_norm = transforms.Compose([
+            PadToMultiple(32),
+            transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD),
+        ])
         
         if self.R == 3:
             if self.mode_3d == 'triplane':
