@@ -75,7 +75,12 @@ def get_dirs(path):
     dirs = [d for d in dirs if os.path.isdir(os.path.join(path, d))
             and not d.startswith('.')]
     
-    dirs = sorted(dirs) 
+    # sort numerically if all folders are numerical, 
+    # otherwise sort alphabetically
+    if all(d.isdigit() for d in dirs):
+        dirs = sorted(dirs, key = int)
+    else: 
+        dirs = sorted(dirs) 
     
     return dirs
 

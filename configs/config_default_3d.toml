@@ -7,21 +7,21 @@ mode = 'offline' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
-prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
+# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
 
 [dataset.train]
-split = 'train'
+split_dir = 'train'
 n_frames = 16
 max_res = 256
 cam_thresh_for_vis = 1
 cams_to_sample = [2, 6] 
-kpts_to_sample = [256, 512] 
+kpts_to_sample = [64, 128] 
 aug_prob = 0.25
 enable_kpt_filtering = true
 
 [dataset.val]
-split = 'val'
+split_dir = 'val'
 n_frames = 16
 max_res = 256
 cams_to_sample = 5
@@ -29,7 +29,7 @@ kpts_to_sample = 60
 aug_prob = 0.0
 
 [dataset.test]
-split = 'test'
+split_dir = 'test'
 n_frames = 16
 max_res = 256
 project_2d = false
@@ -40,7 +40,6 @@ device = 'cuda'
 
 
 [model]
-track_3d = true
 mode_3d = 'triplane' # 'minicubes'
 
 # temporal processing
@@ -49,7 +48,7 @@ stride_overlap = 4
 
 # resnet
 downsample_factor = 4
-hiera_requires_grad = true
+hiera_requires_grad = false
 
 # cube (only used for 3d)
 cube_dim = 64
@@ -81,6 +80,7 @@ n_virtual = 64
 n_heads = 8 
 n_time_space_blocks = 6
 embedding_factor = 4 
+vc_head_requires_grad = false
 
 
 [training]

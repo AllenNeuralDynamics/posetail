@@ -168,14 +168,15 @@ def get_timestamp():
 
     return timestamp_fmt
 
-def format_camera(cam, offset_dict, device):
+def format_camera(cam, offset_dict, cam_type, device):
 
     cam_dict = {
-        "name": cam.get_name(),
-        "ext": torch.as_tensor(cam.get_extrinsics_mat(), device=device, dtype=torch.float),
-        "mat": torch.as_tensor(cam.get_camera_matrix(), device=device, dtype=torch.float),
-        "dist": torch.as_tensor(cam.dist, device=device, dtype=torch.float),
-        "size": torch.as_tensor(cam.get_size(), device=device, dtype=torch.int)
+        'name': cam.get_name(),
+        'type': cam_type, # pinhole, fisheye
+        'ext': torch.as_tensor(cam.get_extrinsics_mat(), device = device, dtype = torch.float),
+        'mat': torch.as_tensor(cam.get_camera_matrix(), device = device, dtype = torch.float),
+        'dist': torch.as_tensor(cam.dist, device = device, dtype = torch.float),
+        'size': torch.as_tensor(cam.get_size(), device = device, dtype = torch.int), 
     }
 
     if offset_dict: 
@@ -184,8 +185,8 @@ def format_camera(cam, offset_dict, device):
 
     return cam_dict
 
-def format_camera_group(camera_group, offset_dict, device):
-    return [format_camera(cam, offset_dict, device)
+def format_camera_group(camera_group, offset_dict, cam_type, device):
+    return [format_camera(cam, offset_dict, cam_type, device)
             for cam in camera_group.cameras]
 
 def dict_to_device(dd, device):

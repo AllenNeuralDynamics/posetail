@@ -21,8 +21,8 @@ class Tracker(nn.Module):
 
     def __init__(self, track_3d = True, stride_length = 8, 
                  stride_overlap = None, downsample_factor = 4, 
-                 hiera_requires_grad = False, cube_dim = 20, 
-                 cube_extent = None, upsample_factor = 1, 
+                 hiera_requires_grad = False, vc_head_requires_grad = True,
+                 cube_dim = 20, cube_extent = None, upsample_factor = 1, 
                  corr_levels = 4, corr_radius = 3, 
                  corr_hidden_dim = 384, corr_output_dim = 256, 
                  max_freq = 10, n_iters = 4, embedding_dim = 256, 
@@ -80,6 +80,7 @@ class Tracker(nn.Module):
         self.n_time_space_blocks = n_time_space_blocks
         self.embedding_factor = embedding_factor
         self.activation_kwargs = {'approximate': 'tanh'}
+        self.vc_head_requires_grad = vc_head_requires_grad
 
         # add up the dimensions for transformer input
         self.input_dim = (2 + 2 * self.R + 4 * self.R * self.max_freq +
@@ -160,6 +161,34 @@ class Tracker(nn.Module):
             # device = self.device,
             **self.activation_kwargs
         )
+
+        # freeze modules (e.g. for fine-tuning)
+        self.freeze_modules(self.vc_head_requires_grad) 
+
+
+    def freeze_modules(self, vc_head_requires_grad = False): 
+
+        # freeze vis conf head in the timesformer
+        if not self.vc_head_requires_grad: 
+            self._freeze_modules('tsformer.vc_head')
+
+
+    def _freeze_modules(self, module_name):
+
+        module = self
+        attributes = module_name.split('.') 
+
+        # get the module
+        for attr in attributes: 
+            if hasattr(module, attr): 
+                module = getattr(module, attr)
+            else: 
+                print(f'{module} has no attribute {attr}')
+
+        # freeze the params (remove grad)
+        for param in module.parameters(): 
+            print(f'freezing params for module {module}')
+            param.requires_grad = False
 
 
     def init_stride(self, pred, prev_ix):

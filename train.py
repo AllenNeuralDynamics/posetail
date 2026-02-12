@@ -65,15 +65,6 @@ def parse_args():
 
     return args
 
-def format_sample_input(x):
-
-    if isinstance(x, int): 
-        return x
-    elif isinstance(x, list): 
-        return tuple(x) 
-    else: 
-        return None
-
 def run(config_path, fabric):
 
     torch.set_float32_matmul_precision('high')
@@ -81,23 +72,8 @@ def run(config_path, fabric):
     config = load_config(config_path)
     set_seeds(config.training.seed)
 
-    # set up training dataloader
-    cams_to_sample = format_sample_input(config.dataset.train.get('cams_to_sample', None))
-    kpts_to_sample = format_sample_input(config.dataset.train.get('kpts_to_sample', None))
-
-    print(config.dataset.prefix)
-    
-    train_dataset = PosetailDataset(
-        data_path = config.dataset.prefix, 
-        split = config.dataset.train.split,
-        track_3d = config.model.track_3d, 
-        n_frames = config.dataset.train.n_frames,
-        max_res = config.dataset.train.max_res,
-        cam_thresh_for_vis = config.dataset.train.cam_thresh_for_vis, 
-        cams_to_sample = cams_to_sample, 
-        kpts_to_sample = kpts_to_sample,
-        enable_kpt_filtering = config.dataset.train.enable_kpt_filtering
-    )
+    # set up training dataloader    
+    train_dataset = PosetailDataset(config, split = 'train')
 
     sampler = DistributedSampler(
         train_dataset,
@@ -123,19 +99,7 @@ def run(config_path, fabric):
 
     if val: 
 
-        cams_to_sample = format_sample_input(config.dataset.val.get('cams_to_sample', None))
-        kpts_to_sample = format_sample_input(config.dataset.val.get('kpts_to_sample', None))
-
-        val_dataset = PosetailDataset(
-            data_path = config.dataset.prefix,
-            split = config.dataset.val.split, 
-            track_3d = config.model.track_3d, 
-            n_frames = config.dataset.val.n_frames,
-            max_res = config.dataset.val.max_res, 
-            cams_to_sample = cams_to_sample, 
-            kpts_to_sample = kpts_to_sample,
-            aug_prob = config.dataset.train.get('aug_prob', 0.25)
-        )
+        val_dataset = PosetailDataset(config, split = 'val')
 
         val_loader = DataLoader(
             val_dataset, 

@@ -53,24 +53,36 @@ def custom_collate(batch):
     return batch
 
 
+def format_sample_input(x):
+
+    if isinstance(x, int): 
+        return x
+    elif isinstance(x, list): 
+        return tuple(x) 
+    else: 
+        return None
+
+
 class PosetailDataset(Dataset): 
 
-    def __init__(self, data_path, split, track_3d = True, n_frames = 16, 
-                 max_res = -1, enable_kpt_filtering = False,
-                 cam_thresh_for_vis = 1, cams_to_sample = None, 
-                 kpts_to_sample = None, aug_prob=0.25): 
+    def __init__(self, config, split, n_frames = 16, 
+                 cam_thresh_for_vis = 1, enable_kpt_filtering = False, 
+                 aug_prob = 0.25): 
 
         self.split = split
-        self.data_path = data_path
-        self.track_3d = track_3d
-        self.n_frames = n_frames
-        self.max_res = max_res # -1 means no resizing
+        assert split in {'train', 'val', 'test'}
+        self.split_dir = config.dataset[split].get('split_dir')
 
-        # for sampling cameras (None uses all available)
-        self.cam_thresh_for_vis = cam_thresh_for_vis
-        self.cams_to_sample = cams_to_sample
-        self.kpts_to_sample = kpts_to_sample
-        self.enable_kpt_filtering = enable_kpt_filtering
+        self.data_path = config.dataset.prefix
+        self.n_frames = config.dataset[split].get('n_frames', n_frames)
+        self.max_res = config.dataset[split].get('max_res', -1) # -1 means no resizing
+        self.aug_prob = config.dataset[split].get('aug_prob', aug_prob)
+
+        # for sampling cameras and keypoints 
+        self.cams_to_sample = format_sample_input(config.dataset[split].get('cams_to_sample', None))
+        self.kpts_to_sample = format_sample_input(config.dataset[split].get('kpts_to_sample', None))
+        self.cam_thresh_for_vis = config.dataset[split].get('cam_thresh_for_vis', cam_thresh_for_vis) 
+        self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', enable_kpt_filtering)
 
         # augmentation
         self.aug = iaa.Sequential([
@@ -86,7 +98,7 @@ class PosetailDataset(Dataset):
         ])
         
         # generate metadata for the provided data path (requires a specific format)
-        self.metadata = self._generate_metadata(track_3d)
+        self.metadata = self._generate_metadata()
 
         self.metadata[['scale_dict', 'res_dict', 'new_res_dict']] = self.metadata.apply(
             self._get_scale, axis = 1, result_type = 'expand')
@@ -124,7 +136,7 @@ class PosetailDataset(Dataset):
         scale_dict = json.loads(row['scale_dict'])
 
         img_path = row['img_path']
-        cam_names = sorted(get_dirs(img_path))
+        cam_names = get_dirs(img_path)
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
         views = []
 
@@ -156,9 +168,9 @@ class PosetailDataset(Dataset):
             cgroup = None
 
         else: 
-            cgroup, offset_dict = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
+            cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
             cgroup = cgroup.subset_cameras_names(cam_names)
-            cgroup = format_camera_group(cgroup, offset_dict, device = 'cpu')
+            cgroup = format_camera_group(cgroup, offset_dict, cam_type, device = 'cpu')
             
             # filter points that are visible from at least 2 views
             if self.enable_kpt_filtering:
@@ -277,16 +289,15 @@ class PosetailDataset(Dataset):
         return start_ixs
 
 
-    def _generate_metadata(self, track_3d): 
+    def _generate_metadata(self, track_3d = True): 
             
         rows = []
-        mode = '3d' if track_3d else '2d'
+        mode = '3d' # if track_3d else '2d' - not yet implemented
 
         for dataset in get_dirs(self.data_path): 
             
             # NOTE: split folder structure must match here
-            dataset_path = os.path.join(self.data_path, dataset, self.split)
-            # dataset_path = os.path.join(self.data_path, self.split)
+            dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
 
             for session in get_dirs(dataset_path): 
                 session_path = os.path.join(dataset_path, session)
@@ -373,6 +384,7 @@ class PosetailDataset(Dataset):
 
         cam_metadata = load_yaml(camera_metadata_path)
         offset_dict = None
+        cam_type = 'pinhole'
 
         intrinsics_dict = cam_metadata['intrinsic_matrices']
         extrinsics_dict = cam_metadata['extrinsic_matrices']
@@ -381,7 +393,17 @@ class PosetailDataset(Dataset):
         if 'offset_dict' in cam_metadata: 
             offset_dict = cam_metadata['offset_dict']
 
-        cam_names = sorted(list(intrinsics_dict.keys()))
+        if 'cam_type' in cam_metadata: 
+            cam_type = cam_metadata['cam_type']
+
+        # sort camera names either numerically or alphabetically
+        cam_names = list(intrinsics_dict.keys())
+
+        if all(cam_name.isdigit() for cam_name in cam_names):
+            cam_names = sorted(cam_names, key = int)
+        else: 
+            cam_names = sorted(cam_names) 
+
         cams = []
 
         for cam_name in cam_names: 
@@ -405,4 +427,4 @@ class PosetailDataset(Dataset):
 
         cgroup = CameraGroup(cams)
 
-        return cgroup, offset_dict
+        return cgroup, offset_dict, cam_type
