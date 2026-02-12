@@ -96,7 +96,8 @@ def run(config_path, fabric):
         cam_thresh_for_vis = config.dataset.train.cam_thresh_for_vis, 
         cams_to_sample = cams_to_sample, 
         kpts_to_sample = kpts_to_sample,
-        enable_kpt_filtering = config.dataset.train.enable_kpt_filtering
+        enable_kpt_filtering = config.dataset.train.enable_kpt_filtering,
+        aug_prob = config.dataset.train.get('aug_prob', 0.25)
     )
 
     sampler = DistributedSampler(
@@ -134,7 +135,7 @@ def run(config_path, fabric):
             max_res = config.dataset.val.max_res, 
             cams_to_sample = cams_to_sample, 
             kpts_to_sample = kpts_to_sample,
-            aug_prob = config.dataset.train.get('aug_prob', 0.25)
+            aug_prob = config.dataset.val.get('aug_prob', 0.0)
         )
 
         val_loader = DataLoader(
