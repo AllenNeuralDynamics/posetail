@@ -19,6 +19,8 @@ kpts_to_sample = [256, 512]
 aug_prob = 0.25
 enable_kpt_filtering = false
 cam_thresh_for_vis = 1
+balance_datasets = true
+n_samples_per_dataset = -1
 
 [dataset.val]
 split_dir = 'val'
