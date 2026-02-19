@@ -128,6 +128,17 @@ def run(config_path, fabric):
 
     # device = torch.device(config.devices.device)
     model = Tracker(**config.model)
+
+    # optionally load a model checkpoint 
+    checkpoint_path = config.training.get('checkpoint_path', None)
+    if checkpoint_path:
+        print(f'loading model checkpoint {checkpoint_path}...')
+        param_dict = torch.load(checkpoint_path)['model_state']
+        missing_keys, unexpected_keys = model.load_state_dict(param_dict, strict = False)
+        print(f'received missing keys: {missing_keys}')
+        print(f'received unexpected keys: {unexpected_keys}')
+
+    # compile the model
     model.cnn.compile()
     model.corr_mlp.compile()
     model.tsformer.compile()
@@ -190,7 +201,6 @@ def run(config_path, fabric):
     
     # total_params = sum(p.numel() for p in model.parameters())
     # print(total_params)
-
 
     train_iter = iter(train_loader)
 

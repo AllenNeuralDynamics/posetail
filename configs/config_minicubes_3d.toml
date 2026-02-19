@@ -89,6 +89,7 @@ vc_head_requires_grad = true
 
 [training]
 seed = 3
+# checkpoint_path = ''
 n_iterations = 600000
 # scheduler_type = 'multisteplr'
 scheduler_type = 'onecyclelr'

@@ -144,7 +144,6 @@ class Tracker(nn.Module):
 
         # time embeddings
         t = torch.arange(self.S)
-        # t = torch.arange(self.S, device = self.device)
 
         self.register_buffer(
             'time_encoding', 
@@ -161,15 +160,14 @@ class Tracker(nn.Module):
             n_virtual = self.n_virtual, 
             embedding_factor = self.embedding_factor, 
             vc_head = True, 
-            # device = self.device,
             **self.activation_kwargs
         )
 
         # freeze modules (e.g. for fine-tuning)
-        self.freeze_modules(self.vc_head_requires_grad) 
+        self.freeze_modules() 
 
 
-    def freeze_modules(self, vc_head_requires_grad = False): 
+    def freeze_modules(self): 
 
         # freeze vis conf head in the timesformer
         if not self.vc_head_requires_grad: 

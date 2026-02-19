@@ -83,15 +83,16 @@ n_virtual = 64
 n_heads = 8 
 n_time_space_blocks = 6
 embedding_factor = 4 
-vc_head_requires_grad = false
+vc_head_requires_grad = true
 
 
 [training]
 seed = 3
-n_iterations = 25 # 600000
+# checkpoint_path = ''
+n_iterations = 50 # 600000
 scheduler_type = 'multisteplr' # 'onecyclelr'
 max_grad_norm = 1.0
-checkpoint_freq = 20480 # in iterations
+checkpoint_freq = 25 # 20480 # in iterations
 eval_metric_freq = 16 # in iterations
 val_freq = 16 # in iterations
 print_freq = 1 # in iterations
@@ -104,11 +105,10 @@ amsgrad = false
 
 [training.scheduler]
 # milestones = []
-# milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
-# gamma = 0.1
-
-pct_start = 0.05
-cycle_momentum = false
+milestones = [50]
+gamma = 0.1
+# pct_start = 0.05
+# cycle_momentum = false
 
 [training.losses]
 gamma = 0.8
