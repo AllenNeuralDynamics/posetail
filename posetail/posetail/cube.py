@@ -44,12 +44,12 @@ def project_cam(cam, p3d_t, downsample_factor = 1):
 
     k1, k2, p1, p2, k3 = dist
     k4 = k5 = k6 = 0
-    r2 = torch.sum(torch.square(p2d_proj_raw), axis=1)
+    r2 = torch.sum(torch.square(p2d_proj_raw), dim=-1)
     r4 = r2 * r2
     r6 = r4 * r2
     kscale = (1 + k1 * r2 + k2 * r4 + k3 * r6) / (1 + k4 * r2 + k5 * r4 + k6 * r6)
     # TODO: add p1, p2 effect
-    p2d_dist = kscale[:, None] * p2d_proj_raw
+    p2d_dist = kscale[..., None] * p2d_proj_raw
 
     # p2d_dist = p2d_proj_raw
     
