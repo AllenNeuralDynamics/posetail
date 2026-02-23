@@ -16,6 +16,8 @@ from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
 from posetail.posetail.cube import project_points_torch, is_point_visible
 from train_utils import format_camera_group, dict_to_device
 
+from pprint import pprint
+
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='imagecorruptions')
 
@@ -123,19 +125,21 @@ class PosetailDataset(Dataset):
     def __getitem__(self, idx): 
         
         row = self.metadata.loc[idx].to_dict()
-        start_ix = row['start_ix'] # TODO: could make optimization here related to get_start_ixs
-        end_ix = row['end_ix']
-        fnums = torch.arange(start_ix, end_ix)
+        start_ix = row['start_ix']
+        # end_ix = row['end_ix']
+        interval = row['interval']
+        end_ix = start_ix + self.n_frames * interval 
+        fnums = torch.arange(start_ix, end_ix, interval)
 
         # load keypoints and visibilities (if present)
         data = np.load(row['pose_path'])
-        coords = data['pose'][:, start_ix:end_ix, :, :] 
+        coords = data['pose'][:, start_ix:end_ix:interval, :, :] 
         coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
         coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
 
         vis = None
         if 'vis' in data: 
-            vis = data['vis'][:, start_ix:end_ix, :, :]
+            vis = data['vis'][:, start_ix:end_ix:interval, :, :]
             vis = torch.tensor(vis, dtype = torch.float32, device = 'cpu')
             vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
 
@@ -146,7 +150,7 @@ class PosetailDataset(Dataset):
 
         img_path = row['img_path']
         cam_names = get_dirs(img_path)
-        img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
+        img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix:interval]
 
         # sample a number of camera views from a set of calibrated cameras
         if self.cams_to_sample: 
@@ -171,16 +175,13 @@ class PosetailDataset(Dataset):
             coords = coords[:, mask, :].squeeze()
             vis = vis[:, mask].squeeze()
 
-        camera_height_dict = json.loads(row['camera_heights'])
-        camera_width_dict = json.loads(row['camera_widths'])
-        res_dict = dict()
+        pprint(row)
+
+        # filter coords that are not nan throughout
+        mask = torch.all(torch.isfinite(coords), dim=(0, 2))
+        coords = coords[:, mask]
         
-        for cam_name in camera_height_dict.keys():
-            height = camera_height_dict[cam_name]
-            width = camera_width_dict[cam_name]
-            res_dict[cam_name] = (width, height)
-        
-        cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path'], res_dict) 
+        cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path']) 
         cgroup = cgroup.subset_cameras_names(cam_names)
         cgroup = format_camera_group(cgroup, offset_dict, cam_type, device = 'cpu')
         
@@ -229,11 +230,13 @@ class PosetailDataset(Dataset):
             crops = []
             for cnum in range(p2d.shape[0]):
                 size = cgroup[cnum]['size']
+                # print(size)
                 pflat = p2d[cnum].reshape(-1, 2)
                 good = torch.all(torch.isfinite(pflat), dim=1)
                 pflat = pflat[good]
-                low = torch.clip(torch.min(pflat, dim=0).values - 20, 0, size[0]).to(torch.int32)
-                high = torch.clip(torch.max(pflat, dim=0).values + 20, 0, size[1]).to(torch.int32)
+                low = torch.clip(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size).to(torch.int32)
+                high = torch.clip(torch.max(pflat, dim=0).values + 20, low+5, size).to(torch.int32)
+                # print(torch.cat([low, high]))
                 crops.append(torch.cat([low, high]))
 
             # camera crops
@@ -282,6 +285,7 @@ class PosetailDataset(Dataset):
                 img = img[y1:y2, x1:x2]
                 
                 if self.max_res != -1:
+                    # print(cgroup[cnum]['size'])
                     img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
 
                 img = aug_det(image=img)
@@ -305,26 +309,33 @@ class PosetailDataset(Dataset):
     def _get_start_ixs_train(self, coords):
 
         start_ixs = []
+        intervals = []
 
-        for i in range(coords.shape[1] - self.n_frames + 1): 
+        for interval in [1, 2, 4]:
+            for i in range(coords.shape[1] - self.n_frames * interval + 1): 
+                start = i
+                end = i + self.n_frames * interval
+                coords_subset = coords[:, start:end:interval, :, :]        
+                mask = np.isfinite(coords_subset)
+                visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
 
-            coords_subset = coords[:, i:i + self.n_frames, :, :]        
-            mask = np.isfinite(coords_subset)
-            visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
+                # if not all nans in the starting frame: 
+                if np.sum(visible_coords) > 0:
+                    start_ixs.append(i)
+                    intervals.append(interval)
 
-            # if not all nans in the starting frame: 
-            if np.sum(visible_coords) > 0:
-                start_ixs.append(i)
-
+                
         start_ixs = np.array(start_ixs)
-
-        return start_ixs
+        intervals = np.array(intervals)
+        
+        return start_ixs, intervals
 
     def _get_start_ixs_test(self, coords):
 
         safe = 0
         start_ixs = []
-
+        intervals = []
+        
         for i in range(coords.shape[1]): 
 
             if safe > 0:
@@ -340,11 +351,13 @@ class PosetailDataset(Dataset):
             # if not all nans in the starting frame and enough_frames: 
             if np.sum(visible_coords) > 0 and enough_frames:
                 start_ixs.append(i)
+                intervals.append(1)
                 safe = self.n_frames - 1
 
         start_ixs = np.array(start_ixs)
-
-        return start_ixs
+        intervals = np.array(intervals)
+        
+        return start_ixs, intervals
 
 
     def _generate_metadata(self, track_3d = True): 
@@ -381,22 +394,22 @@ class PosetailDataset(Dataset):
                     # get starting indices 
                     data = np.load(pose_path)
                     coords = data['pose']
-                    start_ixs = self._get_start_ixs(coords)
+                    start_ixs, intervals = self._get_start_ixs(coords)
 
                     # n_batches = len(imgs) // self.n_frames
                     # start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
-                    end_ixs = start_ixs + self.n_frames
+                    # end_ixs = start_ixs + self.n_frames
 
                     # add a row to the metadata that will correspond
                     # to each sample within a batch
-                    for start_ix, end_ix in zip(start_ixs, end_ixs): 
+                    for start_ix, interval in zip(start_ixs, intervals): 
                         row = [dataset, session, trial, metadata_path,
-                               pose_path, img_path, start_ix, end_ix, 
+                               pose_path, img_path, start_ix, interval, 
                                camera_height_dict, camera_width_dict]
                         rows.append(row)
 
         columns = ['dataset', 'session', 'trial', 'camera_metadata_path', 
-                   'pose_path', 'img_path', 'start_ix', 'end_ix', 
+                   'pose_path', 'img_path', 'start_ix', 'interval', 
                    'camera_heights', 'camera_widths']
 
         df = pd.DataFrame(rows, columns = columns)
@@ -467,7 +480,7 @@ class PosetailDataset(Dataset):
         return scale_dict, res_dict, new_res_dict
 
 
-    def _load_cameras(self, camera_metadata_path, res_dict):
+    def _load_cameras(self, camera_metadata_path):
 
         cam_metadata = load_yaml(camera_metadata_path)
         offset_dict = None
@@ -476,6 +489,8 @@ class PosetailDataset(Dataset):
         intrinsics_dict = cam_metadata['intrinsic_matrices']
         extrinsics_dict = cam_metadata['extrinsic_matrices']
         distortions_dict = cam_metadata['distortion_matrices']
+        heights_dict = cam_metadata['camera_heights']
+        widths_dict = cam_metadata['camera_widths']
 
         if 'offset_dict' in cam_metadata: 
             offset_dict = cam_metadata['offset_dict']
@@ -504,7 +519,9 @@ class PosetailDataset(Dataset):
                 tvec = tvec,
                 name = cam_name)
 
-            cam.set_size(res_dict[cam_name])
+            width = widths_dict[cam_name]
+            height = heights_dict[cam_name]
+            cam.set_size((width, height))
             # cam.resize_camera(scale_dict[cam_name])
             cams.append(cam)
 
