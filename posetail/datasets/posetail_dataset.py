@@ -16,6 +16,7 @@ from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
 from posetail.posetail.cube import project_points_torch, is_point_visible
 from train_utils import format_camera_group, dict_to_device
 
+from pprint import pprint
 
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='imagecorruptions')
@@ -130,6 +131,8 @@ class PosetailDataset(Dataset):
         end_ix = start_ix + self.n_frames * interval 
         fnums = torch.arange(start_ix, end_ix, interval)
 
+        # pprint(row)
+        
         # load keypoints and visibilities (if present)
         data = np.load(row['pose_path'])
         coords = data['pose'][:, start_ix:end_ix:interval, :, :] 
@@ -269,7 +272,8 @@ class PosetailDataset(Dataset):
             aug_det = self.aug.to_deterministic()
             imgs = []
 
-            x1, y1, x2, y2 = crops[cnum]
+            if self.crop_to_points:
+                x1, y1, x2, y2 = crops[cnum]
             
             # load images from paths and resize to desired resolution
             for img_fname in img_fnames: 
@@ -277,7 +281,8 @@ class PosetailDataset(Dataset):
                 cam_img_path = os.path.join(img_path, cam_name, img_fname)
                 img = cv2.imread(cam_img_path)
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img = img[y1:y2, x1:x2]
+                if self.crop_to_points:
+                    img = img[y1:y2, x1:x2]
                 
                 if self.max_res != -1:
                     img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
