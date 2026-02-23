@@ -16,7 +16,6 @@ from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
 from posetail.posetail.cube import project_points_torch, is_point_visible
 from train_utils import format_camera_group, dict_to_device
 
-from pprint import pprint
 
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='imagecorruptions')
@@ -175,8 +174,6 @@ class PosetailDataset(Dataset):
             coords = coords[:, mask, :].squeeze()
             vis = vis[:, mask].squeeze()
 
-        pprint(row)
-
         # filter coords that are not nan throughout
         mask = torch.all(torch.isfinite(coords), dim=(0, 2))
         coords = coords[:, mask]
@@ -230,13 +227,11 @@ class PosetailDataset(Dataset):
             crops = []
             for cnum in range(p2d.shape[0]):
                 size = cgroup[cnum]['size']
-                # print(size)
                 pflat = p2d[cnum].reshape(-1, 2)
                 good = torch.all(torch.isfinite(pflat), dim=1)
                 pflat = pflat[good]
                 low = torch.clip(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size).to(torch.int32)
                 high = torch.clip(torch.max(pflat, dim=0).values + 20, low+5, size).to(torch.int32)
-                # print(torch.cat([low, high]))
                 crops.append(torch.cat([low, high]))
 
             # camera crops
@@ -285,7 +280,6 @@ class PosetailDataset(Dataset):
                 img = img[y1:y2, x1:x2]
                 
                 if self.max_res != -1:
-                    # print(cgroup[cnum]['size'])
                     img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
 
                 img = aug_det(image=img)
