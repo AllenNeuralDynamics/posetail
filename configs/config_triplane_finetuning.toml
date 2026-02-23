@@ -10,7 +10,7 @@ prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-fi
 [dataset.train]
 split_dir = 'train'
 n_frames = 16
-max_res = 288
+max_res = 256 # 288
 cams_to_sample = [1, 10] 
 kpts_to_sample = [256, 512]
 aug_prob = 0.25
@@ -22,14 +22,14 @@ n_samples_per_dataset = -1
 [dataset.val]
 split_dir = 'val'
 n_frames = 16
-max_res = 288
+max_res = 256 # 288
 cams_to_sample = 5
 kpts_to_sample = 60
 aug_prob = 0.0
 
 [dataset.test]
 split_dir = 'test'
-max_res = 288
+max_res = 256 # 288
 n_frames = 16
 project_2d = false
 
@@ -39,7 +39,7 @@ device = 'cuda'
 
 
 [model]
-mode_3d = "minicubes"
+mode_3d = "triplane"
 hiera_requires_grad = false
 
 # processing
@@ -54,10 +54,10 @@ cube_dim = 64
 cube_extent = 5 # kubric
 
 # correlation
-corr_levels = 5 # includes extra cube
-corr_radius = 2
-corr_hidden_dim = 256
-corr_output_dim = 128
+corr_levels = 4 # includes extra cube
+corr_radius = 3
+corr_hidden_dim = 384 # 256
+corr_output_dim = 256 # 128
 
 # triplane
 upsample_factor = 1
@@ -75,7 +75,7 @@ vc_head_requires_grad = false
 
 [training]
 seed = 3
-checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain/wandb/run-20260211_151402-9iwgznvx/files/checkpoints/checkpoint_599992.pth'
+checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain/wandb/run-20260211_151237-jku0viu0/files/checkpoints/checkpoint_599992.pth'
 n_iterations = 60# 600000
 scheduler_type = 'onecyclelr' # 'onecyclelr' or 'multisteplr'
 max_grad_norm = 1.0

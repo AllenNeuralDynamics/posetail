@@ -108,8 +108,10 @@ class PosetailDataset(Dataset):
             self._get_scale, axis = 1, result_type = 'expand')
 
         # balances datasets
-        if self.balance_datasets: 
+        if self.balance_datasets:
+            print('blancing datasets...') 
             self.metadata = self._balance_metadata(n_samples = self.n_samples_per_dataset)
+            print(self.metadata.groupby('dataset').size())
 
         # self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
         # self.metadata.to_csv(self.metadata_path, index = False)
@@ -254,9 +256,9 @@ class PosetailDataset(Dataset):
 
         for i in range(coords.shape[1] - self.n_frames + 1): 
 
-            coords_subset = coords[:, i:i + self.n_frames, :, :]        
+            coords_subset = coords[i:i + self.n_frames, :, :]        
             mask = np.isfinite(coords_subset)
-            visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
+            visible_coords = mask.all(axis = -1).all(axis = 0) # TODO: double check if this is the right axis 
 
             # if not all nans in the starting frame: 
             if np.sum(visible_coords) > 0:
@@ -277,11 +279,11 @@ class PosetailDataset(Dataset):
                 safe = safe - 1 
                 continue
 
-            coords_subset = coords[:, i:i + self.n_frames, :, :]
+            coords_subset = coords[i:i + self.n_frames, :, :]
             enough_frames = coords_subset.shape[1] == self.n_frames
             
             mask = np.isfinite(coords_subset)
-            visible_coords = mask.all(axis = -1).all(axis = 1).squeeze(0)
+            visible_coords = mask.all(axis = -1).all(axis = 0) # TODO: double check if this is the right axis 
 
             # if not all nans in the starting frame and enough_frames: 
             if np.sum(visible_coords) > 0 and enough_frames:
@@ -299,6 +301,11 @@ class PosetailDataset(Dataset):
         mode = '3d' # if track_3d else '2d' - not yet implemented
 
         for dataset in get_dirs(self.data_path): 
+
+            # TODO: remove later 
+            print(dataset)
+            if dataset == 'cmupanoptic' or dataset == 'acinoset': 
+                continue
             
             # NOTE: split folder structure must match here
             dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
@@ -331,6 +338,7 @@ class PosetailDataset(Dataset):
                     # get starting indices 
                     data = np.load(pose_path)
                     coords = data['pose']
+                    coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
                     start_ixs = self._get_start_ixs(coords)
 
                     # n_batches = len(imgs) // self.n_frames

@@ -461,7 +461,8 @@ class Tracker(nn.Module):
         row = (torch.arange(cube_size) - corr_radius) * cube_interval
         xyz_s = torch.stack(torch.meshgrid(row, row, row, indexing='ij'))
         xyz = rearrange(xyz_s, 'r x y z -> (x y z) r')
-        xyz = torch.as_tensor(xyz, device=cube_centers.device, dtype=cube_centers.dtype)    
+        xyz = xyz.contiguous().to(device = cube_centers.device, dtype = cube_centers.dtype)
+        # xyz = torch.as_tensor(xyz, device=cube_centers.device, dtype=cube_centers.dtype)    
     
         cube_coords = cube_centers[..., None, :] + xyz
         cube_coords_flat = rearrange(cube_coords, 'bt k total r -> (bt k total) r')
@@ -470,7 +471,6 @@ class Tracker(nn.Module):
             coords_3d = cube_coords_flat, 
             downsample_factor = downsample_ratio,
         )
-        
     
         p2d = rearrange(p2d_flat, 'ncams (bt k total) r -> ncams bt k total r',
                         bt=BT, k=K)

@@ -143,11 +143,10 @@ class TotalLoss(nn.Module):
         losses = [coords_loss, occluded_coords_loss, 
                   vis_loss, conf_loss, 
                   feature_loss, bad_feature_loss]
-        total_loss = 0 
-
-        for loss in losses: 
-            if torch.isfinite(loss).item(): 
-                total_loss += loss
+        
+        losses = torch.stack(losses)
+        losses = losses[torch.isfinite(losses)]
+        total_loss = losses.sum()
 
         self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['occluded_coords_loss'].append(occluded_coords_loss.item())
