@@ -369,6 +369,10 @@ class PosetailDataset(Dataset):
             # NOTE: split folder structure must match here
             dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
 
+            # skip dataset if this particular split doesn't exist
+            if not os.path.exists(dataset_path): 
+                continue
+
             for session in get_dirs(dataset_path): 
                 session_path = os.path.join(dataset_path, session)
 

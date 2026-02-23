@@ -1,20 +1,16 @@
 [wandb]
-project_name = 'posetail-pretrain'
-# path = '/data/results/lili/posetail'
-path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain'
+project_name = 'posetail-finetune'
+path = '/groups/karashchuk/home/ruppk2/results/posetail-finetune-test'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
-# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
-prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
 
 [dataset.train]
 split_dir = 'train'
 n_frames = 16
-min_res = 256
-max_res = 352
+max_res = 288
 cams_to_sample = [1, 10] 
 kpts_to_sample = [256, 512]
 aug_prob = 0.25
@@ -44,7 +40,6 @@ device = 'cuda'
 
 [model]
 mode_3d = "minicubes"
-
 hiera_requires_grad = false
 
 # processing
@@ -61,17 +56,8 @@ cube_extent = 5 # kubric
 # correlation
 corr_levels = 5 # includes extra cube
 corr_radius = 2
-# corr_hidden_dim = 384
-# corr_output_dim = 256
-# corr_hidden_dim = 256
-# corr_output_dim = 128
 corr_hidden_dim = 256
 corr_output_dim = 128
-
-# corr_hidden_dim = 1024
-# corr_output_dim = 512
-# corr_hidden_dim = 1586
-# corr_output_dim = 1024
 
 # triplane
 upsample_factor = 1
@@ -80,20 +66,18 @@ upsample_factor = 1
 max_freq = 10
 n_iters = 4
 embedding_dim = 384
-# embedding_dim = 512
 latent_dim = 64
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 6
 embedding_factor = 4
-vc_head_requires_grad = true
+vc_head_requires_grad = false
 
 [training]
 seed = 3
-# checkpoint_path = ''
+checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain/wandb/run-20260211_151402-9iwgznvx/files/checkpoints/checkpoint_599992.pth'
 n_iterations = 600000
-# scheduler_type = 'multisteplr'
-scheduler_type = 'onecyclelr'
+scheduler_type = 'onecyclelr' # 'onecyclelr' or 'multisteplr'
 max_grad_norm = 1.0
 checkpoint_freq = 20480 # in iterations
 eval_metric_freq = 16 # in iterations
@@ -104,15 +88,11 @@ debug_ix = -1 # only works for val
 [training.optimizer]
 learning_rate = 1e-4
 weight_decay = 1e-5
-# weight_decay = 0
 amsgrad = false
 
 [training.scheduler]
 # milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
-# milestones = []
 # gamma = 0.8
-# milestones = [200]
-# gamma = 0.1
 # steps_per_epoch = 218
 pct_start = 0.05
 cycle_momentum = false
@@ -120,7 +100,6 @@ cycle_momentum = false
 [training.losses]
 gamma = 0.8
 pixel_thresh = 9
-# delta = 0.1
 delta = 6
 use_huber_loss = false
 

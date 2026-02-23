@@ -11,24 +11,23 @@ from posetail.posetail.cube import get_camera_scale
 class TotalLoss(nn.Module): 
 
     def __init__(self, gamma = 0.8, pixel_thresh = 12, delta = 6, 
-                 use_vis_loss = True, use_conf_loss = True, 
-                 use_huber_loss = False, use_feature_loss = False, 
-                 vis_loss_weight = 1, conf_loss_weight = 1, 
-                 coords_loss_weight = 1, feature_loss_weight = 0.5):
+                 use_huber_loss = False, vis_loss_weight = 1, 
+                 conf_loss_weight = 1, coords_loss_weight = 1, 
+                 occluded_coords_loss_weight = 1, 
+                 feature_loss_weight = 0.5):
         super().__init__()
 
         self.gamma = gamma
         self.pixel_thresh = pixel_thresh
         self.delta = delta
         
-        self.use_vis_loss = use_vis_loss
-        self.use_conf_loss = use_conf_loss
         self.use_huber_loss = use_huber_loss
-        self.use_feature_loss = use_feature_loss
 
+        # weight for each loss (0 to not use or compute)
         self.vis_loss_weight = vis_loss_weight
         self.conf_loss_weight = conf_loss_weight
         self.coords_loss_weight = coords_loss_weight
+        self.occluded_coords_loss_weight = occluded_coords_loss_weight
         self.feature_loss_weight = feature_loss_weight
 
         self.bce_loss_vis = BCELossVis(
@@ -49,11 +48,19 @@ class TotalLoss(nn.Module):
             weight = self.coords_loss_weight
         )
 
-        if self.use_feature_loss: 
+        self.mae_loss_occluded_coords = WeightedMAELoss(
+            gamma = self.gamma, 
+            delta = self.delta, 
+            use_huber_loss = self.use_huber_loss, 
+            weight = self.occluded_coords_loss_weight
+        )
+
+        if self.feature_loss_weight > 0: 
             self.feature_loss = FeatureLoss(
                 weight = self.feature_loss_weight)
 
-        loss_names = ['vis_loss', 'conf_loss', 'coords_loss',
+        loss_names = ['vis_loss', 'conf_loss', 
+                      'occluded_coords_loss', 'coords_loss',
                       'feature_loss','bad_feature_loss',
                       'total_loss', 'cube_scale']
         self.loss_history = {loss_name: [] for loss_name in loss_names}
@@ -77,6 +84,7 @@ class TotalLoss(nn.Module):
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
         conf_pred = outputs['conf_pred']
+        occluded_true = ~vis_true
 
         if model.training:
 
@@ -84,7 +92,7 @@ class TotalLoss(nn.Module):
             vis_pred_iters = outputs['vis_pred_iters']
             conf_pred_iters = outputs['conf_pred_iters']
 
-            coords_true_unrolled, vis_true_unrolled = unroll_batch(
+            coords_true_unrolled, vis_true_unrolled, occluded_true_unrolled = unroll_batch(
                 coords = coords_true, 
                 vis = vis_true, 
                 stride = model.S, 
@@ -112,40 +120,42 @@ class TotalLoss(nn.Module):
             device = device
         )
 
+        occluded_coords_loss = self.mae_loss_occluded_coords(
+            coords_pred = coords_pred_iters if model.training else coords_pred, 
+            coords_true = coords_true_unrolled if model.training else coords_true, 
+            vis_true = occluded_true_unrolled if model.training else occluded_true, 
+            device = device
+        )
+
+        feature_loss, bad_feature_loss = self.feature_loss(
+                model = model, 
+                coords_true = coords_true, 
+                feature_planes_levels = outputs['feature_planes_levels'], 
+                cgroup = cgroup
+        )
+
         if model.R == 3:
             scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
             coords_loss = coords_loss / scale
         else:
             scale = 1
+            
+        losses = [coords_loss, occluded_coords_loss, 
+                  vis_loss, conf_loss, 
+                  feature_loss, bad_feature_loss]
+        total_loss = 0 
+
+        for loss in losses: 
+            if torch.isfinite(loss).item(): 
+                total_loss += loss
 
         self.loss_history['coords_loss'].append(coords_loss.item())
-            
-        total_loss = coords_loss 
-        
-        if self.use_vis_loss: 
-            total_loss += vis_loss 
-            
-        if self.use_conf_loss: 
-            total_loss += conf_loss 
-
-        if self.use_feature_loss: 
-
-            feature_loss, bad_feature_loss = self.feature_loss(
-                model = model, 
-                coords_true = coords_true, 
-                feature_planes_levels = outputs['feature_planes_levels'], 
-                cgroup = cgroup
-            )
-
-            total_loss += feature_loss
-            total_loss += bad_feature_loss
-
-            self.loss_history['feature_loss'].append(feature_loss.item())
-            self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
-
+        self.loss_history['occluded_coords_loss'].append(occluded_coords_loss.item())
         self.loss_history['vis_loss'].append(vis_loss.item())
         self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
+        self.loss_history['feature_loss'].append(feature_loss.item())
+        self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 
         self.loss_history['cube_scale'].append(scale)
         
@@ -170,6 +180,10 @@ class BCELossVis(nn.Module):
         return loss 
 
     def forward(self, vis_pred, vis_true, device = None):
+
+        # don't compute if the weight is 0
+        if self.weight == 0: 
+            return float('nan') 
 
         if isinstance(vis_pred, torch.Tensor): 
             total_loss = self._compute_loss(vis_pred, vis_true)
@@ -214,6 +228,10 @@ class BCELossConf(nn.Module):
         return loss 
 
     def forward(self, conf_pred, coords_pred, coords_true, vis_true, device = None): 
+
+        # don't compute if the weight is 0
+        if self.weight == 0: 
+            return float('nan')  
 
         if isinstance(coords_pred, torch.Tensor): 
             total_loss = self._compute_loss(conf_pred, coords_pred, coords_true, vis_true)
@@ -272,6 +290,10 @@ class WeightedMAELoss(nn.Module):
 
     def forward(self, coords_pred, coords_true, vis_true, device = None): 
 
+        # don't compute if the weight is 0
+        if self.weight == 0: 
+            return float('nan')  
+
         if isinstance(coords_pred, torch.Tensor): 
             total_loss = self._compute_loss(coords_pred, coords_true, vis_true)
             return self.weight * total_loss 
@@ -299,6 +321,10 @@ class FeatureLoss(nn.Module):
         self.weight = weight
 
     def forward(self, model, coords_true, feature_planes_levels, cgroup): 
+
+        # don't compute if the weight is 0
+        if self.weight == 0: 
+            return float('nan'), float('nan')  
 
         feature_loss = model.get_feature_loss(
             feature_planes_levels = feature_planes_levels, 
@@ -339,6 +365,7 @@ def unroll_batch(coords, vis, stride = 8, stride_overlap = 4):
     
     coords_unrolled = []
     vis_unrolled = []
+    occluded_unrolled = []
 
     for i in range(n_windows): 
 
@@ -348,6 +375,7 @@ def unroll_batch(coords, vis, stride = 8, stride_overlap = 4):
 
         coords_unrolled.append(coords_subset)
         vis_unrolled.append(vis_subset)
+        occluded_unrolled.append(~vis_subset)
 
-    return coords_unrolled, vis_unrolled
+    return coords_unrolled, vis_unrolled, occluded_unrolled
 
