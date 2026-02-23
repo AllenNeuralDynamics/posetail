@@ -78,11 +78,15 @@ class PosetailDataset(Dataset):
         self.max_res = config.dataset[split].get('max_res', -1) # -1 means no resizing
         self.aug_prob = config.dataset[split].get('aug_prob', aug_prob)
 
-        # for sampling cameras and keypoints 
+        # for sampling cameras, keypoints
         self.cams_to_sample = format_sample_input(config.dataset[split].get('cams_to_sample', None))
         self.kpts_to_sample = format_sample_input(config.dataset[split].get('kpts_to_sample', None))
         self.cam_thresh_for_vis = config.dataset[split].get('cam_thresh_for_vis', cam_thresh_for_vis) 
         self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', enable_kpt_filtering)
+        
+        # for balancing datasets
+        self.balance_datasets = config.dataset[split].get('balance_datasets', True)
+        self.n_samples_per_dataset = config.dataset[split].get('n_samples_per_dataset', -1) # default balances based on dataset with the most samples
 
         # augmentation
         self.aug = iaa.Sequential([
@@ -103,6 +107,10 @@ class PosetailDataset(Dataset):
         self.metadata[['scale_dict', 'res_dict', 'new_res_dict']] = self.metadata.apply(
             self._get_scale, axis = 1, result_type = 'expand')
 
+        # balances datasets
+        if self.balance_datasets: 
+            self.metadata = self._balance_metadata(n_samples = self.n_samples_per_dataset)
+
         # self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
         # self.metadata.to_csv(self.metadata_path, index = False)
 
@@ -114,7 +122,7 @@ class PosetailDataset(Dataset):
     def __getitem__(self, idx): 
         
         row = self.metadata.loc[idx].to_dict()
-        start_ix = row['start_ix']
+        start_ix = row['start_ix'] # TODO: could make optimization here related to get_start_ixs
         end_ix = row['end_ix']
         fnums = torch.arange(start_ix, end_ix)
 
@@ -163,15 +171,11 @@ class PosetailDataset(Dataset):
             coords = coords[:, mask, :].squeeze()
             vis = vis[:, mask].squeeze()
 
-        # create camera group from camera parameters
-        # if len(cam_names) == 1: 
-        #     cgroup = None
 
-        
         cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
         cgroup = cgroup.subset_cameras_names(cam_names)
         cgroup = format_camera_group(cgroup, offset_dict, cam_type, device = 'cpu')
-            
+        
         # filter points that are visible in enough views
         if self.enable_kpt_filtering:
 
@@ -346,6 +350,35 @@ class PosetailDataset(Dataset):
         df['camera_widths'] = df['camera_widths'].apply(json.dumps)
 
         return df 
+    
+    def _balance_group(self, df, n_samples = 1000, random_state = 3): 
+
+        duplicates = int(np.ceil(n_samples / len(df)))
+
+        if duplicates > 1: 
+            df = pd.concat([df] * duplicates, axis = 0)# .reset_index(drop = True)
+
+        df_balanced = df.sample(n = n_samples, random_state = random_state)
+
+        return df_balanced
+
+    def _balance_metadata(self, n_samples = -1, random_state = 3): 
+
+        self.metadata['dataset2'] = self.metadata['dataset'].copy()
+
+        # balance the dataset according to the dataset with the most samples
+        if n_samples == -1: 
+            n_samples = self.metadata.groupby('dataset2').size().max()
+
+        # balance and sample based on a predefined number of samples
+        df_balanced = (self.metadata.groupby('dataset2')
+                           .apply(lambda x: self._balance_group(x, 
+                                                                n_samples = n_samples, 
+                                                                random_state = random_state), 
+                                                                include_groups = False)
+                           .reset_index(drop = True))
+        
+        return df_balanced
 
     def _get_scale(self, row): 
 
