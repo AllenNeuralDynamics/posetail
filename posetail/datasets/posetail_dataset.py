@@ -167,10 +167,10 @@ class PosetailDataset(Dataset):
         # if len(cam_names) == 1: 
         #     cgroup = None
 
-        else: 
-            cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
-            cgroup = cgroup.subset_cameras_names(cam_names)
-            cgroup = format_camera_group(cgroup, offset_dict, cam_type, device = 'cpu')
+        
+        cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
+        cgroup = cgroup.subset_cameras_names(cam_names)
+        cgroup = format_camera_group(cgroup, offset_dict, cam_type, device = 'cpu')
             
         # filter points that are visible in enough views
         if self.enable_kpt_filtering:
