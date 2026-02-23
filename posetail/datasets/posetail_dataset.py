@@ -229,14 +229,11 @@ class PosetailDataset(Dataset):
             crops = []
             for cnum in range(p2d.shape[0]):
                 size = cgroup[cnum]['size']
-                print(size)
                 pflat = p2d[cnum].reshape(-1, 2)
                 good = torch.all(torch.isfinite(pflat), dim=1)
                 pflat = pflat[good]
-                print(pflat)
                 low = torch.clip(torch.min(pflat, dim=0).values - 20, 0, size[0]).to(torch.int32)
                 high = torch.clip(torch.max(pflat, dim=0).values + 20, 0, size[1]).to(torch.int32)
-                print(torch.cat([low, high]))
                 crops.append(torch.cat([low, high]))
 
             # camera crops
@@ -259,8 +256,6 @@ class PosetailDataset(Dataset):
                 size = cam['size']
                 scale = float(target_res) / max(size)
                 cam['size'] = torch.round(size * scale).to(torch.int32)
-                print(size)
-                print(cam['size'])
                 cam['mat'] = cam['mat'] * scale
                 cam['mat'][2, 2] = 1
                 if 'offset' in cam:
@@ -287,8 +282,6 @@ class PosetailDataset(Dataset):
                 img = img[y1:y2, x1:x2]
                 
                 if self.max_res != -1:
-                    print(cgroup[cnum]['size'])
-                    print(cgroup[cnum]['size'].tolist())
                     img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
 
                 img = aug_det(image=img)
