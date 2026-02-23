@@ -180,9 +180,11 @@ def format_camera(cam, offset_dict, cam_type, device):
     }
 
     if offset_dict: 
-        offset = offset_dict[cam_dict['name']]
+        offset = offset_dict[cam_dict['name']][:2]
         cam_dict['offset'] = torch.as_tensor(offset, device = device, dtype = torch.float)
-
+    else:
+        cam_dict['offset'] = torch.as_tensor([0.0, 0.0], device = device, dtype = torch.float)
+        
     return cam_dict
 
 def format_camera_group(camera_group, offset_dict, cam_type, device):

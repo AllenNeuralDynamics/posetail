@@ -73,8 +73,8 @@ class PadToMultiple:
         img_4d = img.reshape(-1, c, h, w)  # Flatten all batch dims, keep C, H, W
         
         # Pad
-        # padded = torch.nn.functional.pad(img_4d, (0, pad_w, 0, pad_h), mode='constant', value=0)
-        padded = torch.nn.functional.pad(img_4d, (0, pad_w, 0, pad_h), mode='replicate')
+        padded = torch.nn.functional.pad(img_4d, (0, pad_w, 0, pad_h), mode='constant', value=0)
+        # padded = torch.nn.functional.pad(img_4d, (0, pad_w, 0, pad_h), mode='replicate')
         
         # Reshape back to original batch structure
         new_shape = batch_dims + [c, h + pad_h, w + pad_w]
