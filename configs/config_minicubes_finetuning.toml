@@ -1,5 +1,5 @@
 [wandb]
-project_name = 'posetail-pretrain'
+project_name = 'posetail-finetune'
 path = '/groups/karashchuk/home/ruppk2/results/posetail-finetune-test'
 mode = 'online' # 'online', 'offline', 'disabled'
 
