@@ -65,24 +65,25 @@ def format_sample_input(x):
 
 class PosetailDataset(Dataset): 
 
-    def __init__(self, config, split, n_frames = 16, 
-                 cam_thresh_for_vis = 1, enable_kpt_filtering = False, 
-                 aug_prob = 0.25): 
+    def __init__(self, config, split): 
 
         self.split = split
         assert split in {'train', 'val', 'test'}
         self.split_dir = config.dataset[split].get('split_dir')
 
         self.data_path = config.dataset.prefix
-        self.n_frames = config.dataset[split].get('n_frames', n_frames)
+        self.n_frames = config.dataset[split].get('n_frames', 16)
         self.max_res = config.dataset[split].get('max_res', -1) # -1 means no resizing
-        self.aug_prob = config.dataset[split].get('aug_prob', aug_prob)
+        self.min_res = config.dataset[split].get('min_res', self.max_res) # only used when max_res != -1
+        self.aug_prob = config.dataset[split].get('aug_prob', 0.25)
 
+        self.crop_to_points = config.dataset[split].get('crop_to_points', True)
+        
         # for sampling cameras, keypoints
         self.cams_to_sample = format_sample_input(config.dataset[split].get('cams_to_sample', None))
         self.kpts_to_sample = format_sample_input(config.dataset[split].get('kpts_to_sample', None))
-        self.cam_thresh_for_vis = config.dataset[split].get('cam_thresh_for_vis', cam_thresh_for_vis) 
-        self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', enable_kpt_filtering)
+        self.cam_thresh_for_vis = config.dataset[split].get('cam_thresh_for_vis', 1) 
+        self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', False)
         
         # for balancing datasets
         self.balance_datasets = config.dataset[split].get('balance_datasets', True)
@@ -90,22 +91,22 @@ class PosetailDataset(Dataset):
 
         # augmentation
         self.aug = iaa.Sequential([
-            iaa.Sometimes(aug_prob, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
-            iaa.Sometimes(aug_prob, iaa.imgcorruptlike.Contrast(severity=(1,2))),
-            iaa.Sometimes(aug_prob, iaa.GammaContrast((0.5, 1.8))),
-            iaa.Sometimes(aug_prob, iaa.AddToSaturation((-150, 10))),
-            iaa.Sometimes(aug_prob, iaa.MotionBlur(k=(3,6))),
-            iaa.Sometimes(aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.08*255))),
-            iaa.Sometimes(aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
-            iaa.Sometimes(aug_prob, iaa.Grayscale(alpha=1.0)),
-            iaa.Sometimes(aug_prob, iaa.JpegCompression(compression=(30, 80))),
+            iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
+            iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Contrast(severity=(1,2))),
+            iaa.Sometimes(self.aug_prob, iaa.GammaContrast((0.5, 1.8))),
+            iaa.Sometimes(self.aug_prob, iaa.AddToSaturation((-150, 10))),
+            iaa.Sometimes(self.aug_prob, iaa.MotionBlur(k=(3,6))),
+            iaa.Sometimes(self.aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.08*255))),
+            iaa.Sometimes(self.aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
+            iaa.Sometimes(self.aug_prob, iaa.Grayscale(alpha=1.0)),
+            iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(30, 80))),
         ])
         
         # generate metadata for the provided data path (requires a specific format)
         self.metadata = self._generate_metadata()
 
-        self.metadata[['scale_dict', 'res_dict', 'new_res_dict']] = self.metadata.apply(
-            self._get_scale, axis = 1, result_type = 'expand')
+        # self.metadata[['scale_dict', 'res_dict', 'new_res_dict']] = self.metadata.apply(
+        #     self._get_scale, axis = 1, result_type = 'expand')
 
         # balances datasets
         if self.balance_datasets: 
@@ -139,14 +140,13 @@ class PosetailDataset(Dataset):
             vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
 
         # load camera resolutions for resizing
-        res_dict = json.loads(row['res_dict'])
-        new_res_dict = json.loads(row['new_res_dict'])
-        scale_dict = json.loads(row['scale_dict'])
+        # res_dict = json.loads(row['res_dict'])
+        # new_res_dict = json.loads(row['new_res_dict'])
+        # scale_dict = json.loads(row['scale_dict'])
 
         img_path = row['img_path']
         cam_names = get_dirs(img_path)
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix]
-        views = []
 
         # sample a number of camera views from a set of calibrated cameras
         if self.cams_to_sample: 
@@ -171,8 +171,16 @@ class PosetailDataset(Dataset):
             coords = coords[:, mask, :].squeeze()
             vis = vis[:, mask].squeeze()
 
-
-        cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path'], res_dict, scale_dict) 
+        camera_height_dict = json.loads(row['camera_heights'])
+        camera_width_dict = json.loads(row['camera_widths'])
+        res_dict = dict()
+        
+        for cam_name in camera_height_dict.keys():
+            height = camera_height_dict[cam_name]
+            width = camera_width_dict[cam_name]
+            res_dict[cam_name] = (width, height)
+        
+        cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path'], res_dict) 
         cgroup = cgroup.subset_cameras_names(cam_names)
         cgroup = format_camera_group(cgroup, offset_dict, cam_type, device = 'cpu')
         
@@ -212,24 +220,77 @@ class PosetailDataset(Dataset):
         # failed to sample coordinates, just get another random sample
         if coords.shape[1] < 1:
             return self.__getitem__(np.random.randint(self.__len__()))
-                
-        for cam_name in cam_names:
+
+        # cropping around coordinates
+        #   helps for small animals in large arenas
+        if self.crop_to_points:
+            # compute crops locations
+            p2d = project_points_torch(cgroup, coords)
+            crops = []
+            for cnum in range(p2d.shape[0]):
+                size = cgroup[cnum]['size']
+                print(size)
+                pflat = p2d[cnum].reshape(-1, 2)
+                good = torch.all(torch.isfinite(pflat), dim=1)
+                pflat = pflat[good]
+                print(pflat)
+                low = torch.clip(torch.min(pflat, dim=0).values - 20, 0, size[0]).to(torch.int32)
+                high = torch.clip(torch.max(pflat, dim=0).values + 20, 0, size[1]).to(torch.int32)
+                print(torch.cat([low, high]))
+                crops.append(torch.cat([low, high]))
+
+            # camera crops
+            camera_group_cropped = []
+            for cnum in range(len(cgroup)):
+                x1, y1, x2, y2 = crops[cnum]
+                cam = dict(cgroup[cnum])
+                cam['offset'] = cam['offset'] + torch.tensor([x1, y1], dtype=torch.int32, device='cpu')
+                cam['size'] = torch.tensor([x2 - x1, y2 - y1], dtype=torch.int32, device='cpu')
+                camera_group_cropped.append(cam)
+            cgroup = camera_group_cropped
+
+        # resize cameras
+        if self.max_res != -1:
+            target_res = np.random.randint(self.min_res, self.max_res)
+            camera_group_scaled = []
+            for cnum in range(len(cgroup)):
+                cam = dict(cgroup[cnum])
+                name = cam['name']
+                size = cam['size']
+                scale = float(target_res) / max(size)
+                cam['size'] = torch.round(size * scale).to(torch.int32)
+                print(size)
+                print(cam['size'])
+                cam['mat'] = cam['mat'] * scale
+                cam['mat'][2, 2] = 1
+                if 'offset' in cam:
+                    cam['offset'] = cam['offset'] * scale
+                camera_group_scaled.append(cam)
+            cgroup = camera_group_scaled
+        
+        views = []
+        for cnum, cam_name in enumerate(cam_names):
 
             # we apply the same augmentation per camera
             # (thus assuming that each recording is at least self-consistent)
             aug_det = self.aug.to_deterministic()
             imgs = []
+
+            x1, y1, x2, y2 = crops[cnum]
             
             # load images from paths and resize to desired resolution
             for img_fname in img_fnames: 
 
                 cam_img_path = os.path.join(img_path, cam_name, img_fname)
                 img = cv2.imread(cam_img_path)
-
-                if self.max_res != 1: 
-                    img = cv2.resize(img, dsize = new_res_dict[cam_name])
-
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img = img[y1:y2, x1:x2]
+                
+                if self.max_res != -1:
+                    print(cgroup[cnum]['size'])
+                    print(cgroup[cnum]['size'].tolist())
+                    img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
+
                 img = aug_det(image=img)
                 imgs.append(img)
 
@@ -413,7 +474,7 @@ class PosetailDataset(Dataset):
         return scale_dict, res_dict, new_res_dict
 
 
-    def _load_cameras(self, camera_metadata_path, res_dict, scale_dict):
+    def _load_cameras(self, camera_metadata_path, res_dict):
 
         cam_metadata = load_yaml(camera_metadata_path)
         offset_dict = None
@@ -451,12 +512,12 @@ class PosetailDataset(Dataset):
                 name = cam_name)
 
             cam.set_size(res_dict[cam_name])
-            cam.resize_camera(scale_dict[cam_name])
+            # cam.resize_camera(scale_dict[cam_name])
             cams.append(cam)
 
-            if offset_dict: 
-                offsets = offset_dict[cam_name]
-                offset_dict[cam_name] = [offsets[0] * scale_dict[cam_name], offsets[1] * scale_dict[cam_name]]
+            # if offset_dict: 
+            #     offsets = offset_dict[cam_name]
+            #     offset_dict[cam_name] = [offsets[0] * scale_dict[cam_name], offsets[1] * scale_dict[cam_name]]
 
         cgroup = CameraGroup(cams)
 
