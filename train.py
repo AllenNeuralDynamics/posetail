@@ -5,6 +5,7 @@ import os
 import wandb
 
 import torch
+import torch.multiprocessing as mp
 import torch.optim as optim
 # from torch.cuda.amp import GradScaler
 from torch.utils.data import DataLoader, DistributedSampler
@@ -68,6 +69,7 @@ def parse_args():
 
 def run(config_path, fabric):
 
+    mp.set_start_method('spawn', force = True)
     torch.set_float32_matmul_precision('high')
 
     config = load_config(config_path)
