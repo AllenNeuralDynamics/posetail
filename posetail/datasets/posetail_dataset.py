@@ -254,9 +254,30 @@ class PosetailDataset(Dataset):
                 pflat = p2d[cnum].reshape(-1, 2)
                 good = torch.all(torch.isfinite(pflat), dim=1)
                 pflat = pflat[good]
-                low = torch.clip(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size - 10).to(torch.int32)
-                high = torch.clip(torch.max(pflat, dim=0).values + 20, low+5, size).to(torch.int32)
+                low = torch.clamp(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size).to(torch.int32)
+                high = torch.clamp(torch.max(pflat, dim=0).values + 20, torch.tensor([0,0]), size).to(torch.int32)
+
+                min_dim = 64
+                current_width = high[0] - low[0]
+                current_height = high[1] - low[1]
+
+                if current_width < min_dim:
+                    # Expand horizontally around center
+                    center_x = (low[0] + high[0]) // 2
+                    low[0] = torch.clamp(center_x - min_dim // 2, 0, size[0] - min_dim)
+                    high[0] = torch.clamp(low[0] + min_dim, 0, size[0])
+                    low[0] = high[0] - min_dim  # Adjust if clamping moved the window
+
+                if current_height < min_dim:
+                    # Expand vertically around center
+                    center_y = (low[1] + high[1]) // 2
+                    low[1] = torch.clamp(center_y - min_dim // 2, 0, size[1] - min_dim)
+                    high[1] = torch.clamp(low[1] + min_dim, 0, size[1])
+                    low[1] = high[1] - min_dim  # Adjust if clamping moved the window
+                
                 crops.append(torch.cat([low, high]))
+
+                
 
             # camera crops
             camera_group_cropped = []
@@ -311,8 +332,10 @@ class PosetailDataset(Dataset):
                 try: 
                     img = aug_det(image=img)
                 except:
+                    print(cam_img_path)
                     print(img is None) 
                     pprint(row)
+                    print(f"Image shape: {img.shape}, dtype: {img.dtype}, range: [{img.min()}, {img.max()}]")
                     print(cgroup[cnum]['size'])
                     print(x1, x2, y1, y2)
                     img = aug_det(image = img)
