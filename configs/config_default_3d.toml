@@ -7,6 +7,7 @@ mode = 'offline' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
+num_workers = 12
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility'

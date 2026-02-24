@@ -5,6 +5,7 @@ mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
+num_workers = 1
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
 
 [dataset.train]

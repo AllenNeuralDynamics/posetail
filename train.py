@@ -92,7 +92,11 @@ def run(config_path, fabric):
         collate_fn = custom_collate,
         sampler = sampler,
         shuffle = False,
+<<<<<<< HEAD
         num_workers = 12)
+=======
+        num_workers = config.dataset.num_workers)
+>>>>>>> 105601b (add num workers to config)
 
     
     train_loader = fabric.setup_dataloaders(train_loader)

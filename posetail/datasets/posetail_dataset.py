@@ -330,16 +330,7 @@ class PosetailDataset(Dataset):
                 if self.max_res != -1:
                     img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
 
-                try: 
-                    img = aug_det(image=img)
-                except:
-                    print(cam_img_path)
-                    print(img is None) 
-                    pprint(row)
-                    print(f"Image shape: {img.shape}, dtype: {img.dtype}, range: [{img.min()}, {img.max()}]")
-                    print(cgroup[cnum]['size'])
-                    print(x1, x2, y1, y2)
-                    img = aug_det(image = img)
+                img = aug_det(image=img)
                 imgs.append(img)
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
@@ -418,7 +409,7 @@ class PosetailDataset(Dataset):
 
         for dataset in get_dirs(self.data_path): 
 
-            # TODO: remove later 
+            # # TODO: remove later 
             print(dataset)
             if dataset == 'cmupanoptic': 
                 continue
