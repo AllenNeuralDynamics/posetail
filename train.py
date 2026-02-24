@@ -69,7 +69,7 @@ def parse_args():
 
 def run(config_path, fabric):
 
-    mp.set_start_method('spawn', force = True)
+    # mp.set_start_method('spawn', force = True)
     torch.set_float32_matmul_precision('high')
 
     config = load_config(config_path)
@@ -92,7 +92,7 @@ def run(config_path, fabric):
         collate_fn = custom_collate,
         sampler = sampler,
         shuffle = False,
-        num_workers = 1)
+        num_workers = 12)
 
     
     train_loader = fabric.setup_dataloaders(train_loader)
