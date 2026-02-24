@@ -80,7 +80,7 @@ class PosetailDataset(Dataset):
         self.aug_prob = config.dataset[split].get('aug_prob', 0.25)
 
         self.crop_to_points = config.dataset[split].get('crop_to_points', True)
-        self.min_crop_dim = config.dataset[split].getc('min_crop_dim', 64)
+        self.min_crop_dim = config.dataset[split].get('min_crop_dim', 64)
         
         # for sampling cameras, keypoints
         self.cams_to_sample = format_sample_input(config.dataset[split].get('cams_to_sample', None))
