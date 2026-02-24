@@ -139,13 +139,23 @@ class PosetailDataset(Dataset):
         data = np.load(row['pose_path'])
         coords = data['pose'][:, start_ix:end_ix:interval, :, :] 
         coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
+
+        # sample a random subject with 0.5 probability if using a 
+        # multi-subject dataset
+        if np.random.random() > 0.5: 
+            coords = coords[np.random.randint(coords.shape[0]), None]
+
         coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
+        print(row['dataset'])
+        print(coords.shape)
 
         vis = None
         if 'vis' in data: 
             vis = data['vis'][:, start_ix:end_ix:interval, :, :]
             vis = torch.tensor(vis, dtype = torch.float32, device = 'cpu')
             vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
+            vis[torch.isnan(vis)] = 1
+            vis = vis.bool()
 
         # load camera resolutions for resizing
         # res_dict = json.loads(row['res_dict'])
@@ -162,7 +172,7 @@ class PosetailDataset(Dataset):
             if isinstance(self.cams_to_sample, int): 
                 num_cams_to_sample = self.cams_to_sample
             else: # sample between a high and low bound
-                num_cams_to_sample = np.random.randint(self.cams_to_sample[0], self.cams_to_sample[1])
+                num_cams_to_sample = np.random.randint(self.cams_to_sample[0], self.cams_to_sample[1] + 1)
 
             if len(cam_names) > num_cams_to_sample:
                 ix_cams = np.random.choice(len(cam_names), size = num_cams_to_sample, replace = False)
@@ -209,7 +219,7 @@ class PosetailDataset(Dataset):
             if isinstance(self.kpts_to_sample, int): 
                 num_kpts_to_sample = self.kpts_to_sample
             else: # sample between a high and low bound 
-                num_kpts_to_sample = np.random.randint(self.kpts_to_sample[0], self.kpts_to_sample[1])
+                num_kpts_to_sample = np.random.randint(self.kpts_to_sample[0], self.kpts_to_sample[1] + 1)
 
             # sample if there are more keypoints than the number to sample
             if coords.shape[1] > num_kpts_to_sample:   
@@ -244,7 +254,7 @@ class PosetailDataset(Dataset):
                 pflat = p2d[cnum].reshape(-1, 2)
                 good = torch.all(torch.isfinite(pflat), dim=1)
                 pflat = pflat[good]
-                low = torch.clip(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size).to(torch.int32)
+                low = torch.clip(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size - 10).to(torch.int32)
                 high = torch.clip(torch.max(pflat, dim=0).values + 20, low+5, size).to(torch.int32)
                 crops.append(torch.cat([low, high]))
 
@@ -260,7 +270,7 @@ class PosetailDataset(Dataset):
 
         # resize cameras
         if self.max_res != -1:
-            target_res = np.random.randint(self.min_res, self.max_res)
+            target_res = np.random.randint(self.min_res, self.max_res + 1)
             camera_group_scaled = []
             for cnum in range(len(cgroup)):
                 cam = dict(cgroup[cnum])
@@ -298,7 +308,14 @@ class PosetailDataset(Dataset):
                 if self.max_res != -1:
                     img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
 
-                img = aug_det(image=img)
+                try: 
+                    img = aug_det(image=img)
+                except:
+                    print(img is None) 
+                    pprint(row)
+                    print(cgroup[cnum]['size'])
+                    print(x1, x2, y1, y2)
+                    img = aug_det(image = img)
                 imgs.append(img)
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
@@ -322,7 +339,7 @@ class PosetailDataset(Dataset):
         intervals = []
 
         for interval in [1, 2, 4]:
-            for i in range(coords.shape[1] - self.n_frames * interval + 1): 
+            for i in range(coords.shape[0] - self.n_frames * interval + 1): 
                 
                 start = i
                 end = i + self.n_frames * interval
@@ -379,7 +396,7 @@ class PosetailDataset(Dataset):
 
             # TODO: remove later 
             print(dataset)
-            if dataset == 'cmupanoptic' or dataset == 'acinoset': 
+            if dataset == 'cmupanoptic': 
                 continue
             
             # NOTE: split folder structure must match here

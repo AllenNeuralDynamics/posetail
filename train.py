@@ -92,7 +92,7 @@ def run(config_path, fabric):
         collate_fn = custom_collate,
         sampler = sampler,
         shuffle = False,
-        num_workers = 12)
+        num_workers = 1)
 
     
     train_loader = fabric.setup_dataloaders(train_loader)
@@ -142,7 +142,7 @@ def run(config_path, fabric):
         print(f'received unexpected keys: {unexpected_keys}')
 
     # compile the model
-    model.cnn.compile()
+    # model.cnn.compile()
     model.corr_mlp.compile()
     model.tsformer.compile()
 

@@ -66,7 +66,7 @@ def project_cam(cam, p3d_t, downsample_factor = 1):
     
     return p2d
 
-@torch.compile
+# @torch.compile
 def project_points_torch(camera_group, coords_3d, downsample_factor = 1):
 
     coords_proj = torch.stack([project_cam(cam, coords_3d, downsample_factor)
