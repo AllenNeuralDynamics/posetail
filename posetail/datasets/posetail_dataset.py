@@ -80,6 +80,7 @@ class PosetailDataset(Dataset):
         self.aug_prob = config.dataset[split].get('aug_prob', 0.25)
 
         self.crop_to_points = config.dataset[split].get('crop_to_points', True)
+        self.min_crop_dim = config.dataset[split].getc('min_crop_dim', 64)
         
         # for sampling cameras, keypoints
         self.cams_to_sample = format_sample_input(config.dataset[split].get('cams_to_sample', None))
@@ -257,7 +258,7 @@ class PosetailDataset(Dataset):
                 low = torch.clamp(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size).to(torch.int32)
                 high = torch.clamp(torch.max(pflat, dim=0).values + 20, torch.tensor([0,0]), size).to(torch.int32)
 
-                min_dim = 64
+                min_dim = self.min_crop_dim
                 current_width = high[0] - low[0]
                 current_height = high[1] - low[1]
 
