@@ -42,7 +42,7 @@ def project_cam(cam, p3d_t, downsample_factor = 1):
     p2d_proj_raw = torch.matmul(to_homogeneous(p3d_t), ext_t.T)
     p2d_proj_raw = from_homogeneous(p2d_proj_raw[..., :3])
 
-    k1, k2, p1, p2, k3 = dist
+    k1, k2, p1, p2, k3 = dist[:5]
     k4 = k5 = k6 = 0
     r2 = torch.sum(torch.square(p2d_proj_raw), dim=-1)
     r4 = r2 * r2
