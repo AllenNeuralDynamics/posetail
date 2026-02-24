@@ -222,6 +222,15 @@ class PosetailDataset(Dataset):
         if coords.shape[1] < 1:
             return self.__getitem__(np.random.randint(self.__len__()))
 
+        # compute total movement in pixels, averaged across cameras
+        p2d = project_points_torch(cgroup, coords)
+        movement = torch.linalg.norm(torch.diff(p2d, dim=1), dim=-1)
+        total_movement = torch.mean(torch.sum(movement, dim=1), dim=0)
+        # should have at least 12 pixels of movement over the sampled frames
+        good = total_movement >= 12
+        if torch.sum(good) < 2: # not enough points with movement
+            return self.__getitem__(np.random.randint(self.__len__()))            
+        
         # cropping around coordinates
         #   helps for small animals in large arenas
         if self.crop_to_points:
