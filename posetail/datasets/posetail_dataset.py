@@ -139,21 +139,25 @@ class PosetailDataset(Dataset):
         coords = data['pose'][:, start_ix:end_ix:interval, :, :] 
         coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
 
-        # sample a random subject with 0.5 probability if using a 
-        # multi-subject dataset
-        if np.random.random() > 0.5: 
-            coords = coords[np.random.randint(coords.shape[0]), None]
-
-        coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
-
         vis = None
         if 'vis' in data: 
             vis = data['vis'][:, start_ix:end_ix:interval, :, :]
             vis = torch.tensor(vis, dtype = torch.float32, device = 'cpu')
-            vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
             vis[torch.isnan(vis)] = 1
             vis = vis.bool()
 
+        # sample a random subject with 0.5 probability if using a 
+        # multi-subject dataset
+        if np.random.random() > 0.5:
+            ix_sample = np.random.randint(coords.shape[0])
+            coords = coords[ix_sample, None]
+            if vis is not None:
+                vis = vis[ix_sample, None]
+            
+        coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
+        if vis is not None:
+            vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
+        
         # load camera resolutions for resizing
         # res_dict = json.loads(row['res_dict'])
         # new_res_dict = json.loads(row['new_res_dict'])
@@ -174,14 +178,17 @@ class PosetailDataset(Dataset):
             if len(cam_names) > num_cams_to_sample:
                 ix_cams = np.random.choice(len(cam_names), size = num_cams_to_sample, replace = False)
                 cam_names = [cam_names[i] for i in ix_cams]
+                # determine visibilities only from the sampled cameras
+                if vis is not None: 
+                    vis = vis[:, :, ix_cams]
 
-            # determine visibilities only from the sampled cameras
-            if vis is not None: 
-                vis = vis[:, :, ix_cams].sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
+
+        if vis is not None:
+            vis = vis.sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
                 
         # filter coords based on which coords are visible
         # in the first frame (will sample from these)
-        if vis is not None: 
+        if vis is not None:
             mask = vis[0].bool()
             coords = coords[:, mask, :].squeeze()
             vis = vis[:, mask].squeeze()
