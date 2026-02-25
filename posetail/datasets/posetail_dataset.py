@@ -46,10 +46,13 @@ def custom_collate(batch):
         vis = torch.stack(batch[2], axis = 0)
         vis_masked = vis[:, :, mask].unsqueeze(-1)
 
+    rows = batch[5]
+        
     batch = edict({'views': views, 
                    'coords': coords_masked,
                    'vis': vis_masked,
-                   'fnums': fnums, 
+                   'fnums': fnums,
+                   'rows': rows,
                    'cgroup': cgroup})
 
     return batch
@@ -99,10 +102,10 @@ class PosetailDataset(Dataset):
             iaa.Sometimes(self.aug_prob, iaa.GammaContrast((0.5, 1.8))),
             iaa.Sometimes(self.aug_prob, iaa.AddToSaturation((-150, 10))),
             iaa.Sometimes(self.aug_prob, iaa.MotionBlur(k=(3,6))),
-            iaa.Sometimes(self.aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.08*255))),
-            iaa.Sometimes(self.aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
+            iaa.Sometimes(self.aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.07*255))),
+            # iaa.Sometimes(self.aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
             iaa.Sometimes(self.aug_prob, iaa.Grayscale(alpha=1.0)),
-            iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(30, 80))),
+            iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(30, 70))),
         ])
         
         # generate metadata for the provided data path (requires a specific format)
@@ -139,21 +142,28 @@ class PosetailDataset(Dataset):
         coords = data['pose'][:, start_ix:end_ix:interval, :, :] 
         coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
 
-        # sample a random subject with 0.5 probability if using a 
-        # multi-subject dataset
-        if np.random.random() > 0.5: 
-            coords = coords[np.random.randint(coords.shape[0]), None]
-
-        coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
-
         vis = None
         if 'vis' in data: 
             vis = data['vis'][:, start_ix:end_ix:interval, :, :]
             vis = torch.tensor(vis, dtype = torch.float32, device = 'cpu')
-            vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
             vis[torch.isnan(vis)] = 1
             vis = vis.bool()
 
+        # only augment some of the samples
+        should_augment = np.random.random() < 0.6
+            
+        # sample a random subject with 0.5 probability if using a 
+        # multi-subject dataset
+        if np.random.random() < 0.5:
+            ix_sample = np.random.randint(coords.shape[0])
+            coords = coords[ix_sample, None]
+            if vis is not None:
+                vis = vis[ix_sample, None]
+            
+        coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
+        if vis is not None:
+            vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
+        
         # load camera resolutions for resizing
         # res_dict = json.loads(row['res_dict'])
         # new_res_dict = json.loads(row['new_res_dict'])
@@ -174,14 +184,17 @@ class PosetailDataset(Dataset):
             if len(cam_names) > num_cams_to_sample:
                 ix_cams = np.random.choice(len(cam_names), size = num_cams_to_sample, replace = False)
                 cam_names = [cam_names[i] for i in ix_cams]
+                # determine visibilities only from the sampled cameras
+                if vis is not None: 
+                    vis = vis[:, :, ix_cams]
 
-            # determine visibilities only from the sampled cameras
-            if vis is not None: 
-                vis = vis[:, :, ix_cams].sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
+
+        if vis is not None:
+            vis = vis.sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
                 
         # filter coords based on which coords are visible
         # in the first frame (will sample from these)
-        if vis is not None: 
+        if vis is not None:
             mask = vis[0].bool()
             coords = coords[:, mask, :].squeeze()
             vis = vis[:, mask].squeeze()
@@ -312,6 +325,7 @@ class PosetailDataset(Dataset):
             # we apply the same augmentation per camera
             # (thus assuming that each recording is at least self-consistent)
             aug_det = self.aug.to_deterministic()
+            
             imgs = []
 
             if self.crop_to_points:
@@ -329,12 +343,13 @@ class PosetailDataset(Dataset):
                 if self.max_res != -1:
                     img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
 
-                img = aug_det(image=img)
+                if should_augment:
+                    img = aug_det(image=img)
                 imgs.append(img)
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
     
-        return views, coords, vis, fnums, cgroup
+        return views, coords, vis, fnums, cgroup, row
 
 
     def _get_start_ixs(self, coords):
