@@ -99,10 +99,10 @@ class PosetailDataset(Dataset):
             iaa.Sometimes(self.aug_prob, iaa.GammaContrast((0.5, 1.8))),
             iaa.Sometimes(self.aug_prob, iaa.AddToSaturation((-150, 10))),
             iaa.Sometimes(self.aug_prob, iaa.MotionBlur(k=(3,6))),
-            iaa.Sometimes(self.aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.08*255))),
-            iaa.Sometimes(self.aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
+            iaa.Sometimes(self.aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.07*255))),
+            # iaa.Sometimes(self.aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
             iaa.Sometimes(self.aug_prob, iaa.Grayscale(alpha=1.0)),
-            iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(30, 80))),
+            iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(30, 70))),
         ])
         
         # generate metadata for the provided data path (requires a specific format)
@@ -146,9 +146,12 @@ class PosetailDataset(Dataset):
             vis[torch.isnan(vis)] = 1
             vis = vis.bool()
 
+        # only augment some of the samples
+        should_augment = np.random.random() < 0.6
+            
         # sample a random subject with 0.5 probability if using a 
         # multi-subject dataset
-        if np.random.random() > 0.5:
+        if np.random.random() < 0.5:
             ix_sample = np.random.randint(coords.shape[0])
             coords = coords[ix_sample, None]
             if vis is not None:
@@ -319,6 +322,7 @@ class PosetailDataset(Dataset):
             # we apply the same augmentation per camera
             # (thus assuming that each recording is at least self-consistent)
             aug_det = self.aug.to_deterministic()
+            
             imgs = []
 
             if self.crop_to_points:
@@ -336,7 +340,8 @@ class PosetailDataset(Dataset):
                 if self.max_res != -1:
                     img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
 
-                img = aug_det(image=img)
+                if should_augment:
+                    img = aug_det(image=img)
                 imgs.append(img)
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
