@@ -289,8 +289,7 @@ class PosetailDataset(Dataset):
                     low[1] = high[1] - min_dim  # Adjust if clamping moved the window
                 
                 crops.append(torch.cat([low, high]))
-
-                
+            
 
             # camera crops
             camera_group_cropped = []
@@ -348,7 +347,7 @@ class PosetailDataset(Dataset):
                 imgs.append(img)
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
-    
+
         return views, coords, vis, fnums, cgroup, row
 
 
@@ -420,7 +419,7 @@ class PosetailDataset(Dataset):
         for dataset in get_dirs(self.data_path):
 
             #TODO: remove later 
-            if dataset == 'kubric-multiview': 
+            if dataset == 'kubric-multiview' or dataset == 'pair-r24m': 
                 continue
             
             # NOTE: split folder structure must match here
