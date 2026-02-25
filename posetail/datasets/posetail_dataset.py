@@ -402,7 +402,11 @@ class PosetailDataset(Dataset):
         rows = []
         mode = '3d' # if track_3d else '2d' - not yet implemented
 
-        for dataset in get_dirs(self.data_path): 
+        for dataset in get_dirs(self.data_path):
+
+            #TODO: remove later 
+            if dataset == 'kubric-multiview': 
+                continue
             
             # NOTE: split folder structure must match here
             dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
