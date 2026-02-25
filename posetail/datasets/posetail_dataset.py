@@ -46,10 +46,13 @@ def custom_collate(batch):
         vis = torch.stack(batch[2], axis = 0)
         vis_masked = vis[:, :, mask].unsqueeze(-1)
 
+    rows = batch[5]
+        
     batch = edict({'views': views, 
                    'coords': coords_masked,
                    'vis': vis_masked,
-                   'fnums': fnums, 
+                   'fnums': fnums,
+                   'rows': rows,
                    'cgroup': cgroup})
 
     return batch
@@ -346,7 +349,7 @@ class PosetailDataset(Dataset):
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
     
-        return views, coords, vis, fnums, cgroup
+        return views, coords, vis, fnums, cgroup, row
 
 
     def _get_start_ixs(self, coords):
