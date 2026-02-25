@@ -270,9 +270,10 @@ class PosetailDataset(Dataset):
                 low = torch.clamp(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size).to(torch.int32)
                 high = torch.clamp(torch.max(pflat, dim=0).values + 20, torch.tensor([0,0]), size).to(torch.int32)
 
-                min_dim = self.min_crop_dim
                 current_width = high[0] - low[0]
                 current_height = high[1] - low[1]
+
+                min_dim = max(self.min_crop_dim, current_width//2, current_height//2)
 
                 if current_width < min_dim:
                     # Expand horizontally around center
@@ -287,7 +288,7 @@ class PosetailDataset(Dataset):
                     low[1] = torch.clamp(center_y - min_dim // 2, 0, size[1] - min_dim)
                     high[1] = torch.clamp(low[1] + min_dim, 0, size[1])
                     low[1] = high[1] - min_dim  # Adjust if clamping moved the window
-                
+
                 crops.append(torch.cat([low, high]))
             
 
