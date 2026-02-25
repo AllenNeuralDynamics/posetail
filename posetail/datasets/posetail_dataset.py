@@ -133,8 +133,6 @@ class PosetailDataset(Dataset):
         interval = row['interval']
         end_ix = start_ix + self.n_frames * interval 
         fnums = torch.arange(start_ix, end_ix, interval)
-
-        # pprint(row)
         
         # load keypoints and visibilities (if present)
         data = np.load(row['pose_path'])
@@ -147,8 +145,6 @@ class PosetailDataset(Dataset):
             coords = coords[np.random.randint(coords.shape[0]), None]
 
         coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
-        print(row['dataset'])
-        print(coords.shape)
 
         vis = None
         if 'vis' in data: 
@@ -193,7 +189,10 @@ class PosetailDataset(Dataset):
         # filter coords that are not nan throughout
         mask = torch.all(torch.isfinite(coords), dim=(0, 2))
         coords = coords[:, mask]
-        
+
+        if vis is not None: 
+            vis = vis[:, mask]
+
         cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path']) 
         cgroup = cgroup.subset_cameras_names(cam_names)
         cgroup = format_camera_group(cgroup, offset_dict, cam_type, device = 'cpu')
@@ -211,7 +210,7 @@ class PosetailDataset(Dataset):
             coords = coords[:, good, :]
 
             # filter vis if available
-            if vis is not None: 
+            if vis is not None:
                 vis = vis[:, good]
 
         # sample a random number of keypoints from available tracks 
@@ -359,13 +358,12 @@ class PosetailDataset(Dataset):
                 start = i
                 end = i + self.n_frames * interval
                 coords_subset = coords[start:end:interval, :, :]        
-                mask = np.isfinite(coords_subset)
-                visible_coords = mask.all(axis = -1).all(axis = 0) # TODO: double check if this is the right axis 
-
+                
                 # if not all nans in the starting frame 
-                if np.sum(visible_coords) > 0:
+                if np.isfinite(coords_subset[0]).any():
                     start_ixs.append(i)
                     intervals.append(interval)
+   
    
         start_ixs = np.array(start_ixs)
         intervals = np.array(intervals)
@@ -387,11 +385,8 @@ class PosetailDataset(Dataset):
             coords_subset = coords[i:i + self.n_frames, :, :]
             enough_frames = coords_subset.shape[1] == self.n_frames
             
-            mask = np.isfinite(coords_subset)
-            visible_coords = mask.all(axis = -1).all(axis = 0) # TODO: double check if this is the right axis 
-
             # if not all nans in the starting frame and enough_frames: 
-            if np.sum(visible_coords) > 0 and enough_frames:
+            if np.isfinite(coords_subset[0]).any() and enough_frames:
                 start_ixs.append(i)
                 intervals.append(1)
                 safe = self.n_frames - 1
@@ -408,11 +403,6 @@ class PosetailDataset(Dataset):
         mode = '3d' # if track_3d else '2d' - not yet implemented
 
         for dataset in get_dirs(self.data_path): 
-
-            # # TODO: remove later 
-            print(dataset)
-            if dataset == 'cmupanoptic': 
-                continue
             
             # NOTE: split folder structure must match here
             dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
@@ -447,7 +437,7 @@ class PosetailDataset(Dataset):
                     coords = data['pose']
 
                     coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
-                    start_ixs, intervals = self._get_start_ixs(coords) # TODO: TEST
+                    start_ixs, intervals = self._get_start_ixs(coords)
 
                     # n_batches = len(imgs) // self.n_frames
                     # start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
