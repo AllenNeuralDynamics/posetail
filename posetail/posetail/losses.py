@@ -131,7 +131,8 @@ class TotalLoss(nn.Module):
                 model = model, 
                 coords_true = coords_true, 
                 feature_planes_levels = outputs['feature_planes_levels'], 
-                cgroup = cgroup
+                cgroup = cgroup,
+                device = device
         )
 
         if model.R == 3:
@@ -144,6 +145,10 @@ class TotalLoss(nn.Module):
                   vis_loss, conf_loss, 
                   feature_loss, bad_feature_loss]
         
+        # total_loss = 0
+        # for loss in losses: 
+        #     if torch.isfinite(loss).item(): 
+        #         total_loss += loss
         losses = torch.stack(losses)
         losses = losses[torch.isfinite(losses)]
         total_loss = losses.sum()
@@ -182,7 +187,7 @@ class BCELossVis(nn.Module):
 
         # don't compute if the weight is 0
         if self.weight == 0: 
-            return float('nan') 
+            return torch.tensor(float('nan'), device = device)
 
         if isinstance(vis_pred, torch.Tensor): 
             total_loss = self._compute_loss(vis_pred, vis_true)
@@ -230,8 +235,8 @@ class BCELossConf(nn.Module):
 
         # don't compute if the weight is 0
         if self.weight == 0: 
-            return float('nan')  
-
+            return torch.tensor(float('nan'), device = device)
+ 
         if isinstance(coords_pred, torch.Tensor): 
             total_loss = self._compute_loss(conf_pred, coords_pred, coords_true, vis_true)
             return self.weight * total_loss 
@@ -291,7 +296,7 @@ class WeightedMAELoss(nn.Module):
 
         # don't compute if the weight is 0
         if self.weight == 0: 
-            return float('nan')  
+            return torch.tensor(float('nan'), device = device)
 
         if isinstance(coords_pred, torch.Tensor): 
             total_loss = self._compute_loss(coords_pred, coords_true, vis_true)
@@ -319,11 +324,13 @@ class FeatureLoss(nn.Module):
 
         self.weight = weight
 
-    def forward(self, model, coords_true, feature_planes_levels, cgroup): 
+    def forward(self, model, coords_true, feature_planes_levels, cgroup, device = None): 
 
         # don't compute if the weight is 0
         if self.weight == 0: 
-            return float('nan'), float('nan')  
+            feature_loss = torch.tensor(float('nan'), device = device)
+            bad_feature_loss = torch.tensor(float('nan'), device = device)
+            return feature_loss, bad_feature_loss
 
         feature_loss = model.get_feature_loss(
             feature_planes_levels = feature_planes_levels, 

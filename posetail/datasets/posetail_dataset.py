@@ -349,6 +349,8 @@ class PosetailDataset(Dataset):
 
             views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
 
+        # print(row['dataset'])
+
         return views, coords, vis, fnums, cgroup, row
 
 
@@ -420,7 +422,7 @@ class PosetailDataset(Dataset):
         for dataset in get_dirs(self.data_path):
 
             #TODO: remove later 
-            if dataset == 'kubric-multiview' or dataset == 'pair-r24m': 
+            if dataset == 'kubric-multiview': 
                 continue
             
             # NOTE: split folder structure must match here
