@@ -26,11 +26,16 @@ def to_homogeneous(p):
 
 
 def from_homogeneous(p, eps=1e-10):
-    return p[..., :-1] / (p[..., -1, None] + eps) 
+    denom = p[..., -1, None]
+    denom = torch.where(denom >= 0, 
+                        torch.clamp(denom, min=eps), 
+                        torch.clamp(denom, max=-eps))
+    return p[..., :-1] / denom    
+    # return p[..., :-1] / (p[..., -1, None] + eps) 
 
 
 # @torch.compile
-def project_cam(cam, p3d_t, downsample_factor = 1):
+def project_cam(cam, p3d_t, downsample_factor = 1, max_normalized = 3.0):
     # p3d_t = torch.as_tensor(p3d)
     # ext_t = torch.as_tensor(cam.get_extrinsics_mat(), dtype=p3d_t.dtype, device=p3d_t.device)
     # mat_t = torch.as_tensor(cam.get_camera_matrix(), dtype=p3d_t.dtype, device=p3d_t.device)
@@ -42,6 +47,9 @@ def project_cam(cam, p3d_t, downsample_factor = 1):
     p2d_proj_raw = torch.matmul(to_homogeneous(p3d_t), ext_t.T)
     p2d_proj_raw = from_homogeneous(p2d_proj_raw[..., :3])
 
+    # handle points way outside of the frame
+    p2d_proj_raw = torch.clamp(p2d_proj_raw, -max_normalized, max_normalized)
+    
     k1, k2, p1, p2, k3 = dist[:5]
     k4 = k5 = k6 = 0
     r2 = torch.sum(torch.square(p2d_proj_raw), dim=-1)
@@ -58,9 +66,11 @@ def project_cam(cam, p3d_t, downsample_factor = 1):
     p2d_dist = kscale[..., None] * p2d_proj_raw + p1_p2_add
 
     # p2d_dist = p2d_proj_raw
+
+    p2d = torch.matmul(p2d_dist, mat_t[:2,:2].T) + mat_t[:2,2]
     
-    p2d_raw = torch.matmul(to_homogeneous(p2d_dist), mat_t.T)
-    p2d = from_homogeneous(p2d_raw)
+    # p2d_raw = torch.matmul(to_homogeneous(p2d_dist), mat_t.T)
+    # p2d = from_homogeneous(p2d_raw)
 
     # handle camera offset
     if 'offset' in cam: 
