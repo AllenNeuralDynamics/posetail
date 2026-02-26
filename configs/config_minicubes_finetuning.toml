@@ -1,11 +1,11 @@
 [wandb]
-project_name = 'posetail-finetune'
-path = '/groups/karashchuk/home/ruppk2/results/posetail-finetune-test'
+project_name = 'posetail-finetuning'
+path = '/groups/karashchuk/home/ruppk2/results/posetail-finetuning'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-num_workers = 1
+num_workers = 12
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
 
 [dataset.train]
@@ -78,7 +78,7 @@ vc_head_requires_grad = false
 [training]
 seed = 3
 checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain/wandb/run-20260211_151402-9iwgznvx/files/checkpoints/checkpoint_599992.pth'
-n_iterations = 500 # 600000
+n_iterations = 600000
 scheduler_type = 'onecyclelr' # 'onecyclelr' or 'multisteplr'
 max_grad_norm = 1.0
 checkpoint_freq = 20480 # in iterations
