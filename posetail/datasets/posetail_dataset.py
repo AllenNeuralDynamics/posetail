@@ -136,6 +136,8 @@ class PosetailDataset(Dataset):
         interval = row['interval']
         end_ix = start_ix + self.n_frames * interval 
         fnums = torch.arange(start_ix, end_ix, interval)
+
+        # pprint(row)
         
         # load keypoints and visibilities (if present)
         data = np.load(row['pose_path'])
@@ -196,8 +198,8 @@ class PosetailDataset(Dataset):
         # in the first frame (will sample from these)
         if vis is not None:
             mask = vis[0].bool()
-            coords = coords[:, mask, :].squeeze()
-            vis = vis[:, mask].squeeze()
+            coords = coords[:, mask, :]
+            vis = vis[:, mask]
 
         # filter coords that are not nan throughout
         mask = torch.all(torch.isfinite(coords), dim=(0, 2))
