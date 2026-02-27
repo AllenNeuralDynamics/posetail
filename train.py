@@ -48,7 +48,7 @@ def parse_args():
     #     help = 'number of gpus to use, list of gpu indices to use, or auto to use all available gpus')
     
     parser.add_argument('--devices', 
-        default = 1, 
+        default = -1, 
         help = 'number of gpus to train the model on')
 
     parser.add_argument('--strategy', 
