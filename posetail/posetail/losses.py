@@ -138,6 +138,7 @@ class TotalLoss(nn.Module):
         if model.R == 3:
             scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
             coords_loss = coords_loss / scale
+            occluded_coords_loss = occluded_coords_loss / scale
         else:
             scale = 1
             
