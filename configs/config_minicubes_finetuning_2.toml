@@ -1,11 +1,12 @@
 [wandb]
 project_name = 'posetail-finetuning'
-path = '/groups/karashchuk/home/ruppk2/results/posetail-finetuning'
+# path = '/groups/karashchuk/home/ruppk2/results/posetail-finetuning'
+path = '/groups/karashchuk/home/karashchukl/results/posetail-finetuning'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-num_workers = 12
+num_workers = 14
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
 
 [dataset.train]
@@ -14,7 +15,7 @@ n_frames = 16
 min_res = 256
 max_res = 352
 cams_to_sample = [1, 10] 
-kpts_to_sample = [64, 128]
+kpts_to_sample = [32, 96]
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -83,7 +84,7 @@ scheduler_type = 'onecyclelr' # 'onecyclelr' or 'multisteplr'
 max_grad_norm = 1.0
 checkpoint_freq = 20480 # in iterations
 eval_metric_freq = 16 # in iterations
-val_freq = 16 # in iterations
+val_freq = 64 # in iterations
 print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
