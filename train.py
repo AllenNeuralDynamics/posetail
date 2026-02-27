@@ -97,7 +97,8 @@ def run(config_path, fabric):
     train_loader = fabric.setup_dataloaders(train_loader)
 
     # set up validation dataloader 
-    val = config.dataset.val.get('split', None)
+    # val = config.dataset.val.get('split_dir', None)
+    val = False
 
     if val: 
 
@@ -108,7 +109,7 @@ def run(config_path, fabric):
             batch_size = config.dataset.batch_size, 
             collate_fn = custom_collate,
             shuffle = True,
-            num_workers = 12)
+            num_workers = config.dataset.num_workers)
         
         val_loader = fabric.setup_dataloaders(val_loader)
 
@@ -131,11 +132,13 @@ def run(config_path, fabric):
     # device = torch.device(config.devices.device)
     model = Tracker(**config.model)
 
+    model = fabric.setup(model)
+
     # optionally load a model checkpoint 
     checkpoint_path = config.training.get('checkpoint_path', None)
     if checkpoint_path:
         print(f'loading model checkpoint {checkpoint_path}...')
-        param_dict = torch.load(checkpoint_path)['model_state']
+        param_dict = torch.load(checkpoint_path, map_location='cpu')['model_state']
         missing_keys, unexpected_keys = model.load_state_dict(param_dict, strict = False)
         print(f'received missing keys: {missing_keys}')
         print(f'received unexpected keys: {unexpected_keys}')
@@ -151,7 +154,6 @@ def run(config_path, fabric):
     elif model.mode_3d == 'triplane':
         model.triplane_cnn.compile()
         
-    model = fabric.setup(model)
     model.mark_forward_method('get_feature_loss')
     
     # NOTE: memory profiling causes a CPU memory leak
