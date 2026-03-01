@@ -666,6 +666,81 @@ class ViewAttentionV2V(nn.Module):
 
         return aggregated_volume
 
+class QueryViewAttentionV2V(nn.Module):
+    def __init__(self, latent_dim, hidden_dim=None):
+        super().__init__()
+        
+        if hidden_dim is None:
+            hidden_dim = latent_dim // 2
+
+        # Mode 1: Salience Network (Used when Query is None)
+        self.salience_net = nn.Sequential(
+            nn.Conv3d(latent_dim, hidden_dim, kernel_size=3, padding=1),
+            nn.InstanceNorm3d(hidden_dim),
+            nn.ReLU(),
+            nn.Conv3d(hidden_dim, 1, kernel_size=3, padding=1)
+        )
+        
+        # Mode 2: Query Projection (Optional linear layer to align spaces)
+        # We assume query and volumes are in same space, so we can be parameter-free
+        # or add a small transform here.
+        self.query_proj = nn.Identity() 
+
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, volumes, masks, query=None):
+        """
+        Args:
+            volumes: (nc, bt, d, k, total) - Candidate features from all cams
+            masks:   (nc, bt, k, total) - Valid bounds mask
+            query:   (bt, d, k, total) OR (bt, d, k, 1) - The target feature we are tracking
+                     If None, runs in 'Salience Mode'.
+        """
+        n_cams, bt, d, k, total = volumes.shape
+        cube_size = int(round(total ** (1/3)))
+
+        # --- SCORE COMPUTATION ---
+        if query is not None:
+            # === MODE 2: QUERY MATCHING ===
+            # query comes in as [bt, d, k, total] (or similar)
+            # Expand query to match n_cams: [1, bt, d, k, total]
+            q = query.unsqueeze(0) 
+            
+            # Compute Similarity (Dot Product)
+            scores = reduce(volumes * q, 'nc bt d k total -> nc bt k total', 'sum')
+            
+            # Optional: Scale dot product by sqrt(d) for stability
+            scores = scores / (d ** 0.5)
+            
+            # Add singleton dim for compatibility with rearrange below
+            scores = scores.unsqueeze(2) # [nc, bt, 1, k, total]
+
+        else:
+            # === MODE 1: SALIENCE DETECTION (Init) ===
+            # Use 3D CNN to find "interesting" features
+            x = rearrange(volumes, 'nc bt d k (z y x) -> (nc bt k) d z y x', 
+                          z=cube_size, y=cube_size, x=cube_size)
+            
+            scores = self.salience_net(x)
+            
+            scores = rearrange(scores, '(nc bt k) 1 z y x -> nc bt 1 k (z y x)', 
+                               nc=n_cams, bt=bt)
+
+        masks_expanded = masks.unsqueeze(2) # [nc, bt, 1, k, total]
+        scores = scores.masked_fill(~masks_expanded, -1e9)
+
+        attn_weights = F.softmax(scores, dim=0)
+        
+        aggregated_volume = (volumes * attn_weights).sum(dim=0)
+
+        return aggregated_volume    
     
 class DepthwiseSeparableResBlock(nn.Module):
     def __init__(self, latent_dim):
