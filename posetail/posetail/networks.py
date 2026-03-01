@@ -599,7 +599,74 @@ class SimpleV2V(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
 
+                
+class ViewAttentionV2V(nn.Module):
+    def __init__(self, latent_dim, hidden_dim=None):
+        super().__init__()
+        
+        if hidden_dim is None:
+            hidden_dim = latent_dim // 2
 
+        # A small 3D CNN to determine how "good" the features look geometrically
+        self.score_net = nn.Sequential(
+            nn.Conv3d(latent_dim, hidden_dim, kernel_size=3, padding=1),
+            nn.InstanceNorm3d(hidden_dim),
+            nn.ReLU(),
+            nn.Conv3d(hidden_dim, 1, kernel_size=3, padding=1)
+        )
+        
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, volumes, masks):
+        """
+        Args:
+            volumes: (n_cams, bt, d, k, total) - Raw sampled features
+            masks: (n_cams, bt, k, total) - Boolean mask (True if inside image bounds)
+        Returns:
+            aggregated_volume: (bt, d, k, total)
+        """
+        n_cams, bt, d, k, total = volumes.shape
+        # Infer spatial cube size (e.g. 27 -> 3x3x3)
+        cube_size = int(round(total ** (1/3)))
+
+        # 1. Reshape for 3D CNN: Treat (n_cams * bt * k) as batch
+        # Input: [n_cams, bt, d, k, total] -> [(n_cams * bt * k), d, z, y, x]
+        x = rearrange(volumes, 'nc bt d k (z y x) -> (nc bt k) d z y x', 
+                      z=cube_size, y=cube_size, x=cube_size)
+
+        # 2. Predict Scores (logits)
+        # Output: [(n_cams * bt * k), 1, z, y, x]
+        scores = self.score_net(x)
+
+        # 3. Reshape back to isolate n_cams
+        # -> [n_cams, bt, 1, k, total]
+        scores = rearrange(scores, '(nc bt k) 1 z y x -> nc bt 1 k (z y x)', 
+                           nc=n_cams, bt=bt)
+
+        # 4. Masking:
+        # If the point projected outside the image (mask=False), set score to -infinity
+        # so Softmax results in 0 weight.
+        masks_expanded = masks.unsqueeze(2) # [nc, bt, 1, k, total]
+        scores = scores.masked_fill(~masks_expanded, -1e9)
+
+        # 5. Attention (Softmax over cameras)
+        # weights: [n_cams, bt, 1, k, total]
+        attn_weights = F.softmax(scores, dim=0)
+
+        # 6. Weighted Sum Aggregation
+        # Sum over n_cams dimension
+        aggregated_volume = (volumes * attn_weights).sum(dim=0)
+
+        return aggregated_volume
+
+    
 class DepthwiseSeparableResBlock(nn.Module):
     def __init__(self, latent_dim):
         super().__init__()
