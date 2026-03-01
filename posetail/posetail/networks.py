@@ -399,14 +399,65 @@ class SAM2HieraFeatureExtractor(nn.Module):
                 if 'layer_blocks' in name and not name.startswith('layer_blocks.0'):
                     param.requires_grad = False
 
+  
+        self.stem_s1 = nn.Sequential(
+            nn.Conv2d(3, output_dim // 2, kernel_size=3, padding=1, stride=1),
+            nn.GroupNorm(8, output_dim // 2),
+            nn.GELU(),
+            nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1),
+            nn.GroupNorm(8, output_dim),
+            nn.GELU()
+        )
+
+        self.stem_s2 = nn.Sequential(
+            nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=1, stride=2),
+            nn.GroupNorm(8, output_dim),
+            nn.GELU()
+        )
+
+        self.upsample_blocks = nn.ModuleList([
+            nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+                          nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=1),
+                          nn.GroupNorm(8, output_dim),
+                          nn.GELU())
+            for _ in range(2)
+        ])
+        
+        self.fuse_blocks = nn.ModuleList([
+            nn.Sequential(nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, padding=1),
+                          nn.GroupNorm(8, output_dim),
+                          nn.GELU())
+            for _ in range(2)
+        ])
+        
+        self._init_new_layers()
+
+    def _init_new_layers(self):
+        # Initialize only the new conv layers
+        for m in [self.stem_s1, self.stem_s2] + self.upsample_blocks + self.fuse_blocks:
+            for layer in m.modules():
+                if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d)):
+                    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+                    if layer.bias is not None: nn.init.constant_(layer.bias, 0)
+
     def forward(self, x, return_all=False):
         intermediates = self.model(x)
         features = OrderedDict()
         for i, x in enumerate(intermediates):
             features[i] = x
         out = self.fpn(features)
+
+        raw_s1 = self.stem_s1(x)
+        raw_s2 = self.stem_s2(raw_s1)
+
+        up_s2 = self.upsample_blocks[0](out[0])
+        feat_s2 = self.fuse_blocks[0](torch.cat([up_s2, raw_s2], dim=1))
+
+        up_s1 = self.upsample_blocks[1](feat_s2)
+        feat_s1 = self.fuse_blocks[1](torch.cat([up_s1, raw_s1], dim=1))
+        
         if return_all:
-            return list(out.values())
+            return [feat_s1, feat_s2] + list(out.values())
         else:
             return out[0]
     
@@ -713,13 +764,8 @@ class QueryViewAttentionV2V(nn.Module):
             # Expand query to match n_cams: [1, bt, d, k, total]
             q = query.unsqueeze(0) 
             
-            # Compute Similarity (Dot Product)
             scores = reduce(volumes * q, 'nc bt d k total -> nc bt k total', 'sum')
-            
-            # Optional: Scale dot product by sqrt(d) for stability
             scores = scores / (d ** 0.5)
-            
-            # Add singleton dim for compatibility with rearrange below
             scores = scores.unsqueeze(2) # [nc, bt, 1, k, total]
 
         else:

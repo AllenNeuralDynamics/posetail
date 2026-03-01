@@ -549,12 +549,8 @@ class Tracker(nn.Module):
             feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
                                  for f in feature_planes]
             
-            if i == 0: # detail cube
-                cube_interval = self.cube_scale / 2
-                downsample_ratio = self.downsample_factor
-            else:
-                cube_interval = self.cube_scale * (2**(i-1))
-                downsample_ratio = self.downsample_factor * (2**(i-1))
+            cube_interval = self.cube_scale * (2**i)
+            downsample_ratio = self.downsample_factor * (2**i)
 
             query = repeat(track_features_levels[i], 'b t n d -> (b s) d n t', s = S)
                 
@@ -599,12 +595,8 @@ class Tracker(nn.Module):
         for i in range(self.corr_levels):
             feature_planes = [ffl[i] for ffl in feature_planes_levels]
             feature_planes_first = [ff[:, 0, ..., 0] for ff in feature_planes]
-            if i == 0: # detail cube
-                cube_interval = self.cube_scale / 2
-                downsample_ratio = self.downsample_factor
-            else:
-                cube_interval = self.cube_scale * (2**(i-1))
-                downsample_ratio = self.downsample_factor * (2**(i-1))
+            cube_interval = self.cube_scale * (2**i)
+            downsample_ratio = self.downsample_factor * (2**i)
             track_features_cube = self.sample_feature_cubes(
                 feature_planes_first, camera_group, 
                 coords, cube_interval,
@@ -865,8 +857,6 @@ class Tracker(nn.Module):
             # feature_planes_levels = [
             #     self.get_feature_planes_levels(rearrange(f, 'b s d h w -> b s d h w 1'))
             #     for f in feature_planes]
-            for ff in feature_planes_levels: # for detail cube
-                ff.insert(0, ff[0])
             track_features_levels = self.get_track_features_minicubes(
                 coords, feature_planes_levels, camera_group
             )
@@ -983,12 +973,8 @@ class Tracker(nn.Module):
                 feature_planes_bs = [rearrange(f, 'b s d h w 1 -> (b s) d h w')
                                     for f in feature_planes]
 
-                if i == 0: # detail cube
-                    cube_interval = self.cube_scale / 2
-                    downsample_ratio = self.downsample_factor
-                else:
-                    cube_interval = self.cube_scale * (2**(i-1))
-                    downsample_ratio = self.downsample_factor * (2**(i-1))
+                cube_interval = self.cube_scale * (2**i)
+                downsample_ratio = self.downsample_factor * (2**i)
                 
                 mv = self.sample_feature_cubes(
                     feature_planes_bs,
