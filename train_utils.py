@@ -226,8 +226,8 @@ def train_iteration(config, model, fabric, batch,
     cgroup = batch.cgroup 
     
     # fallback if visibilities are not provided
-    if vis is None: 
-        vis = get_vis_true(coords)
+    # if vis is None: 
+    #     vis = get_vis_true(coords)
 
     if cgroup: 
         cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
@@ -443,8 +443,8 @@ def test_epoch(config, model, dataloader, loss = None,
         cgroup = batch.cgroup 
         
         # fallback if visibilities are not provided
-        if vis is None: 
-            vis = get_vis_true(coords)
+        # if vis is None: 
+        #     vis = get_vis_true(coords)
 
         if cgroup: 
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]

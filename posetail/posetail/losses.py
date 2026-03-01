@@ -84,6 +84,13 @@ class TotalLoss(nn.Module):
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
         conf_pred = outputs['conf_pred']
+
+        if vis_true is None:
+            valid_vis = False
+            vis_true = get_vis_true(coords_true) 
+        else:
+            valid_vis = True
+            
         occluded_true = ~vis_true
 
         if model.training:
@@ -99,11 +106,14 @@ class TotalLoss(nn.Module):
                 stride_overlap = model.stride_overlap)
 
         # compute losses
-        vis_loss = self.bce_loss_vis(
-            vis_pred = vis_pred_iters if model.training else vis_pred,
-            vis_true = vis_true_unrolled if model.training else vis_true,
-            device = device
-        )
+        if valid_vis:
+            vis_loss = self.bce_loss_vis(
+                vis_pred = vis_pred_iters if model.training else vis_pred,
+                vis_true = vis_true_unrolled if model.training else vis_true,
+                device = device
+            )
+        else:
+            vis_loss = torch.tensor(0.0, device=device)
 
         conf_loss = self.bce_loss_conf(
             conf_pred = conf_pred_iters if model.training else conf_pred, 
@@ -120,12 +130,15 @@ class TotalLoss(nn.Module):
             device = device
         )
 
-        occluded_coords_loss = self.mae_loss_occluded_coords(
-            coords_pred = coords_pred_iters if model.training else coords_pred, 
-            coords_true = coords_true_unrolled if model.training else coords_true, 
-            vis_true = occluded_true_unrolled if model.training else occluded_true, 
-            device = device
-        )
+        if valid_vis:
+            occluded_coords_loss = self.mae_loss_occluded_coords(
+                coords_pred = coords_pred_iters if model.training else coords_pred, 
+                coords_true = coords_true_unrolled if model.training else coords_true, 
+                vis_true = occluded_true_unrolled if model.training else occluded_true, 
+                device = device
+            )
+        else:
+            occluded_coords_loss = torch.tensor(0.0, device=device)
 
         feature_loss, bad_feature_loss = self.feature_loss(
                 model = model, 
