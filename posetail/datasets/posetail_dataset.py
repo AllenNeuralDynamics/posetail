@@ -395,14 +395,14 @@ class PosetailDataset(Dataset):
         start_ixs = []
         intervals = []
         
-        for i in range(coords.shape[1]): 
+        for i in range(coords.shape[0]): 
 
             if safe > 0:
                 safe = safe - 1 
                 continue
 
             coords_subset = coords[i:i + self.n_frames, :, :]
-            enough_frames = coords_subset.shape[1] == self.n_frames
+            enough_frames = coords_subset.shape[0] == self.n_frames
             
             # if not all nans in the starting frame and enough_frames: 
             if np.isfinite(coords_subset[0]).any() and enough_frames:
