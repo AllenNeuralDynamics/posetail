@@ -6,20 +6,20 @@ mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-num_workers = 12
+num_workers = 36
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
-prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning-test'
 
 [dataset.train]
 split_dir = 'train'
 n_frames = 16
 min_res = 256
-max_res = 352
+max_res = 320
 cams_to_sample = [1, 10] 
-kpts_to_sample = [256, 512]
+kpts_to_sample = [32, 128]
 aug_prob = 0.25
-enable_kpt_filtering = false
+enable_kpt_filtering = true
 cam_thresh_for_vis = 1
 balance_datasets = true
 n_samples_per_dataset = -1
@@ -46,7 +46,7 @@ device = 'cuda'
 [model]
 mode_3d = "minicubes"
 
-hiera_requires_grad = false
+hiera_requires_grad = true
 
 # processing
 stride_length = 8

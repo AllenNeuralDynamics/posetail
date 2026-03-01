@@ -331,7 +331,7 @@ class FeatureExtractor(nn.Module):
 from torchvision.ops import FeaturePyramidNetwork
 from collections import OrderedDict
 import hiera
-from einops import rearrange
+from einops import rearrange, reduce
 
 class HieraFeatureExtractor(nn.Module):
     def __init__(self, output_dim=128, pretrained_model='facebook/hiera_base_224.mae_in1k'):
@@ -434,20 +434,20 @@ class SAM2HieraFeatureExtractor(nn.Module):
 
     def _init_new_layers(self):
         # Initialize only the new conv layers
-        for m in [self.stem_s1, self.stem_s2] + self.upsample_blocks + self.fuse_blocks:
+        for m in [self.stem_s1, self.stem_s2] + list(self.upsample_blocks) + list(self.fuse_blocks):
             for layer in m.modules():
                 if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d)):
                     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
                     if layer.bias is not None: nn.init.constant_(layer.bias, 0)
 
-    def forward(self, x, return_all=False):
-        intermediates = self.model(x)
+    def forward(self, inp, return_all=False):
+        intermediates = self.model(inp)
         features = OrderedDict()
         for i, x in enumerate(intermediates):
             features[i] = x
         out = self.fpn(features)
 
-        raw_s1 = self.stem_s1(x)
+        raw_s1 = self.stem_s1(inp)
         raw_s2 = self.stem_s2(raw_s1)
 
         up_s2 = self.upsample_blocks[0](out[0])

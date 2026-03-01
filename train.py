@@ -97,8 +97,8 @@ def run(config_path, fabric):
     train_loader = fabric.setup_dataloaders(train_loader)
 
     # set up validation dataloader 
-    # val = config.dataset.val.get('split_dir', None)
-    val = False
+    val = config.dataset.val.get('split_dir', None)
+    # val = False
 
     if val: 
 
@@ -149,8 +149,8 @@ def run(config_path, fabric):
     model.tsformer.compile()
 
     if model.mode_3d == 'minicubes':
-        for v2v in model.minicube_v2v:
-            v2v.compile()
+        model.minicube_v2v.compile()
+        model.view_attention.compile()
     elif model.mode_3d == 'triplane':
         model.triplane_cnn.compile()
         

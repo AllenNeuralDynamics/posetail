@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
-from einops import rearrange, einsum, reduce
+from einops import rearrange, einsum, reduce, repeat
 
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
