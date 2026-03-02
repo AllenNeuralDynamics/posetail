@@ -400,17 +400,18 @@ class SAM2HieraFeatureExtractor(nn.Module):
                     param.requires_grad = False
 
   
-        self.stem_s1 = nn.Sequential(
-            nn.Conv2d(3, output_dim // 4, kernel_size=3, padding=1, stride=1),
+        self.stem = nn.Sequential(
+            nn.Conv2d(3, output_dim // 4, kernel_size=3, padding=1, stride=2),
             nn.GELU(),
-            nn.Conv2d(output_dim // 4, output_dim // 2, kernel_size=3, padding=1),
-            nn.GELU()
+            nn.Conv2d(output_dim // 4, output_dim // 2, kernel_size=3, padding=1, stride=1),
+            nn.GELU(),
+            nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1, stride=1)
         )
 
-        self.stem_s2 = nn.Sequential(
-            nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1, stride=2),
-            # nn.GELU()
-        )
+        # self.stem_s2 = nn.Sequential(
+        #     nn.Conv2d(output_dim // 4, output_dim, kernel_size=3, padding=1, stride=2),
+        #     # nn.GELU()
+        # )
 
         # self.upsample_blocks = nn.ModuleList([
         #     nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
@@ -430,11 +431,11 @@ class SAM2HieraFeatureExtractor(nn.Module):
 
     def _init_new_layers(self):
         # Initialize only the new conv layers
-        for m in [self.stem_s1, self.stem_s2]: # + list(self.upsample_blocks) + list(self.fuse_blocks):
-            for layer in m.modules():
-                if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d)):
-                    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
-                    if layer.bias is not None: nn.init.constant_(layer.bias, 0)
+        # for m in [self.stem_s1, self.stem_s2]: # + list(self.upsample_blocks) + list(self.fuse_blocks):
+        for layer in self.stem.modules():
+            if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d)):
+                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+                if layer.bias is not None: nn.init.constant_(layer.bias, 0)
 
     def forward(self, inp, return_all=False):
         intermediates = self.model(inp)
@@ -443,9 +444,13 @@ class SAM2HieraFeatureExtractor(nn.Module):
             features[i] = x
         out = self.fpn(features)
 
-        raw_s1 = self.stem_s1(inp)
-        raw_s2 = self.stem_s2(raw_s1)
+        # raw_s1 = self.stem_s1(inp)
+        # raw_s2 = self.stem_s2(raw_s1)
 
+        raw_s2 = self.stem(inp)
+        # raw_s2 = self.stem_s2(raw_s1)
+
+        
         # up_s2 = self.upsample_blocks[0](out[0])
         # feat_s2 = self.fuse_blocks[0](torch.cat([up_s2, raw_s2], dim=1))
 

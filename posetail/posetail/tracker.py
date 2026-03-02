@@ -681,7 +681,7 @@ class Tracker(nn.Module):
                               .view(1, 1, 1, -1)
                               .to(device))
             elif self.mode_3d == 'minicubes':
-                scale = self.cube_scale * 30
+                scale = self.cube_scale * 64
 
             coord_flow = torch.cat([forward_flow, backward_flow], dim = -1) / scale
             flow_encoding = get_fourier_encoding(coord_flow, min_freq = 0, max_freq = self.max_freq)
@@ -695,7 +695,7 @@ class Tracker(nn.Module):
             # update coords, vis, and conf
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
             if self.R == 3 and self.mode_3d == 'minicubes':
-                delta_coords = delta_coords * self.cube_scale * 8
+                delta_coords = delta_coords * self.cube_scale * 32
             # delta_coords[:, 0] = 0 # initial coordinates should not change
             coords = coords + delta_coords # b s n 3
             vis = torch.sigmoid(vis + delta_vis) # b s n 1 
