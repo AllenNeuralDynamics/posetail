@@ -127,7 +127,7 @@ class Tracker(nn.Module):
                 self.minicube_v2v = nn.ModuleList([SimpleV2V(self.latent_dim) for _ in range(self.corr_levels)])
                 # self.minicube_v2v = DepthwiseSeparableV2V(self.latent_dim)
                 # self.minicube_v2v = PlanesV2V(self.latent_dim)
-                self.view_attention = nn.ModuleList([ QueryViewAttentionV2V(self.latent_dim) for _ in range(self.corr_levels) ])
+                # self.view_attention = nn.ModuleList([ QueryViewAttentionV2V(self.latent_dim) for _ in range(self.corr_levels) ])
                 
         # correlation features
         if self.R == 3 and self.mode_3d == 'minicubes':
@@ -499,14 +499,20 @@ class Tracker(nn.Module):
         volumes = torch.stack(all_samples)
         masks = torch.stack(all_masks)  # ncams bt k total
 
-        if att_net is not None:
-            mean_volume = att_net(volumes, masks, query)
-        else:
-            masks_expanded = masks.unsqueeze(2)  # ncams bt 1 k total
-            valid_counts = masks_expanded.sum(dim=0).clamp(min=1)  # Avoid div by zero
-            mean_volume = volumes.sum(dim=0) / valid_counts
-            # mean_volume = torch.mean(volumes, dim=0)            
-        
+        # if att_net is not None:
+        #     mean_volume = att_net(volumes, masks, query)
+        # else:
+        # masks_expanded = masks.unsqueeze(2)  # ncams bt 1 k total
+        masks_expanded = repeat(masks, "ncams bt k total -> ncams bt d k total",
+                                d = volumes.shape[2])
+        # valid_counts = masks_expanded.sum(dim=0).clamp(min=1)  # Avoid div by zero
+        # mean_volume = volumes.sum(dim=0) / valid_counts
+        # mean_volume = torch.mean(volumes, dim=0)
+
+        # apply softmax from learnable triangulation
+        volumes[~masks_expanded] = -1e3
+        weights = F.softmax(volumes, dim=0)
+        mean_volume = torch.sum(volumes * weights, dim=0)
 
         mv_flat = rearrange(mean_volume, 'bt d k (x y z) -> (bt k) d z y x',
                             x=cube_size, y=cube_size, z=cube_size)
@@ -552,7 +558,7 @@ class Tracker(nn.Module):
             cube_interval = self.cube_scale * (2**i)
             downsample_ratio = self.downsample_factor * (2**i)
 
-            query = repeat(track_features_levels[i], 'b t n d -> (b s) d n t', s = S)
+            # query = repeat(track_features_levels[i], 'b t n d -> (b s) d n t', s = S)
                 
             mv = self.sample_feature_cubes(
                 feature_planes_bs,
@@ -562,8 +568,8 @@ class Tracker(nn.Module):
                 corr_radius=self.corr_radius,
                 downsample_ratio=downsample_ratio,
                 v2v = self.minicube_v2v[i],
-                att_net = self.view_attention[i],
-                query = query
+                # att_net = self.view_attention[i],
+                # query = None
             )
 
             mv = rearrange(mv, '(b s) d n total -> b s total n d',
@@ -603,7 +609,7 @@ class Tracker(nn.Module):
                 corr_radius=self.corr_radius,
                 downsample_ratio=downsample_ratio,
                 v2v = self.minicube_v2v[i],
-                att_net = self.view_attention[i]
+                # att_net = self.view_attention[i]
             )
             track_features_cube = rearrange(track_features_cube,
                                             'b d n total -> b total n d')
@@ -984,7 +990,7 @@ class Tracker(nn.Module):
                     corr_radius=self.corr_radius,
                     downsample_ratio=downsample_ratio,
                     v2v = self.minicube_v2v[i],
-                    att_net = self.view_attention[i]
+                    # att_net = self.view_attention[i]
                 )
 
                 mv = rearrange(mv, '(b s) d n total -> b s total n d', b = B, s = S)

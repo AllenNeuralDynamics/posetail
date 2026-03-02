@@ -401,40 +401,36 @@ class SAM2HieraFeatureExtractor(nn.Module):
 
   
         self.stem_s1 = nn.Sequential(
-            nn.Conv2d(3, output_dim // 2, kernel_size=3, padding=1, stride=1),
-            nn.GroupNorm(8, output_dim // 2),
+            nn.Conv2d(3, output_dim // 4, kernel_size=3, padding=1, stride=1),
             nn.GELU(),
-            nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1),
-            nn.GroupNorm(8, output_dim),
+            nn.Conv2d(output_dim // 4, output_dim // 2, kernel_size=3, padding=1),
             nn.GELU()
         )
 
         self.stem_s2 = nn.Sequential(
-            nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=1, stride=2),
-            nn.GroupNorm(8, output_dim),
-            nn.GELU()
+            nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1, stride=2),
+            # nn.GELU()
         )
 
-        self.upsample_blocks = nn.ModuleList([
-            nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
-                          nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=1),
-                          nn.GroupNorm(8, output_dim),
-                          nn.GELU())
-            for _ in range(2)
-        ])
+        # self.upsample_blocks = nn.ModuleList([
+        #     nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+        #                   nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=1),
+        #                   nn.GELU())
+        #     for _ in range(1)
+        # ])
         
-        self.fuse_blocks = nn.ModuleList([
-            nn.Sequential(nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, padding=1),
-                          nn.GroupNorm(8, output_dim),
-                          nn.GELU())
-            for _ in range(2)
-        ])
+        # self.fuse_blocks = nn.ModuleList([
+        #     nn.Sequential(nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, padding=1),
+        #                   nn.GroupNorm(8, output_dim),
+        #                   nn.GELU())
+        #     for _ in range(1)
+        # ])
         
         self._init_new_layers()
 
     def _init_new_layers(self):
         # Initialize only the new conv layers
-        for m in [self.stem_s1, self.stem_s2] + list(self.upsample_blocks) + list(self.fuse_blocks):
+        for m in [self.stem_s1, self.stem_s2]: # + list(self.upsample_blocks) + list(self.fuse_blocks):
             for layer in m.modules():
                 if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d)):
                     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
@@ -450,14 +446,16 @@ class SAM2HieraFeatureExtractor(nn.Module):
         raw_s1 = self.stem_s1(inp)
         raw_s2 = self.stem_s2(raw_s1)
 
-        up_s2 = self.upsample_blocks[0](out[0])
-        feat_s2 = self.fuse_blocks[0](torch.cat([up_s2, raw_s2], dim=1))
+        # up_s2 = self.upsample_blocks[0](out[0])
+        # feat_s2 = self.fuse_blocks[0](torch.cat([up_s2, raw_s2], dim=1))
 
-        up_s1 = self.upsample_blocks[1](feat_s2)
-        feat_s1 = self.fuse_blocks[1](torch.cat([up_s1, raw_s1], dim=1))
+        # up_s1 = self.upsample_blocks[1](feat_s2)
+        # feat_s1 = self.fuse_blocks[1](torch.cat([up_s1, raw_s1], dim=1))
         
         if return_all:
-            return [feat_s1, feat_s2] + list(out.values())
+            # return [feat_s1, feat_s2] + list(out.values())
+            # return [feat_s2] + list(out.values())
+            return [raw_s2] + list(out.values())
         else:
             return out[0]
     
@@ -700,7 +698,7 @@ class ViewAttentionV2V(nn.Module):
         # -> [n_cams, bt, 1, k, total]
         scores = rearrange(scores, '(nc bt k) 1 z y x -> nc bt 1 k (z y x)', 
                            nc=n_cams, bt=bt)
-
+ 
         # 4. Masking:
         # If the point projected outside the image (mask=False), set score to -infinity
         # so Softmax results in 0 weight.

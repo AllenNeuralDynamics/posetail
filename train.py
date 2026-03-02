@@ -150,7 +150,7 @@ def run(config_path, fabric):
 
     if model.mode_3d == 'minicubes':
         model.minicube_v2v.compile()
-        model.view_attention.compile()
+        # model.view_attention.compile()
     elif model.mode_3d == 'triplane':
         model.triplane_cnn.compile()
         
