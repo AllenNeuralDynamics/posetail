@@ -381,6 +381,15 @@ class SAM2HieraFeatureExtractor(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = requires_grad
             device = param.device
+
+  
+        self.stem = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=2),
+            nn.GELU(),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=1),
+            # nn.GELU(),
+            # nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1, stride=1)
+        )
             
         # with torch.no_grad():  # Don't build computation graph during init
         #     test_input = torch.randn([1, 3, 400, 400]).to(device)
@@ -391,7 +400,8 @@ class SAM2HieraFeatureExtractor(nn.Module):
             hiera_channels = [112, 224, 448, 896]
         elif pretrained_model in ['facebook/sam2.1-hiera-small', 'facebook/sam2.1-hiera-tiny']:
             hiera_channels = [96, 192, 384, 768]
-        self.fpn = FeaturePyramidNetwork(hiera_channels, output_dim)
+            
+        self.fpn = FeaturePyramidNetwork([64] + hiera_channels, output_dim)
 
         if freeze_nonlast_fpn:
             # Freeze unused FPN layer_blocks (keep only layer_blocks[0])
@@ -399,14 +409,6 @@ class SAM2HieraFeatureExtractor(nn.Module):
                 if 'layer_blocks' in name and not name.startswith('layer_blocks.0'):
                     param.requires_grad = False
 
-  
-        self.stem = nn.Sequential(
-            nn.Conv2d(3, output_dim // 4, kernel_size=3, padding=1, stride=2),
-            nn.GELU(),
-            nn.Conv2d(output_dim // 4, output_dim // 2, kernel_size=3, padding=1, stride=1),
-            nn.GELU(),
-            nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1, stride=1)
-        )
 
         # self.stem_s2 = nn.Sequential(
         #     nn.Conv2d(output_dim // 4, output_dim, kernel_size=3, padding=1, stride=2),
@@ -438,16 +440,19 @@ class SAM2HieraFeatureExtractor(nn.Module):
                 if layer.bias is not None: nn.init.constant_(layer.bias, 0)
 
     def forward(self, inp, return_all=False):
+        raw_s2 = self.stem(inp)
         intermediates = self.model(inp)
+        
         features = OrderedDict()
+        features[0] = raw_s2
         for i, x in enumerate(intermediates):
-            features[i] = x
+            features[i+1] = x
         out = self.fpn(features)
 
         # raw_s1 = self.stem_s1(inp)
         # raw_s2 = self.stem_s2(raw_s1)
 
-        raw_s2 = self.stem(inp)
+        # raw_s2 = self.stem(inp)
         # raw_s2 = self.stem_s2(raw_s1)
 
         
@@ -460,7 +465,8 @@ class SAM2HieraFeatureExtractor(nn.Module):
         if return_all:
             # return [feat_s1, feat_s2] + list(out.values())
             # return [feat_s2] + list(out.values())
-            return [raw_s2] + list(out.values())
+            # return [raw_s2] + list(out.values())
+            return list(out.values())
         else:
             return out[0]
     
