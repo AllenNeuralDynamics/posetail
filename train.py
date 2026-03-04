@@ -92,7 +92,12 @@ def run(config_path, fabric):
         collate_fn = custom_collate,
         sampler = sampler,
         shuffle = False,
-        num_workers = config.dataset.num_workers)
+        num_workers = config.dataset.num_workers,
+        # num_workers = 0,
+        prefetch_factor=3, 
+        persistent_workers=True,
+        pin_memory=True
+    )
 
     train_loader = fabric.setup_dataloaders(train_loader)
 
@@ -145,6 +150,9 @@ def run(config_path, fabric):
 
     # compile the model
     # model.cnn.compile()
+
+    model.cnn.stem.compile()
+    model.cnn.fpn.compile()
     model.corr_mlp.compile()
     model.tsformer.compile()
 

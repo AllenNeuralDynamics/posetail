@@ -762,9 +762,10 @@ class Tracker(nn.Module):
         # normalize frames
         for i, frames in enumerate(views): 
             # frames = 2 * (frames / 255.0) - 1
+            frames = frames.to(device)
             frames = rearrange(frames, 'b t h w c -> b t c h w')
             frames = self.transform_norm(frames)
-            views[i] = frames.to(device)
+            views[i] = frames
 
         # determine number of strides
         stride_remainder = self.S - self.stride_overlap

@@ -386,7 +386,7 @@ class SAM2HieraFeatureExtractor(nn.Module):
         self.stem = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=2),
             nn.GELU(),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=1),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
             # nn.GELU(),
             # nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1, stride=1)
         )
@@ -401,7 +401,7 @@ class SAM2HieraFeatureExtractor(nn.Module):
         elif pretrained_model in ['facebook/sam2.1-hiera-small', 'facebook/sam2.1-hiera-tiny']:
             hiera_channels = [96, 192, 384, 768]
             
-        self.fpn = FeaturePyramidNetwork([64] + hiera_channels, output_dim)
+        self.fpn = FeaturePyramidNetwork([32] + hiera_channels, output_dim)
 
         if freeze_nonlast_fpn:
             # Freeze unused FPN layer_blocks (keep only layer_blocks[0])

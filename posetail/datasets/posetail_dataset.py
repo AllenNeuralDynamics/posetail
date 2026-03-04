@@ -23,6 +23,28 @@ warnings.filterwarnings('ignore', category=UserWarning, module='imagecorruptions
 
 import imgaug.augmenters as iaa
 
+from concurrent.futures import ThreadPoolExecutor
+
+def load_and_augment_image(cam_img_path, crop_coords=None,
+                           target_size=None, aug_det=None):
+    img = cv2.imread(cam_img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    
+    if crop_coords is not None:
+        x1, y1, x2, y2 = crop_coords
+        img = img[y1:y2, x1:x2]
+    
+    if target_size is not None:
+        img = cv2.resize(img, target_size)
+    
+    if aug_det is not None:
+        img = aug_det(image=img)
+
+    img = torch.tensor(np.array(img), dtype = torch.float32, device='cpu')
+    img = img / 255.0
+        
+    return img
+
 def custom_collate(batch):
     ''' 
     custom collate functon to enable returning 
@@ -120,6 +142,8 @@ class PosetailDataset(Dataset):
             self.metadata = self._balance_metadata(n_samples = self.n_samples_per_dataset)
             print(self.metadata.groupby('dataset').size())
 
+        print("total length:", len(self.metadata))
+        self.good_index = np.ones(len(self.metadata), dtype='bool')
         # self.metadata_path = os.path.join(data_path, 'posetail_metadata.csv')
         # self.metadata.to_csv(self.metadata_path, index = False)
 
@@ -128,7 +152,26 @@ class PosetailDataset(Dataset):
         return len(self.metadata)
 
 
-    def __getitem__(self, idx): 
+    def __getitem__(self, idx):
+        start = idx
+        out = None
+        while True:
+            if self.good_index[start]:
+                out = self.get_item_actual(start)
+            if out is not None:
+                return out
+            
+            self.good_index[start] = False
+            start = np.random.randint(len(self.metadata))
+            if np.sum(self.good_index) == 0:
+                return None # no valid samples
+            
+            # if start >= self.__len__():
+            #     start = np.random.randint(self.__len__())
+                
+        
+    def get_item_actual(self, idx):
+        # print(idx, "started")
         
         row = self.metadata.loc[idx].to_dict()
         start_ix = row['start_ix']
@@ -228,6 +271,15 @@ class PosetailDataset(Dataset):
             if vis is not None:
                 vis = vis[:, good]
 
+        # compute total movement in pixels, averaged across cameras
+        p2d = project_points_torch(cgroup, coords)
+        movement = torch.linalg.norm(torch.diff(p2d, dim=1), dim=-1)
+        total_movement = torch.mean(torch.sum(movement, dim=1), dim=0)
+        # should have at least 12 pixels of movement over the sampled frames
+        good = total_movement >= 12
+        if torch.sum(good) < 2: # not enough points with movement
+            return None
+                
         # sample a random number of keypoints from available tracks 
         if self.kpts_to_sample: 
 
@@ -237,8 +289,10 @@ class PosetailDataset(Dataset):
                 num_kpts_to_sample = np.random.randint(self.kpts_to_sample[0], self.kpts_to_sample[1] + 1)
 
             # sample if there are more keypoints than the number to sample
-            if coords.shape[1] > num_kpts_to_sample:   
-                ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample, replace = False)
+            if coords.shape[1] > num_kpts_to_sample:
+                prob = total_movement / np.sum(total_movement)
+                ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
+                                        replace = False, p = prob)
                 coords = coords[:, ix_p]
 
                 # sample corresponding visibilities
@@ -247,16 +301,8 @@ class PosetailDataset(Dataset):
 
         # failed to sample coordinates, just get another random sample
         if coords.shape[1] < 1:
-            return self.__getitem__(np.random.randint(self.__len__()))
+            return None
 
-        # compute total movement in pixels, averaged across cameras
-        p2d = project_points_torch(cgroup, coords)
-        movement = torch.linalg.norm(torch.diff(p2d, dim=1), dim=-1)
-        total_movement = torch.mean(torch.sum(movement, dim=1), dim=0)
-        # should have at least 12 pixels of movement over the sampled frames
-        good = total_movement >= 12
-        if torch.sum(good) < 2: # not enough points with movement
-            return self.__getitem__(np.random.randint(self.__len__()))            
         
         # cropping around coordinates
         #   helps for small animals in large arenas
@@ -320,39 +366,48 @@ class PosetailDataset(Dataset):
                     cam['offset'] = cam['offset'] * scale
                 camera_group_scaled.append(cam)
             cgroup = camera_group_scaled
-        
-        views = []
-        for cnum, cam_name in enumerate(cam_names):
 
-            # we apply the same augmentation per camera
-            # (thus assuming that each recording is at least self-consistent)
-            aug_det = self.aug.to_deterministic()
-            
-            imgs = []
+        with ThreadPoolExecutor(max_workers=24) as executor:
+            views_unloaded = []
+            for cnum, cam_name in enumerate(cam_names):
 
-            if self.crop_to_points:
-                x1, y1, x2, y2 = crops[cnum]
-            
-            # load images from paths and resize to desired resolution
-            for img_fname in img_fnames: 
-
-                cam_img_path = os.path.join(img_path, cam_name, img_fname)
-                img = cv2.imread(cam_img_path)
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                if self.crop_to_points:
-                    img = img[y1:y2, x1:x2]
-                
-                if self.max_res != -1:
-                    img = cv2.resize(img, dsize = cgroup[cnum]['size'].tolist())
-
+                # we apply the same augmentation per camera
+                # (thus assuming that each recording is at least self-consistent)
+                #
                 if should_augment:
-                    img = aug_det(image=img)
-                imgs.append(img)
+                    aug_det = self.aug.to_deterministic()
+                else:
+                    aug_det = None
 
-            views.append(torch.tensor(np.array(imgs), dtype = torch.float32) / 255.0)
+                if self.max_res != -1:
+                    target_size = cgroup[cnum]['size'].tolist()
+                else:
+                    target_size = None
+
+                if self.crop_to_points:
+                    crop_coords = crops[cnum]
+                else:
+                    crop_coords = None
+
+                futures = []
+                # load images from paths and resize to desired resolution
+                for img_fname in img_fnames: 
+
+                    cam_img_path = os.path.join(img_path, cam_name, img_fname)
+                    future = executor.submit(
+                        load_and_augment_image,
+                        cam_img_path, crop_coords, target_size, aug_det)
+                    futures.append(future)
+                views_unloaded.append(futures)
+
+            views = []
+            for futures in views_unloaded:
+                imgs = [f.result() for f in futures]
+                views.append(torch.stack(imgs))
 
         # print(row['dataset'])
 
+        # print(idx, "loaded")
         return views, coords, vis, fnums, cgroup, row
 
 
