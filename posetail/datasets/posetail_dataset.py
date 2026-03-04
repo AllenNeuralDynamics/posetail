@@ -45,6 +45,107 @@ def load_and_augment_image(cam_img_path, crop_coords=None,
         
     return img
 
+def get_rows_trial(trial_path, n_frames, split, context,
+                   mode='3d'):
+    dataset, session, trial = context
+    
+    metadata_path = os.path.join(trial_path, 'metadata.yaml')
+    assert os.path.exists(metadata_path)
+    # cam_metadata = load_yaml(metadata_path)
+    # camera_height_dict = cam_metadata['camera_heights']
+    # camera_width_dict = cam_metadata['camera_widths']
+
+    img_path = os.path.join(trial_path, 'img')
+    cams = os.listdir(img_path)
+    assert len(cams) > 0
+
+    pose_path = os.path.join(trial_path, f'pose{mode}.npz')
+    assert os.path.exists(pose_path)
+
+    # get starting indices 
+    data = np.load(pose_path)
+    coords = torch.as_tensor(data['pose'])
+
+    coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
+    start_ixs, intervals = get_start_ixs(coords, n_frames, split)
+
+    # n_batches = len(imgs) // self.n_frames
+    # start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
+    # end_ixs = start_ixs + self.n_frames
+
+    # add a row to the metadata that will correspond
+    # to each sample within a batch
+    rows = []
+    for start_ix, interval in zip(start_ixs, intervals): 
+        row = [dataset, session, trial, metadata_path,
+               pose_path, img_path, start_ix, interval, 
+               # camera_height_dict, camera_width_dict
+               ]
+        rows.append(row)
+
+    return rows
+
+
+def get_start_ixs(coords, n_frames, split):
+
+    if split == 'train': 
+        start_ixs = get_start_ixs_train(coords, n_frames)
+    else: 
+        start_ixs = get_start_ixs_test(coords, n_frames)
+
+    return start_ixs
+
+
+def get_start_ixs_train(coords, n_frames):
+
+    start_ixs = []
+    intervals = []
+
+    for interval in [1, 2, 4]:
+        for i in range(coords.shape[0] - n_frames * interval + 1): 
+
+            start = i
+            end = i + n_frames * interval
+            coords_subset = coords[start:end:interval, :, :]        
+
+            # if not all nans in the starting frame 
+            if np.isfinite(coords_subset[0]).any():
+                start_ixs.append(i)
+                intervals.append(interval)
+
+
+    start_ixs = np.array(start_ixs)
+    intervals = np.array(intervals)
+
+    return start_ixs, intervals
+
+def get_start_ixs_test(coords, n_frames):
+
+    safe = 0
+    start_ixs = []
+    intervals = []
+
+    for i in range(coords.shape[0]): 
+
+        if safe > 0:
+            safe = safe - 1 
+            continue
+
+        coords_subset = coords[i:i + n_frames, :, :]
+        enough_frames = coords_subset.shape[0] == n_frames
+
+        # if not all nans in the starting frame and enough_frames: 
+        if np.isfinite(coords_subset[0]).any() and enough_frames:
+            start_ixs.append(i)
+            intervals.append(1)
+            safe = n_frames - 1
+
+    start_ixs = np.array(start_ixs)
+    intervals = np.array(intervals)
+
+    return start_ixs, intervals
+
+    
 def custom_collate(batch):
     ''' 
     custom collate functon to enable returning 
@@ -290,9 +391,9 @@ class PosetailDataset(Dataset):
 
             # sample if there are more keypoints than the number to sample
             if coords.shape[1] > num_kpts_to_sample:
-                prob = total_movement / np.sum(total_movement)
+                prob = total_movement / torch.sum(total_movement)
                 ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
-                                        replace = False, p = prob)
+                                        replace = False, p = prob.numpy())
                 coords = coords[:, ix_p]
 
                 # sample corresponding visibilities
@@ -411,127 +512,47 @@ class PosetailDataset(Dataset):
         return views, coords, vis, fnums, cgroup, row
 
 
-    def _get_start_ixs(self, coords):
-
-        if self.split == 'train': 
-            start_ixs = self._get_start_ixs_train(coords)
-        else: 
-            start_ixs = self._get_start_ixs_test(coords)
-
-        return start_ixs
-    
-
-    def _get_start_ixs_train(self, coords):
-
-        start_ixs = []
-        intervals = []
-
-        for interval in [1, 2, 4]:
-            for i in range(coords.shape[0] - self.n_frames * interval + 1): 
-                
-                start = i
-                end = i + self.n_frames * interval
-                coords_subset = coords[start:end:interval, :, :]        
-                
-                # if not all nans in the starting frame 
-                if np.isfinite(coords_subset[0]).any():
-                    start_ixs.append(i)
-                    intervals.append(interval)
-   
-   
-        start_ixs = np.array(start_ixs)
-        intervals = np.array(intervals)
-        
-        return start_ixs, intervals
-
-    def _get_start_ixs_test(self, coords):
-
-        safe = 0
-        start_ixs = []
-        intervals = []
-        
-        for i in range(coords.shape[0]): 
-
-            if safe > 0:
-                safe = safe - 1 
-                continue
-
-            coords_subset = coords[i:i + self.n_frames, :, :]
-            enough_frames = coords_subset.shape[0] == self.n_frames
-            
-            # if not all nans in the starting frame and enough_frames: 
-            if np.isfinite(coords_subset[0]).any() and enough_frames:
-                start_ixs.append(i)
-                intervals.append(1)
-                safe = self.n_frames - 1
-
-        start_ixs = np.array(start_ixs)
-        intervals = np.array(intervals)
-        
-        return start_ixs, intervals
-
-
     def _generate_metadata(self, track_3d = True): 
             
         rows = []
         mode = '3d' # if track_3d else '2d' - not yet implemented
 
-        for dataset in get_dirs(self.data_path):
-            
-            # NOTE: split folder structure must match here
-            dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
+        with ThreadPoolExecutor(max_workers=24) as executor:
+            futures = []
+            for dataset in get_dirs(self.data_path):
 
-            # skip dataset if this particular split doesn't exist
-            if not os.path.exists(dataset_path): 
-                continue
+                # NOTE: split folder structure must match here
+                dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
 
-            for session in get_dirs(dataset_path): 
-                session_path = os.path.join(dataset_path, session)
+                # skip dataset if this particular split doesn't exist
+                if not os.path.exists(dataset_path): 
+                    continue
 
-                for trial in get_dirs(session_path):
-                    # get paths to metadata, 3d pose, and images
-                    trial_path = os.path.join(session_path, trial)
+                for session in get_dirs(dataset_path): 
+                    session_path = os.path.join(dataset_path, session)
 
-                    metadata_path = os.path.join(trial_path, 'metadata.yaml')
-                    assert os.path.exists(metadata_path)
-                    cam_metadata = load_yaml(metadata_path)
-
-                    camera_height_dict = cam_metadata['camera_heights']
-                    camera_width_dict = cam_metadata['camera_widths']
-
-                    pose_path = os.path.join(trial_path, f'pose{mode}.npz')
-                    assert os.path.exists(pose_path)
-
-                    img_path = os.path.join(trial_path, 'img')
-                    cams = os.listdir(img_path)
-                    assert len(cams) > 0
-
-                    # get starting indices 
-                    data = np.load(pose_path)
-                    coords = data['pose']
-
-                    coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
-                    start_ixs, intervals = self._get_start_ixs(coords)
-
-                    # n_batches = len(imgs) // self.n_frames
-                    # start_ixs = np.arange(0, len(imgs), self.n_frames)[:n_batches]
-                    # end_ixs = start_ixs + self.n_frames
-
-                    # add a row to the metadata that will correspond
-                    # to each sample within a batch
-                    for start_ix, interval in zip(start_ixs, intervals): 
-                        row = [dataset, session, trial, metadata_path,
-                               pose_path, img_path, start_ix, interval, 
-                               camera_height_dict, camera_width_dict]
-                        rows.append(row)
+                    for trial in get_dirs(session_path):
+                        # get paths to metadata, 3d pose, and images
+                        trial_path = os.path.join(session_path, trial)
+                        future = executor.submit(
+                            get_rows_trial,
+                            trial_path, self.n_frames, self.split,
+                            (dataset, session, trial),
+                            mode)
+                        futures.append(future)
+                        
+            for future in futures:
+                add_rows = future.result()
+                rows.extend(add_rows)
 
         columns = ['dataset', 'session', 'trial', 'camera_metadata_path', 
                    'pose_path', 'img_path', 'start_ix', 'interval', 
-                   'camera_heights', 'camera_widths']
+                   # 'camera_heights', 'camera_widths'
+                   ]
 
         df = pd.DataFrame(rows, columns = columns)
-        df['camera_heights'] = df['camera_heights'].apply(json.dumps)
-        df['camera_widths'] = df['camera_widths'].apply(json.dumps)
+        # df['camera_heights'] = df['camera_heights'].apply(json.dumps)
+        # df['camera_widths'] = df['camera_widths'].apply(json.dumps)
 
         return df 
     
@@ -564,37 +585,37 @@ class PosetailDataset(Dataset):
         
         return df_balanced
 
-    def _get_scale(self, row): 
+    # def _get_scale(self, row): 
 
-        scale_dict = {}
-        res_dict = {}
-        new_res_dict = {}
+    #     scale_dict = {}
+    #     res_dict = {}
+    #     new_res_dict = {}
 
-        camera_height_dict = json.loads(row['camera_heights'])
-        camera_width_dict = json.loads(row['camera_widths'])
+    #     camera_height_dict = json.loads(row['camera_heights'])
+    #     camera_width_dict = json.loads(row['camera_widths'])
 
-        for cam_name, height in camera_height_dict.items():
+    #     for cam_name, height in camera_height_dict.items():
 
-            width = camera_width_dict[cam_name]
+    #         width = camera_width_dict[cam_name]
 
-            if self.max_res != -1: 
-                scale = self.max_res / max(height, width)
-            else: 
-                scale = 1
+    #         if self.max_res != -1: 
+    #             scale = self.max_res / max(height, width)
+    #         else: 
+    #             scale = 1
 
-            orig_res = [width, height]
-            new_res = [round(width * scale), round(height * scale)]
-            # xy_scale = (orig_res[0] / new_res[0], orig_res[1] / new_res[1])
+    #         orig_res = [width, height]
+    #         new_res = [round(width * scale), round(height * scale)]
+    #         # xy_scale = (orig_res[0] / new_res[0], orig_res[1] / new_res[1])
 
-            scale_dict[cam_name] = scale
-            res_dict[cam_name] = orig_res
-            new_res_dict[cam_name] = new_res
+    #         scale_dict[cam_name] = scale
+    #         res_dict[cam_name] = orig_res
+    #         new_res_dict[cam_name] = new_res
         
-        scale_dict = json.dumps(scale_dict)
-        res_dict = json.dumps(res_dict)
-        new_res_dict = json.dumps(new_res_dict)
+    #     scale_dict = json.dumps(scale_dict)
+    #     res_dict = json.dumps(res_dict)
+    #     new_res_dict = json.dumps(new_res_dict)
 
-        return scale_dict, res_dict, new_res_dict
+    #     return scale_dict, res_dict, new_res_dict
 
 
     def _load_cameras(self, camera_metadata_path):
