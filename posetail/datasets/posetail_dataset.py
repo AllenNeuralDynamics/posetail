@@ -465,6 +465,22 @@ class PosetailDataset(Dataset):
                 camera_group_scaled.append(cam)
             cgroup = camera_group_scaled
 
+
+        # arbitrary camera rotation
+        rvec = np.random.uniform(-2*np.pi, 2*np.pi, size=3)
+        rotmat, _ = cv2.Rodrigues(np.array(rvec))
+        rotmat = torch.as_tensor(rotmat, device=coords.device, dtype=coords.dtype)
+        coords = torch.matmul(coords, rotmat)
+
+        rmat = torch.eye(4, device=coords.device, dtype=coords.dtype)
+        rmat[:3,:3] = rotmat
+        camera_group_rotated = list()
+        for cam in cgroup:
+            cam_rot = dict(cam)
+            cam_rot['ext'] = torch.matmul(cam['ext'], rmat)
+            camera_group_rotated.append(cam_rot)
+        cgroup = camera_group_rotated
+            
         with ThreadPoolExecutor(max_workers=24) as executor:
             views_unloaded = []
             for cnum, cam_name in enumerate(cam_names):
