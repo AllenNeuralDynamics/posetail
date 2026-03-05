@@ -6,7 +6,7 @@ mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-num_workers = 96
+num_workers = 24
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
@@ -104,7 +104,7 @@ print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 1e-4
+learning_rate = 5e-5
 weight_decay = 1e-5
 # weight_decay = 0
 amsgrad = false
@@ -116,7 +116,7 @@ amsgrad = false
 # milestones = [200]
 # gamma = 0.1
 # steps_per_epoch = 218
-pct_start = 0.05
+pct_start = 0.1
 cycle_momentum = false
 
 [training.losses]
