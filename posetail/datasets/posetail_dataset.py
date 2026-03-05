@@ -25,8 +25,7 @@ import imgaug.augmenters as iaa
 
 from concurrent.futures import ThreadPoolExecutor
 
-def load_and_augment_image(cam_img_path, crop_coords=None,
-                           target_size=None, aug_det=None):
+def load_image(cam_img_path, crop_coords=None, target_size=None):
     img = cv2.imread(cam_img_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
@@ -36,13 +35,7 @@ def load_and_augment_image(cam_img_path, crop_coords=None,
     
     if target_size is not None:
         img = cv2.resize(img, target_size)
-    
-    if aug_det is not None:
-        img = aug_det(image=img)
-
-    img = torch.tensor(np.array(img), dtype = torch.float32, device='cpu')
-    img = img / 255.0
-        
+            
     return img
 
 def get_rows_trial(trial_path, n_frames, split, context,
@@ -372,6 +365,9 @@ class PosetailDataset(Dataset):
             if vis is not None:
                 vis = vis[:, good]
 
+        if coords.shape[1] < 2:
+            return None
+                
         # compute total movement in pixels, averaged across cameras
         p2d = project_points_torch(cgroup, coords)
         movement = torch.linalg.norm(torch.diff(p2d, dim=1), dim=-1)
@@ -380,6 +376,7 @@ class PosetailDataset(Dataset):
         good = total_movement >= 12
         if torch.sum(good) < 2: # not enough points with movement
             return None
+
                 
         # sample a random number of keypoints from available tracks 
         if self.kpts_to_sample: 
@@ -391,17 +388,17 @@ class PosetailDataset(Dataset):
 
             # sample if there are more keypoints than the number to sample
             if coords.shape[1] > num_kpts_to_sample:
-                prob = total_movement / torch.sum(total_movement)
+                prob = (total_movement + 2) / torch.sum(total_movement + 2)
+                prob = prob.numpy()
                 ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
-                                        replace = False, p = prob.numpy())
+                                        replace = False, p = prob)
                 coords = coords[:, ix_p]
-
                 # sample corresponding visibilities
                 if vis is not None: 
                     vis = vis[:, ix_p]
 
         # failed to sample coordinates, just get another random sample
-        if coords.shape[1] < 1:
+        if coords.shape[1] < 2:
             return None
 
         
@@ -475,11 +472,6 @@ class PosetailDataset(Dataset):
                 # we apply the same augmentation per camera
                 # (thus assuming that each recording is at least self-consistent)
                 #
-                if should_augment:
-                    aug_det = self.aug.to_deterministic()
-                else:
-                    aug_det = None
-
                 if self.max_res != -1:
                     target_size = cgroup[cnum]['size'].tolist()
                 else:
@@ -493,18 +485,22 @@ class PosetailDataset(Dataset):
                 futures = []
                 # load images from paths and resize to desired resolution
                 for img_fname in img_fnames: 
-
                     cam_img_path = os.path.join(img_path, cam_name, img_fname)
                     future = executor.submit(
-                        load_and_augment_image,
-                        cam_img_path, crop_coords, target_size, aug_det)
+                        load_image,
+                        cam_img_path, crop_coords, target_size)
                     futures.append(future)
                 views_unloaded.append(futures)
 
             views = []
             for futures in views_unloaded:
                 imgs = [f.result() for f in futures]
-                views.append(torch.stack(imgs))
+                if should_augment:
+                    aug_det = self.aug.to_deterministic()
+                    imgs = [aug_det(image=img) for img in imgs]
+                imgs = torch.tensor(np.array(imgs), dtype = torch.float32, device='cpu')
+                imgs = imgs / 255.0
+                views.append(imgs)
 
         # print(row['dataset'])
 

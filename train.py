@@ -70,7 +70,7 @@ def parse_args():
 def run(config_path, fabric):
 
     # mp.set_start_method('spawn', force = True)
-    torch.set_float32_matmul_precision('high')
+    torch.set_float32_matmul_precision('medium')
 
     config = load_config(config_path)
     set_seeds(config.training.seed)
@@ -93,8 +93,7 @@ def run(config_path, fabric):
         sampler = sampler,
         shuffle = False,
         num_workers = config.dataset.num_workers,
-        # num_workers = 0,
-        prefetch_factor=3, 
+        prefetch_factor=2, 
         persistent_workers=True,
         pin_memory=True
     )
@@ -153,6 +152,7 @@ def run(config_path, fabric):
 
     model.cnn.stem.compile()
     model.cnn.fpn.compile()
+
     model.corr_mlp.compile()
     model.tsformer.compile()
 
