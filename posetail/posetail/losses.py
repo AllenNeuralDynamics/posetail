@@ -84,6 +84,19 @@ class TotalLoss(nn.Module):
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
         conf_pred = outputs['conf_pred']
+
+        if vis_true is None:
+            valid_vis = False
+            vis_true = get_vis_true(coords_true) 
+        else:
+            valid_vis = True
+            
+
+        if model.R == 3:
+            scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
+        else:
+            scale = 1
+
         occluded_true = ~vis_true
 
         if model.training:
@@ -99,17 +112,21 @@ class TotalLoss(nn.Module):
                 stride_overlap = model.stride_overlap)
 
         # compute losses
-        vis_loss = self.bce_loss_vis(
-            vis_pred = vis_pred_iters if model.training else vis_pred,
-            vis_true = vis_true_unrolled if model.training else vis_true,
-            device = device
-        )
+        if valid_vis:
+            vis_loss = self.bce_loss_vis(
+                vis_pred = vis_pred_iters if model.training else vis_pred,
+                vis_true = vis_true_unrolled if model.training else vis_true,
+                device = device
+            )
+        else:
+            vis_loss = torch.tensor(0.0, device=device)
 
         conf_loss = self.bce_loss_conf(
             conf_pred = conf_pred_iters if model.training else conf_pred, 
             coords_pred = coords_pred_iters if model.training else coords_pred,  
             coords_true = coords_true_unrolled if model.training else coords_true, 
             vis_true = vis_true_unrolled if model.training else vis_true,
+            scale = scale, 
             device = device
         )
 
@@ -120,12 +137,15 @@ class TotalLoss(nn.Module):
             device = device
         )
 
-        occluded_coords_loss = self.mae_loss_occluded_coords(
-            coords_pred = coords_pred_iters if model.training else coords_pred, 
-            coords_true = coords_true_unrolled if model.training else coords_true, 
-            vis_true = occluded_true_unrolled if model.training else occluded_true, 
-            device = device
-        )
+        if valid_vis:
+            occluded_coords_loss = self.mae_loss_occluded_coords(
+                coords_pred = coords_pred_iters if model.training else coords_pred, 
+                coords_true = coords_true_unrolled if model.training else coords_true, 
+                vis_true = occluded_true_unrolled if model.training else occluded_true, 
+                device = device
+            )
+        else:
+            occluded_coords_loss = torch.tensor(0.0, device=device)
 
         feature_loss, bad_feature_loss = self.feature_loss(
                 model = model, 
@@ -135,12 +155,8 @@ class TotalLoss(nn.Module):
                 device = device
         )
 
-        if model.R == 3:
-            scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
-            coords_loss = coords_loss / scale
-            occluded_coords_loss = occluded_coords_loss / scale
-        else:
-            scale = 1
+        coords_loss = coords_loss / scale
+        occluded_coords_loss = occluded_coords_loss / scale
             
         losses = [coords_loss, occluded_coords_loss, 
                   vis_loss, conf_loss, 
@@ -218,10 +234,10 @@ class BCELossConf(nn.Module):
         self.pixel_thresh = pixel_thresh
         self.weight = weight
 
-    def _compute_loss(self, conf_pred, coords_pred, coords_true, vis_true): 
+    def _compute_loss(self, conf_pred, coords_pred, coords_true, vis_true, scale=1): 
 
         dist = torch.sum((coords_pred - coords_true) ** 2, dim = -1) ** 0.5
-        mask = (dist <= self.pixel_thresh).float().unsqueeze(dim = -1)
+        mask = (dist <= self.pixel_thresh * scale).float().unsqueeze(dim = -1)
 
         loss = F.binary_cross_entropy_with_logits(
             conf_pred, 
@@ -232,14 +248,14 @@ class BCELossConf(nn.Module):
 
         return loss 
 
-    def forward(self, conf_pred, coords_pred, coords_true, vis_true, device = None): 
+    def forward(self, conf_pred, coords_pred, coords_true, vis_true, scale=1, device = None): 
 
         # don't compute if the weight is 0
         if self.weight == 0: 
             return torch.tensor(float('nan'), device = device)
  
         if isinstance(coords_pred, torch.Tensor): 
-            total_loss = self._compute_loss(conf_pred, coords_pred, coords_true, vis_true)
+            total_loss = self._compute_loss(conf_pred, coords_pred, coords_true, vis_true, scale)
             return self.weight * total_loss 
 
         n_strides = len(conf_pred)
@@ -254,7 +270,8 @@ class BCELossConf(nn.Module):
                     conf_pred[i][j], 
                     coords_pred[i][j], 
                     coords_true[i], 
-                    vis_true[i])
+                    vis_true[i],
+                    scale)
 
         total_loss = self.weight * torch.nanmean(weights * torch.nanmean(losses, axis = 0), axis = 0)
 

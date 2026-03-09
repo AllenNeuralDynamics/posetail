@@ -331,7 +331,7 @@ class FeatureExtractor(nn.Module):
 from torchvision.ops import FeaturePyramidNetwork
 from collections import OrderedDict
 import hiera
-from einops import rearrange
+from einops import rearrange, reduce
 
 class HieraFeatureExtractor(nn.Module):
     def __init__(self, output_dim=128, pretrained_model='facebook/hiera_base_224.mae_in1k'):
@@ -381,6 +381,15 @@ class SAM2HieraFeatureExtractor(nn.Module):
         for param in self.model.parameters():
             param.requires_grad = requires_grad
             device = param.device
+
+  
+        self.stem = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=2),
+            nn.GELU(),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
+            # nn.GELU(),
+            # nn.Conv2d(output_dim // 2, output_dim, kernel_size=3, padding=1, stride=1)
+        )
             
         # with torch.no_grad():  # Don't build computation graph during init
         #     test_input = torch.randn([1, 3, 400, 400]).to(device)
@@ -391,7 +400,8 @@ class SAM2HieraFeatureExtractor(nn.Module):
             hiera_channels = [112, 224, 448, 896]
         elif pretrained_model in ['facebook/sam2.1-hiera-small', 'facebook/sam2.1-hiera-tiny']:
             hiera_channels = [96, 192, 384, 768]
-        self.fpn = FeaturePyramidNetwork(hiera_channels, output_dim)
+            
+        self.fpn = FeaturePyramidNetwork([32] + hiera_channels, output_dim)
 
         if freeze_nonlast_fpn:
             # Freeze unused FPN layer_blocks (keep only layer_blocks[0])
@@ -399,13 +409,63 @@ class SAM2HieraFeatureExtractor(nn.Module):
                 if 'layer_blocks' in name and not name.startswith('layer_blocks.0'):
                     param.requires_grad = False
 
-    def forward(self, x, return_all=False):
-        intermediates = self.model(x)
+
+        # self.stem_s2 = nn.Sequential(
+        #     nn.Conv2d(output_dim // 4, output_dim, kernel_size=3, padding=1, stride=2),
+        #     # nn.GELU()
+        # )
+
+        # self.upsample_blocks = nn.ModuleList([
+        #     nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+        #                   nn.Conv2d(output_dim, output_dim, kernel_size=3, padding=1),
+        #                   nn.GELU())
+        #     for _ in range(1)
+        # ])
+        
+        # self.fuse_blocks = nn.ModuleList([
+        #     nn.Sequential(nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, padding=1),
+        #                   nn.GroupNorm(8, output_dim),
+        #                   nn.GELU())
+        #     for _ in range(1)
+        # ])
+        
+        self._init_new_layers()
+
+    def _init_new_layers(self):
+        # Initialize only the new conv layers
+        # for m in [self.stem_s1, self.stem_s2]: # + list(self.upsample_blocks) + list(self.fuse_blocks):
+        for layer in self.stem.modules():
+            if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d)):
+                nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+                if layer.bias is not None: nn.init.constant_(layer.bias, 0)
+
+    def forward(self, inp, return_all=False):
+        raw_s2 = self.stem(inp)
+        intermediates = self.model(inp)
+        
         features = OrderedDict()
+        features[0] = raw_s2
         for i, x in enumerate(intermediates):
-            features[i] = x
+            features[i+1] = x
         out = self.fpn(features)
+
+        # raw_s1 = self.stem_s1(inp)
+        # raw_s2 = self.stem_s2(raw_s1)
+
+        # raw_s2 = self.stem(inp)
+        # raw_s2 = self.stem_s2(raw_s1)
+
+        
+        # up_s2 = self.upsample_blocks[0](out[0])
+        # feat_s2 = self.fuse_blocks[0](torch.cat([up_s2, raw_s2], dim=1))
+
+        # up_s1 = self.upsample_blocks[1](feat_s2)
+        # feat_s1 = self.fuse_blocks[1](torch.cat([up_s1, raw_s1], dim=1))
+        
         if return_all:
+            # return [feat_s1, feat_s2] + list(out.values())
+            # return [feat_s2] + list(out.values())
+            # return [raw_s2] + list(out.values())
             return list(out.values())
         else:
             return out[0]
@@ -599,7 +659,144 @@ class SimpleV2V(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
 
+                
+class ViewAttentionV2V(nn.Module):
+    def __init__(self, latent_dim, hidden_dim=None):
+        super().__init__()
+        
+        if hidden_dim is None:
+            hidden_dim = latent_dim // 2
 
+        # A small 3D CNN to determine how "good" the features look geometrically
+        self.score_net = nn.Sequential(
+            nn.Conv3d(latent_dim, hidden_dim, kernel_size=3, padding=1),
+            nn.InstanceNorm3d(hidden_dim),
+            nn.ReLU(),
+            nn.Conv3d(hidden_dim, 1, kernel_size=3, padding=1)
+        )
+        
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, volumes, masks):
+        """
+        Args:
+            volumes: (n_cams, bt, d, k, total) - Raw sampled features
+            masks: (n_cams, bt, k, total) - Boolean mask (True if inside image bounds)
+        Returns:
+            aggregated_volume: (bt, d, k, total)
+        """
+        n_cams, bt, d, k, total = volumes.shape
+        # Infer spatial cube size (e.g. 27 -> 3x3x3)
+        cube_size = int(round(total ** (1/3)))
+
+        # 1. Reshape for 3D CNN: Treat (n_cams * bt * k) as batch
+        # Input: [n_cams, bt, d, k, total] -> [(n_cams * bt * k), d, z, y, x]
+        x = rearrange(volumes, 'nc bt d k (z y x) -> (nc bt k) d z y x', 
+                      z=cube_size, y=cube_size, x=cube_size)
+
+        # 2. Predict Scores (logits)
+        # Output: [(n_cams * bt * k), 1, z, y, x]
+        scores = self.score_net(x)
+
+        # 3. Reshape back to isolate n_cams
+        # -> [n_cams, bt, 1, k, total]
+        scores = rearrange(scores, '(nc bt k) 1 z y x -> nc bt 1 k (z y x)', 
+                           nc=n_cams, bt=bt)
+ 
+        # 4. Masking:
+        # If the point projected outside the image (mask=False), set score to -infinity
+        # so Softmax results in 0 weight.
+        masks_expanded = masks.unsqueeze(2) # [nc, bt, 1, k, total]
+        scores = scores.masked_fill(~masks_expanded, -1e9)
+
+        # 5. Attention (Softmax over cameras)
+        # weights: [n_cams, bt, 1, k, total]
+        attn_weights = F.softmax(scores, dim=0)
+
+        # 6. Weighted Sum Aggregation
+        # Sum over n_cams dimension
+        aggregated_volume = (volumes * attn_weights).sum(dim=0)
+
+        return aggregated_volume
+
+class QueryViewAttentionV2V(nn.Module):
+    def __init__(self, latent_dim, hidden_dim=None):
+        super().__init__()
+        
+        if hidden_dim is None:
+            hidden_dim = latent_dim // 2
+
+        # Mode 1: Salience Network (Used when Query is None)
+        self.salience_net = nn.Sequential(
+            nn.Conv3d(latent_dim, hidden_dim, kernel_size=3, padding=1),
+            nn.InstanceNorm3d(hidden_dim),
+            nn.ReLU(),
+            nn.Conv3d(hidden_dim, 1, kernel_size=3, padding=1)
+        )
+        
+        # Mode 2: Query Projection (Optional linear layer to align spaces)
+        # We assume query and volumes are in same space, so we can be parameter-free
+        # or add a small transform here.
+        self.query_proj = nn.Identity() 
+
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, volumes, masks, query=None):
+        """
+        Args:
+            volumes: (nc, bt, d, k, total) - Candidate features from all cams
+            masks:   (nc, bt, k, total) - Valid bounds mask
+            query:   (bt, d, k, total) OR (bt, d, k, 1) - The target feature we are tracking
+                     If None, runs in 'Salience Mode'.
+        """
+        n_cams, bt, d, k, total = volumes.shape
+        cube_size = int(round(total ** (1/3)))
+
+        # --- SCORE COMPUTATION ---
+        if query is not None:
+            # === MODE 2: QUERY MATCHING ===
+            # query comes in as [bt, d, k, total] (or similar)
+            # Expand query to match n_cams: [1, bt, d, k, total]
+            q = query.unsqueeze(0) 
+            
+            scores = reduce(volumes * q, 'nc bt d k total -> nc bt k total', 'sum')
+            scores = scores / (d ** 0.5)
+            scores = scores.unsqueeze(2) # [nc, bt, 1, k, total]
+
+        else:
+            # === MODE 1: SALIENCE DETECTION (Init) ===
+            # Use 3D CNN to find "interesting" features
+            x = rearrange(volumes, 'nc bt d k (z y x) -> (nc bt k) d z y x', 
+                          z=cube_size, y=cube_size, x=cube_size)
+            
+            scores = self.salience_net(x)
+            
+            scores = rearrange(scores, '(nc bt k) 1 z y x -> nc bt 1 k (z y x)', 
+                               nc=n_cams, bt=bt)
+
+        masks_expanded = masks.unsqueeze(2) # [nc, bt, 1, k, total]
+        scores = scores.masked_fill(~masks_expanded, -1e9)
+
+        attn_weights = F.softmax(scores, dim=0)
+        
+        aggregated_volume = (volumes * attn_weights).sum(dim=0)
+
+        return aggregated_volume    
+    
 class DepthwiseSeparableResBlock(nn.Module):
     def __init__(self, latent_dim):
         super().__init__()

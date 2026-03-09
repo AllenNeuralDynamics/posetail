@@ -70,7 +70,7 @@ def parse_args():
 def run(config_path, fabric):
 
     # mp.set_start_method('spawn', force = True)
-    torch.set_float32_matmul_precision('high')
+    torch.set_float32_matmul_precision('medium')
 
     config = load_config(config_path)
     set_seeds(config.training.seed)
@@ -92,13 +92,17 @@ def run(config_path, fabric):
         collate_fn = custom_collate,
         sampler = sampler,
         shuffle = False,
-        num_workers = config.dataset.num_workers)
+        num_workers = config.dataset.num_workers,
+        prefetch_factor=2, 
+        persistent_workers=True,
+        pin_memory=True
+    )
 
     train_loader = fabric.setup_dataloaders(train_loader)
 
     # set up validation dataloader 
-    # val = config.dataset.val.get('split_dir', None)
-    val = False
+    val = config.dataset.val.get('split_dir', None)
+    # val = False
 
     if val: 
 
@@ -145,12 +149,16 @@ def run(config_path, fabric):
 
     # compile the model
     # model.cnn.compile()
+
+    model.cnn.stem.compile()
+    model.cnn.fpn.compile()
+
     model.corr_mlp.compile()
     model.tsformer.compile()
 
     if model.mode_3d == 'minicubes':
-        for v2v in model.minicube_v2v:
-            v2v.compile()
+        model.minicube_v2v.compile()
+        # model.view_attention.compile()
     elif model.mode_3d == 'triplane':
         model.triplane_cnn.compile()
         

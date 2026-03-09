@@ -1,10 +1,13 @@
 import torch
 import numpy as np
-
+from posetail.posetail.losses import get_vis_true
 
 def get_eval_metrics(vis_pred, vis_true, coords_pred, 
                      coords_true, thresholds = None, prefix = 'eval/'):
 
+    if vis_true is None:
+        vis_true = get_vis_true(coords_true) 
+    
     vis_pred = vis_pred.detach().cpu().numpy()
     vis_true = vis_true.detach().cpu().numpy()
     coords_pred = coords_pred.detach().cpu().numpy()
