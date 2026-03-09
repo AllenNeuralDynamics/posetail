@@ -121,14 +121,11 @@ class PosetailDataset(Dataset):
     def __getitem__(self, idx): 
         
         row = self.metadata.loc[idx].to_dict()
-        print(type(row))
         start_ix = row['start_ix']
         # end_ix = row['end_ix']
         interval = row['interval']
         end_ix = start_ix + self.n_frames * interval 
         fnums = torch.arange(start_ix, end_ix, interval)
-
-        # pprint(row)
         
         # load keypoints and visibilities (if present)
         data = np.load(row['pose_path'])
@@ -417,7 +414,7 @@ class PosetailDataset(Dataset):
         mode = '3d' # if track_3d else '2d' - not yet implemented
 
         for dataset in get_dirs(self.data_path):
-            
+
             # NOTE: split folder structure must match here
             dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
 

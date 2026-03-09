@@ -252,9 +252,12 @@ def train_iteration(config, model, fabric, batch,
         
     fabric.backward(total_loss)
 
-    fabric.clip_gradients(model, optimizer, 
-        max_norm = config.training.max_grad_norm, 
-        error_if_nonfinite = False)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
+                                   error_if_nonfinite = False)
+
+    # fabric.clip_gradients(model, optimizer, 
+    #     max_norm = config.training.max_grad_norm, 
+    #     error_if_nonfinite = False)
 
     optimizer.step()
     optimizer.zero_grad()

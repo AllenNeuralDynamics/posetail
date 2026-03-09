@@ -96,7 +96,7 @@ def combine_predictions(prefix):
 
 
 def predict_on_dataset_3d(model, dataloader, outpath, device, 
-                          debug_ix = None, max_kpts = 1000):
+                          max_kpts = 1000, debug_ix = None):
 
     torch.set_float32_matmul_precision('high')
     model.eval()
@@ -136,7 +136,7 @@ def predict_on_dataset_3d(model, dataloader, outpath, device,
 
             coords_subset = coords[:, :, i * max_kpts : i * max_kpts + max_kpts, :]
             vis_subset = vis[:, :, i * max_kpts : i * max_kpts + max_kpts, :]
-            
+
             # get model predictions given coords in the first frame
             with torch.no_grad():
                 outputs = model(

@@ -17,6 +17,7 @@ from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding, PadT
 from torchvision import transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
+
 class Tracker(nn.Module): 
 
     def __init__(self, track_3d = True, stride_length = 8, 
@@ -687,6 +688,7 @@ class Tracker(nn.Module):
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
             if self.R == 3 and self.mode_3d == 'minicubes':
                 delta_coords = delta_coords * self.cube_scale * 8
+
             # delta_coords[:, 0] = 0 # initial coordinates should not change
             coords = coords + delta_coords # b s n 3
             vis = torch.sigmoid(vis + delta_vis) # b s n 1 
@@ -735,6 +737,7 @@ class Tracker(nn.Module):
         if self.R == 3:
             self.cube_scale = ( get_camera_scale(camera_group, coords.reshape(-1, 3)) * 
                                 self.downsample_factor * 2 )
+
             if self.mode_3d == 'triplane':
                 # dynamically compute the cube center and extent based
                 # on the coord from the first frame
