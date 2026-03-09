@@ -15,6 +15,16 @@ def safe_make(path, exist_ok = True):
     return path
 
 
+def format_sample_input(x):
+
+    if isinstance(x, int): 
+        return x
+    elif isinstance(x, list): 
+        return tuple(x) 
+    else: 
+        return None
+    
+
 def scale_coords(coords, orig_res, new_res):
         '''
         given 2d coordinates, scales the x and y pixels 

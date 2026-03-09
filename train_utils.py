@@ -99,7 +99,7 @@ def save_checkpoint(model, optimizer, prefix, i):
     checkpoint_dir = safe_make(os.path.join(prefix, 'checkpoints'))
 
     checkpoint_path = os.path.join(checkpoint_dir, 
-        f'checkpoint_{str(i).zfill(6)}.pth')
+        f'checkpoint_{str(i).zfill(8)}.pth')
     
     state_dict = {
         'iteration': i,

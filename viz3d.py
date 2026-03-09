@@ -8,6 +8,7 @@ import rerun as rr
 from matplotlib.colors import to_rgb
 
 from inference_utils import *
+from posetail.datasets.utils import get_dirs
 
 
 # SKELETON_INDICES = [
@@ -31,28 +32,12 @@ from inference_utils import *
 #     (16, 19)   # KneeR to ShinR
 # ]
 
-SKELETON_INDICES = None
 
-
-def parse_args(): 
-    '''
-    parse command line arguments
-    ''' 
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('--pred-path')
-    parser.add_argument('--spawn', action = 'store_true', help = 'auto spawns rerun window')
-    
-    args = parser.parse_args()
-
-    return args
-
-
-def viz_predictions(coords_pred, coords_true, outpath,
-                    color_pred = 'xkcd:red', color_true = 'xkcd:green', 
-                    color_connection = 'xkcd:sky blue', 
-                    kpt_radius = 0.5, connection_radius = 0.1, 
-                    connect_pred_to_gt = True, spawn = False):
+def viz_predictions_3d_rerun(coords_pred, coords_true, outpath = None, skeleton_indices = None,
+                             color_pred = 'xkcd:red', color_true = 'xkcd:green', 
+                             color_connection = 'xkcd:sky blue', 
+                             kpt_radius = 0.05, connection_radius = 0.01, 
+                             connect_pred_to_gt = False, spawn = False):
 
     color_pred_rgb = to_rgb(color_pred)
     color_true_rgb = to_rgb(color_true)
@@ -109,9 +94,9 @@ def viz_predictions(coords_pred, coords_true, outpath,
         valid_connections_true = []
         valid_connections_pred = []
 
-        if SKELETON_INDICES: 
+        if skeleton_indices: 
 
-            for start_ix, end_ix in SKELETON_INDICES:
+            for start_ix, end_ix in skeleton_indices:
 
                 # save valid connections between keypoints in ground truth
                 if not any(torch.isnan(kpts_true[start_ix])) and not any(torch.isnan(kpts_true[end_ix])):
@@ -151,21 +136,35 @@ def viz_predictions(coords_pred, coords_true, outpath,
                     )
                 )
 
-    rr.save(outpath)
+    if outpath: 
+        rr.save(outpath)
     
     return outpath
 
 
-def viz_predictions_3d(pred_path, results_outpath, spawn = False):
+def viz_predictions_3d(split_path, spawn = False):
 
     device = torch.device('cpu')
 
-    (coords_pred, vis_pred, conf_pred, coords_true,
-     vis_true, fnums, video_path) = load_predictions(pred_path, device)
+    for session in get_dirs(split_path): 
 
-    video_name = '_'.join(os.path.splitext(os.path.basename(pred_path))[0].split('_')[:-1])
-    outpath = os.path.join(results_outpath, f'{video_name}_3d.rrd')
+        session_path = os.path.join(split_path, session)
 
-    video_path = viz_predictions(coords_pred, coords_true, outpath, spawn = spawn)
+        for trial in get_dirs(session_path):
 
-    return video_path
+            trial_path = os.path.join(session_path, trial)
+
+            # skip if there are no npz prediction files
+            predictions_path = os.path.join(trial_path, 'predictions.npz')
+            if not os.path.exists(predictions_path): 
+                print(f'skipping... no predictions found at {trial_path}')
+                continue
+
+            data = np.load(predictions_path)
+            coords_true = torch.from_numpy(data['coords_true'])
+            coords_pred = torch.from_numpy(data['coords_pred'])
+
+            # save to rrd file (to visualize with rerun)
+            rrd_outpath = os.path.join(trial_path, f'predictions_3d.rrd')
+            rrd_outpath = viz_predictions_3d_rerun(coords_pred, coords_true, rrd_outpath, spawn = spawn)
+            print(f'saved 3d predictions to {rrd_outpath}')

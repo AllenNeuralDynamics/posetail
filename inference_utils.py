@@ -2,16 +2,21 @@ import os
 import cv2 
 import glob
 
+import torch
+
 import numpy as np
 
-import torch
+from collections import defaultdict
+
+from posetail.datasets.utils import get_dirs
 from train_utils import *
+
 
 
 def get_checkpoint(wandb_prefix, run_id, checkpoint = None):
 
     if checkpoint is not None: 
-        checkpoint_fmt = str(checkpoint).zfill(6)
+        checkpoint_fmt = str(checkpoint).zfill(8)
         checkpoint_path = os.path.join(
             wandb_prefix, run_id, 'files', 'checkpoints', 
             f'checkpoint_{checkpoint_fmt}.pth')
@@ -40,179 +45,155 @@ def load_predictions(data_path, device):
 
     return coords_pred, vis_pred, conf_pred, coords_true, vis_true, fnums, video_path
 
-def format_camera(cam, device):
-    return {
-        'ext': torch.as_tensor(cam.get_extrinsics_mat(), dtype = torch.float32, device = device),
-        'mat': torch.as_tensor(cam.get_camera_matrix(), dtype = torch.float32, device = device),
-        'dist': torch.as_tensor(cam.dist, device = device, dtype = torch.float32)
-    }
 
-def format_camera_group(camera_group, device):
-    return [format_camera(cam, device)
-            for cam in camera_group.cameras]
+def combine_predictions(prefix): 
+
+    # traverse results for a particular dataset
+    for session in get_dirs(prefix): 
+
+        session_path = os.path.join(prefix, session)
+
+        for trial in get_dirs(session_path): 
+
+            trial_path = os.path.join(session_path, trial)
+
+            # skip if there are no npz prediction files
+            prediction_paths = sorted(glob.glob(os.path.join(trial_path, 'predictions', 'predictions_*.npz')))
+            if len(prediction_paths) == 0:
+                print(f'skipping... no prediction paths found at {trial_path}')
+                continue
+
+            data = [np.load(p) for p in prediction_paths]
+
+            # extract metadata 
+            keys_to_exclude = {'coords_pred', 'vis_pred', 'conf_pred',
+                               'coords_true', 'vis_true', 'fnums'}
+
+            sample_info = {k: data[0][k] for k in data[0].keys() if k not in keys_to_exclude}
+
+            # combine predictions from each consecutive time period
+            coords_pred = np.concatenate([d['coords_pred'] for d in data], axis = 0)
+            vis_pred = np.concatenate([d['vis_pred'] for d in data], axis = 0)
+            conf_pred = np.concatenate([d['conf_pred']for d in data], axis = 0)
+            coords_true = np.concatenate([d['coords_true'] for d in data], axis = 0)
+            vis_true = np.concatenate([d['vis_true'] for d in data], axis = 0)
+            fnums = np.concatenate([d['fnums'] for d in data], axis = 0)
+
+            results = {
+                'coords_pred': coords_pred, 
+                'vis_pred': vis_pred, 
+                'conf_pred': conf_pred,
+                'coords_true': coords_true,
+                'vis_true': vis_true,
+                'fnums': fnums
+            }
+            results.update(sample_info)
+
+            # save combined data 
+            predictions_fname = os.path.join(prefix, session, trial, f'predictions.npz')
+            np.savez(predictions_fname, **results)
+            print(f'predictions saved to {predictions_fname}')
 
 
-def get_video_predictions(video_paths, model, dataloader, pred_path, device, debug_ix = -1):
+def predict_on_dataset_3d(model, dataloader, outpath, device, 
+                          debug_ix = None, max_kpts = 1000):
 
     torch.set_float32_matmul_precision('high')
     model.eval()
-
-    start_time = time.time()
-
-    coords_pred = []
-    vis_pred = []
-    conf_pred = []
-    coords_true = []
-    vis_true = []
-    fnums = []
 
     for j, batch in enumerate(dataloader):
 
         views = [view.to(device) for view in batch.views]
         coords = batch.coords.to(device)
-        fnum = batch.fnums.to(device)
+        fnums = batch.fnums.cpu().numpy()
 
-        if j == debug_ix: 
+        if debug_ix and j == debug_ix: 
             break
 
-        cgroup = None 
-        if 'cgroup' in batch: 
-            cgroup = batch.cgroup
-            cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
-
-        vis = get_vis_true(coords)
+        views = [view.to(device) for view in batch.views]
+        coords = batch.coords.to(device)
+        vis = batch.vis
+        cgroup = batch.cgroup 
+        sample_info = batch.sample_info
         
-        # get model predictions
-        with torch.no_grad():
-            outputs = model(
-                views = views, 
-                coords = coords[:, 0, ...], 
-                camera_group = cgroup, 
-                offset_dict = None
-            )
+        # fallback if visibilities are not provided
+        if vis is None: 
+            vis = get_vis_true(coords)
 
-        coords_pred.append(torch.squeeze(outputs['coords_pred'], dim = 0))
-        vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0))
-        conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0))
-        coords_true.append(torch.squeeze(coords, dim = 0))
-        vis_true.append(torch.squeeze(vis, dim = 0))
-        fnums.append(torch.squeeze(fnum, dim = 0))
-
-    coords_pred = torch.cat(coords_pred, dim = 0)
-    vis_pred = torch.cat(vis_pred, dim = 0)
-    conf_pred = torch.cat(conf_pred, dim = 0)
-    coords_true = torch.cat(coords_true, dim = 0)
-    vis_true = torch.cat(vis_true, dim = 0)
-    fnums = torch.cat(fnums, dim = 0)
-
-    elapsed_time = time.time() - start_time
-    elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
-
-    np.savez(pred_path,
-        coords_pred = coords_pred.cpu(), 
-        vis_pred = vis_pred.cpu(), 
-        conf_pred = conf_pred.cpu(),
-        coords_true = coords_true.cpu(),
-        vis_true = vis_true.cpu(),
-        fnums = fnums.cpu(), 
-        video_path = video_paths, 
-        elapsed_time = list(np.array([elapsed_time])), 
-        elapsed_time_hms = list(elapsed_time_hms))
-
-    return pred_path
-
-
-def pad_array(coords, n_kpts = None): 
-
-    coords_new = []
-
-    # TODO: generalize later
-    if n_kpts is None: 
-        n_kpts = 20
-
-    for x in coords:
-        n, _ = x.shape
-        padding = [(0, n_kpts - n), (0, 0)]
-        x_new = np.pad(x, padding, mode = 'constant', constant_values = np.nan)
-        coords_new.append(x_new)
-
-    coords_new = np.array(coords_new)
-
-    return coords_new
-
-
-def get_predictions(data_prefix, model, dataloader, pred_path, device, n_kpts, debug_ix = -1):
-
-    torch.set_float32_matmul_precision('high')
-    model.eval()
-
-    start_time = time.time()
-
-    coords_pred = []
-    vis_pred = []
-    conf_pred = []
-    coords_true = []
-    vis_true = []
-    fnums = []
-
-    for j, batch in enumerate(dataloader):
-
-        views = [view.to(device) for view in batch.views]
-        coords = batch.coords.to(device)
-        fnum = batch.fnums.to(device)
-
-        if j == debug_ix: 
-            break
-
-        cgroup = None 
-        if 'cgroup' in batch: 
-            cgroup = batch.cgroup
+        if cgroup: 
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
+        
+        # can do multiple passes if there are a lot of keypoints to predict 
+        # (helps reduce memory)
+        n_passes = np.ceil(coords.shape[2] / max_kpts).astype(int)
+        coords_pred = []
+        vis_pred = []
+        conf_pred = []
+        coords_true = []
+        vis_true = []
 
-        vis = get_vis_true(coords)
-                      
-        # get model predictions
-        with torch.no_grad():
-            outputs = model(
-                views = views, 
-                coords = coords[:, 0, ...], 
-                camera_group = cgroup, 
-                offset_dict = None
-            )
+        for i in range(n_passes): 
 
-        coords_pred.append(pad_array(torch.squeeze(outputs['coords_pred'], dim = 0).cpu().numpy(), n_kpts = n_kpts))
-        # vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0).cpu().numpy())
-        # conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0).cpu().numpy())
-        coords_true.append(pad_array(torch.squeeze(coords, dim = 0).cpu().numpy(), n_kpts = n_kpts))
-        # vis_true.append(torch.squeeze(vis, dim = 0).cpu().numpy())
-        fnums.append(torch.squeeze(fnum, dim = 0).cpu().numpy())
+            coords_subset = coords[:, :, i * max_kpts : i * max_kpts + max_kpts, :]
+            vis_subset = vis[:, :, i * max_kpts : i * max_kpts + max_kpts, :]
+            
+            # get model predictions given coords in the first frame
+            with torch.no_grad():
+                outputs = model(
+                    views = views, 
+                    coords = coords_subset[:, 0, :, :], 
+                    camera_group = cgroup
+                )
 
-    coords_pred = np.concatenate(coords_pred, axis = 0)
-    # vis_pred = np.concatenate(vis_pred, axis = 0)
-    # conf_pred = np.concatenate(conf_pred, axis = 0)
-    coords_true = np.concatenate(coords_true, axis = 0)
-    # vis_true = np.concatenate(vis_true, axis = 0)
-    fnums = np.concatenate(fnums, axis = 0)
+                coords_pred.append(torch.squeeze(outputs['coords_pred'], dim = 0).cpu().numpy())
+                vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0).cpu().numpy())
+                conf_pred.append(torch.squeeze(outputs['conf_pred'], dim = 0).cpu().numpy())
+                coords_true.append(torch.squeeze(coords_subset, dim = 0).cpu().numpy())
+                vis_true.append(torch.squeeze(vis_subset, dim = 0).cpu().numpy())
 
-    elapsed_time = time.time() - start_time
-    elapsed_time_hms = str(timedelta(seconds = elapsed_time)).split('.')[0]
+        results = {
+            'coords_pred': np.concatenate(coords_pred, axis = 1), 
+            'vis_pred': np.concatenate(vis_pred, axis = 1), 
+            'conf_pred': np.concatenate(conf_pred, axis = 1),
+            'coords_true': np.concatenate(coords_true, axis = 1),
+            'vis_true': np.concatenate(vis_true, axis = 1),
+        }
+        results.update({'fnums': fnums})
+        results.update(sample_info)
 
-    np.savez(pred_path,
-        coords_pred = coords_pred, 
-        # vis_pred = vis_pred, 
-        # conf_pred = conf_pred,
-        coords_true = coords_true,
-        # vis_true = vis_true,
-        fnums = fnums, 
-        video_path = data_prefix, 
-        elapsed_time = list(np.array([elapsed_time])), 
-        elapsed_time_hms = list(elapsed_time_hms))
+        # save predictions
+        start_ix = str(results['start_ix']).zfill(8)
+        predictions_outpath = os.path.join(
+            outpath, results['session'], results['trial'], 'predictions')
+        os.makedirs(predictions_outpath, exist_ok = True)
+        predictions_fname = os.path.join(predictions_outpath, f'predictions_{start_ix}.npz')
+        np.savez(predictions_fname, **results)
+        print(f'predictions saved to {predictions_fname}')
 
-    return pred_path
+    # combine predictions from each session and trial
+    combine_predictions(outpath)
+
+# def pad_array(coords, n_kpts = None): 
+
+#     coords_new = []
+
+#     # TODO: generalize later
+#     if n_kpts is None: 
+#         n_kpts = 20
+
+#     for x in coords:
+#         n, _ = x.shape
+#         padding = [(0, n_kpts - n), (0, 0)]
+#         x_new = np.pad(x, padding, mode = 'constant', constant_values = np.nan)
+#         coords_new.append(x_new)
+
+#     coords_new = np.array(coords_new)
+
+#     return coords_new
 
 
 def generate_video_2d(video_path, results_path, outpath, run_id, scale, device): 
-    
+    # NOTE: deprecated for now
     # TODO: get camera group and project coords
     (coords_pred, vis_pred, conf_pred, coords_true, 
     vis_true, fnums, video_path) = load_predictions(results_path, device)

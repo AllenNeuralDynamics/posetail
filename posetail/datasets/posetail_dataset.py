@@ -12,7 +12,7 @@ from aniposelib.cameras import CameraGroup, Camera
 from easydict import EasyDict as edict
 from einops import rearrange
 
-from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics
+from posetail.datasets.utils import get_dirs, load_yaml, disassemble_extrinsics, format_sample_input
 from posetail.posetail.cube import project_points_torch, is_point_visible
 from train_utils import format_camera_group, dict_to_device
 
@@ -46,26 +46,16 @@ def custom_collate(batch):
         vis = torch.stack(batch[2], axis = 0)
         vis_masked = vis[:, :, mask].unsqueeze(-1)
 
-    rows = batch[5]
+    rows = batch[5][0]
         
     batch = edict({'views': views, 
                    'coords': coords_masked,
                    'vis': vis_masked,
                    'fnums': fnums,
-                   'rows': rows,
-                   'cgroup': cgroup})
+                   'cgroup': cgroup, 
+                   'sample_info': rows})
 
     return batch
-
-
-def format_sample_input(x):
-
-    if isinstance(x, int): 
-        return x
-    elif isinstance(x, list): 
-        return tuple(x) 
-    else: 
-        return None
 
 
 class PosetailDataset(Dataset): 
@@ -131,6 +121,7 @@ class PosetailDataset(Dataset):
     def __getitem__(self, idx): 
         
         row = self.metadata.loc[idx].to_dict()
+        print(type(row))
         start_ix = row['start_ix']
         # end_ix = row['end_ix']
         interval = row['interval']
@@ -395,7 +386,11 @@ class PosetailDataset(Dataset):
         start_ixs = []
         intervals = []
         
-        for i in range(coords.shape[1]): 
+        n_start = coords.shape[0] // self.n_frames
+        if coords.shape[0] % self.n_frames != 0: 
+            n_start += 1
+        
+        for i in range(n_start): 
 
             if safe > 0:
                 safe = safe - 1 

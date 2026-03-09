@@ -67,7 +67,8 @@ dev = {features = ["dev"], solve-group = "default"}
 [tool.pixi.dependencies]
 python = "3.10.*"
 cuda-toolkit = "12.8.*"
-# numpy = "==1.26"
+numpy = "==1.26"
+setuptools = "<81"
 pip = "*"
 
 [tool.pixi.feature.dev.dependencies]

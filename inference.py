@@ -3,13 +3,17 @@ import os
 
 from torch.utils.data import DataLoader
 
-from posetail.datasets.datasets import Rat7mDataset, custom_collate_3d
-from posetail.train_utils import *
+from posetail.datasets.inference_dataset import PosetailInferenceDataset
+from posetail.datasets.posetail_dataset import custom_collate
 from inference_utils import *
 from viz3d import *
 
 
 ''' 
+a utility script for running inference on a single video given a 
+model checkpoint and the config file that was used to train it. 
+an .rrd file will be generated to visualize the 3d predictions.
+
 python inference.py
 '''
 
@@ -19,12 +23,10 @@ def parse_args():
     ''' 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--wandb-prefix', type = str)
-    parser.add_argument('--run-ids', nargs = '+', default = [])
-
-    parser.add_argument('--video-paths', nargs = '+', default = [])
-    parser.add_argument('--data-path', type = str)
-
+    parser.add_argument('--dataset-path', type = str)
+    parser.add_argument('--split', type = str, default = 'test')
+    parser.add_argument('--config-path', type = str)
+    parser.add_argument('--checkpoint-path', type = str)
     parser.add_argument('---outpath', type = str, default = '../output')
 
     args = parser.parse_args()
@@ -32,105 +34,69 @@ def parse_args():
     return args
 
 
-def main(wandb_prefix, run_ids, video_paths, data_path, outpath, checkpoint = None): 
+def run_inference(dataset_path, config_path, checkpoint_path, outpath, split = 'test'): 
 
-    # outpath = safe_make(outpath, exist_ok = True)
-    outpath = safe_make(os.path.join(outpath, 'results'), exist_ok = True)
+    # load the config and model
+    config = load_config(config_path)
+    config.wandb.project_name = 'posetail-test'
+    config.dataset.test.n_frames = 25
+    device = (torch.device(config.devices.device) if torch.cuda.is_available() else 'cpu')
+    model = load_checkpoint(config_path, checkpoint_path)
+    model.eval()
 
-    for run_id in run_ids:
+    # set seed for reproducibility
+    set_seeds(config.training.seed)
 
-        config_path = os.path.join(wandb_prefix, run_id, 'files', 'config.toml')
-        config = load_config(config_path)
-        device = (torch.device(config.devices.device) if torch.cuda.is_available() else 'cpu')
+    # create a dataset for one video
+    dataset = PosetailInferenceDataset(
+        dataset_path = dataset_path, 
+        config = config, 
+        split = split) 
 
-        model_path = get_checkpoint(wandb_prefix, run_id, checkpoint = checkpoint)
-        print(f'loading: {model_path}...')
-        model = load_checkpoint(config_path, model_path)
-        model.eval()
+    dataloader = DataLoader(
+        dataset, 
+        batch_size = config.dataset.batch_size, 
+        collate_fn = custom_collate,
+        num_workers = config.dataset.get('num_workers', 1))
 
-        model.cube_extent = 500
+    # use the model to predict the 3d positions
+    split_outpath = os.path.join(outpath, split)
+    os.makedirs(split_outpath, exist_ok = True)
+    predict_on_dataset_3d(model, dataloader, split_outpath, device, debug_ix = -1)
 
-        set_seeds(config.training.seed)
-
-        dataset = Rat7mDataset(
-            video_paths = video_paths, 
-            data_path = data_path, 
-            n_frames = config.dataset.test.n_frames, 
-            max_res = config.dataset.train.max_res) # TODO: add to config and change to test
-
-        dataloader = DataLoader(
-            dataset, 
-            batch_size = 1, #config.dataset.batch_size, 
-            collate_fn = custom_collate_3d,
-            num_workers = 8)
-
-        video_name = os.path.splitext(os.path.basename(video_paths[0]))[0]
-
-        if config.dataset.test.project_2d: 
-            video_outpath = safe_make(os.path.join(outpath, 'videos'), exist_ok = True)
-            results_outpath = safe_make(os.path.join(outpath, 'results'), exist_ok = True)
-            pred_path = os.path.join(results_outpath, f'{video_name}_{run_id}_predictions.npz')
-
-        else: 
-            results_outpath = safe_make(os.path.join(outpath, 'results'), exist_ok = True)
-            video_group_name = '-'.join(video_name.split('-')[:2] + video_name.split('-')[3:])
-            pred_path = os.path.join(results_outpath, f'{video_group_name}_{run_id}_predictions.npz')
-
-        pred_path = get_video_predictions(video_paths, 
-            model, dataloader, pred_path, device, debug_ix = -1)
-            
-        print(f'predictions saved to {pred_path}')
-
-        cam = dataloader.dataset.cams[0]
-        scale = dataloader.dataset.camera_size_dict[cam]['xy_scale']
-
-        # viz for 2d 
-        if config.dataset.test.project_2d:
-
-            video_outpath = generate_video_2d(
-                video_path = video_paths[0], 
-                results_path = pred_path, 
-                outpath = results_outpath, 
-                run_id = run_id, 
-                scale = scale,
-                device = device)
-
-            print(f'video saved to {video_outpath}\n')
-
-        # viz for 3d 
-        else: 
-            rrd_outpath = viz_predictions_3d(pred_path, results_outpath, spawn = False)    
-            print(f'saved 3d predictions to {rrd_outpath}')
+    # visualize the 3d predictions
+    viz_predictions_3d(split_outpath, spawn = False)    
 
 
 if __name__ == '__main__':
 
     # args = parse_args()
 
-    # wandb_prefix = args.wandb_prefix
-    # run_ids = args.run_ids
-    # video_path = args.video_path
-    # data_path = args.data_path
+    # dataset_path = args.dataset_path
+    # split = args.split
+    # config_path = args.config_path
+    # checkpoint_path = args.checkpoint_path
     # outpath = args.outpath
 
-    outpath = '/home/ruppk2@hhmi.org/output'
-    wandb_prefix = '/data/results/katie/wandb'
+    dataset_path = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning/dex_ycb' 
+    split = 'test'
     
-    run_ids = ['run-20260102_144532-mer7avkt', 'run-20260105_023933-mlm9ar7u'] 
+    # pretrained on kubric
+    # checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain/wandb/run-20260211_151402-9iwgznvx/files/checkpoints/checkpoint_599992.pth'
 
+    # all data 
+    # checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-finetuning/wandb/run-20260302_180456-ucj1ou1z/files/checkpoints/checkpoint_778240.pth'
 
-    video_paths = ['/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera1-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera2-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera3-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera4-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera5-0.mp4',
-                    '/data/animal-datasets/rat7m/videos/s4-d1/s4-d1-camera6-0.mp4']
-    data_path = '/data/animal-datasets/rat7m/data/mocap-s4-d1.mat'
+    # finetuned on animal data
+    checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-finetuning/wandb/run-20260227_111340-upq88r08/files/checkpoints/checkpoint_599992.pth'
+    config_path = os.path.join(os.path.dirname(os.path.dirname(checkpoint_path)), 'config.toml')
 
+    # outpath = '/groups/karashchuk/karashchuklab/animal-datasets-results/dex_ycb'    
+    outpath = '/home/ruppk2@hhmi.org/dataset_scripts/predictions/dex_ycb'
 
-    main(wandb_prefix = wandb_prefix, 
-         run_ids = run_ids, 
-         video_paths = video_paths, 
-         data_path = data_path, 
-         outpath = outpath)
-
+    run_inference(dataset_path = dataset_path,
+                  config_path = config_path, 
+                  checkpoint_path = checkpoint_path, 
+                  outpath = outpath, 
+                  split = split)
+    
