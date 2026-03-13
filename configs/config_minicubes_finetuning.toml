@@ -1,20 +1,20 @@
 [wandb]
 
-project_name = 'posetail-test' # 'posetail-finetuning'
+project_name = 'posetail-finetuning' # 'posetail-finetuning'
 path = '/groups/karashchuk/home/ruppk2/results/posetail-finetuning'
-mode = 'disabled' # 'online', 'offline', 'disabled'
+mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
 batch_size = 1
-num_workers = 1 # 96
+num_workers = 96 # 96
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
 
 [dataset.train]
 split_dir = 'train'
 n_frames = 16
-min_res = 256
-max_res = 352
-cams_to_sample = [1, 10] 
+min_res = 352
+max_res = 416
+cams_to_sample = [1, 8] 
 kpts_to_sample = [32, 256]
 aug_prob = 0.25
 enable_kpt_filtering = true
@@ -78,8 +78,8 @@ vc_head_requires_grad = false
 
 [training]
 seed = 3
-checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain/wandb/run-20260211_151402-9iwgznvx/files/checkpoints/checkpoint_599992.pth'
-n_iterations = 50 # 600000
+# checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-finetuning/wandb/run-20260302_180456-ucj1ou1z/files/checkpoints/checkpoint_799992.pth'
+n_iterations = 800000
 scheduler_type = 'onecyclelr' # 'onecyclelr' or 'multisteplr'
 max_grad_norm = 1.0
 checkpoint_freq = 20480 # in iterations
@@ -97,7 +97,7 @@ amsgrad = false
 # milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
 # gamma = 0.8
 # steps_per_epoch = 218
-pct_start = 0.05
+pct_start = 0.025
 cycle_momentum = false
 
 [training.losses]
@@ -109,6 +109,6 @@ use_huber_loss = false
 # weights for calculating total loss (use 0 to not compute a specific loss)
 vis_loss_weight = 1
 conf_loss_weight = 1
-coords_loss_weight = 0.05
+coords_loss_weight = 0.1
 occluded_coords_loss_weight = 0.01
 feature_loss_weight = 1.0

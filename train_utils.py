@@ -234,6 +234,8 @@ def train_iteration(config, model, fabric, batch,
 
     optimizer.zero_grad()
 
+    # with fabric.autocast():
+
     outputs = model(
         views = list(views), 
         coords = coords[:, 0, ...], # coords for first frame

@@ -92,12 +92,18 @@ def project_points_torch(camera_group, coords_3d, downsample_factor = 1):
 
 
 def projection_sensitivity(cam, p):
+    p = p.float()
     n_points = p.shape[0]
     fx = cam['mat'][0,0]
     fy = cam['mat'][1,1]
-    ext_t = cam['ext']
+    ext_t = cam['ext'].float()
     
     p_cam = torch.matmul(to_homogeneous(p), ext_t.T)[:, :3]
+    depth = p_cam[:,2]
+    # print("depth min:", depth.min())
+    # print("depth max:", depth.max())
+    # print("near zero:", (depth.abs() < 1e-6).sum())
+    # print("negative:", (depth < 0).sum())
     X = p_cam[:, 0]
     Y = p_cam[:, 1]
     Z = p_cam[:, 2]
@@ -135,16 +141,26 @@ def is_point_visible(cam, p3d, margin=0):
     return in_bounds & in_front
 
 def get_camera_scale(camera_group, p):
+
     ps = []
+
     for cam in camera_group:
         visible = is_point_visible(cam, p)
+
         if torch.sum(visible) > 0:
-            J  = projection_sensitivity(cam, p[visible])
-            ps.append(torch.median(torch.linalg.svd(J).S[:,0]))
+
+            with torch.autocast(device_type = p.device.type, enabled = False):
+                J = projection_sensitivity(cam, p[visible])
+                s = torch.linalg.svdvals(J.float())[:, 0]
+                
+            ps.append(torch.median(s))
+
     if len(ps) == 0:
         return torch.nan
+    
     sensitivity = torch.median(torch.as_tensor(ps))
-    scale = 1/sensitivity
+    scale = 1 / sensitivity
+
     return scale.item()
 
 class UnprojectViews:

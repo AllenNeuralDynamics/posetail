@@ -34,7 +34,8 @@ def parse_args():
     return args
 
 
-def run_inference(dataset_path, config_path, checkpoint_path, outpath, split = 'test'): 
+def run_inference(dataset_path, config_path, checkpoint_path, outpath, 
+                  split = 'test', max_kpts = 1000, debug_ix = None): 
 
     # load the config and model
     config = load_config(config_path)
@@ -62,7 +63,8 @@ def run_inference(dataset_path, config_path, checkpoint_path, outpath, split = '
     # use the model to predict the 3d positions
     split_outpath = os.path.join(outpath, split)
     os.makedirs(split_outpath, exist_ok = True)
-    predict_on_dataset_3d(model, dataloader, split_outpath, device, debug_ix = -1)
+    predict_on_dataset_3d(model, dataloader, split_outpath, device,
+                          max_kpts = max_kpts, debug_ix = debug_ix)
 
     # visualize the 3d predictions
     viz_predictions_3d(split_outpath, spawn = False)    
@@ -78,25 +80,27 @@ if __name__ == '__main__':
     # checkpoint_path = args.checkpoint_path
     # outpath = args.outpath
 
-    dataset_path = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning/dex_ycb' 
+    dataset_name = 'cmupanoptic_3dgs' # dex_ycb
+    dataset_path = f'/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning/{dataset_name}' 
     split = 'test'
+    max_kpts = 3000
     
     # pretrained on kubric
     # checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain/wandb/run-20260211_151402-9iwgznvx/files/checkpoints/checkpoint_599992.pth'
 
     # all data 
-    # checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-finetuning/wandb/run-20260302_180456-ucj1ou1z/files/checkpoints/checkpoint_778240.pth'
+    checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-finetuning/wandb/run-20260302_180456-ucj1ou1z/files/checkpoints/checkpoint_799992.pth'
+    config_path = os.path.join(os.path.dirname(os.path.dirname(checkpoint_path)), 'config.toml')
+    outpath = f'/home/ruppk2@hhmi.org/dataset_scripts/predictions_ucj1ou1z/{dataset_name}'
 
     # finetuned on animal data
-    checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-finetuning/wandb/run-20260227_111340-upq88r08/files/checkpoints/checkpoint_599992.pth'
-    config_path = os.path.join(os.path.dirname(os.path.dirname(checkpoint_path)), 'config.toml')
-
+    # checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-finetuning/wandb/run-20260227_111340-upq88r08/files/checkpoints/checkpoint_599992.pth'
     # outpath = '/groups/karashchuk/karashchuklab/animal-datasets-results/dex_ycb'    
-    outpath = '/home/ruppk2@hhmi.org/dataset_scripts/predictions/dex_ycb'
 
     run_inference(dataset_path = dataset_path,
                   config_path = config_path, 
                   checkpoint_path = checkpoint_path, 
                   outpath = outpath, 
-                  split = split)
+                  split = split, 
+                  max_kpts = max_kpts)
     
