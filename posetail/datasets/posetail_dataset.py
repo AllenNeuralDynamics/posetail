@@ -183,6 +183,7 @@ class PosetailDataset(Dataset):
         self.split_dir = config.dataset[split].get('split_dir')
 
         self.data_path = config.dataset.prefix
+        self.datasets_to_exclude = config.dataset.get('datasets_to_exclude', [])
         self.n_frames = config.dataset[split].get('n_frames', 16)
         self.max_res = config.dataset[split].get('max_res', -1) # -1 means no resizing
         self.min_res = config.dataset[split].get('min_res', self.max_res) # only used when max_res != -1
@@ -264,11 +265,12 @@ class PosetailDataset(Dataset):
         end_ix = start_ix + self.n_frames * interval 
         fnums = torch.arange(start_ix, end_ix, interval)
         
-        # load keypoints and visibilities (if present)
+        # load keypoints 
         data = np.load(row['pose_path'])
         coords = data['pose'][:, start_ix:end_ix:interval, :, :] 
         coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
 
+        # load visibilities (if present)
         vis = None
         if 'vis' in data: 
             vis = data['vis'][:, start_ix:end_ix:interval, :, :]
@@ -302,19 +304,7 @@ class PosetailDataset(Dataset):
 
         # sample a number of camera views from a set of calibrated cameras
         if self.cams_to_sample: 
-            
-            if isinstance(self.cams_to_sample, int): 
-                num_cams_to_sample = self.cams_to_sample
-            else: # sample between a high and low bound
-                num_cams_to_sample = np.random.randint(self.cams_to_sample[0], self.cams_to_sample[1] + 1)
-
-            if len(cam_names) > num_cams_to_sample:
-                ix_cams = np.random.choice(len(cam_names), size = num_cams_to_sample, replace = False)
-                cam_names = [cam_names[i] for i in ix_cams]
-                # determine visibilities only from the sampled cameras
-                if vis is not None: 
-                    vis = vis[:, :, ix_cams]
-
+            coords, vis = self.cams_to_sample(coords, vis, cam_names)
 
         if vis is not None:
             vis = vis.sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
@@ -339,19 +329,7 @@ class PosetailDataset(Dataset):
         
         # filter points that are visible in enough views
         if self.enable_kpt_filtering:
-
-            s, n, _ = coords.shape
-            coords_flat = rearrange(coords, 's n r -> (s n) r')
-            all_visible = torch.stack([is_point_visible(cam, coords_flat) 
-                                       for cam in cgroup])
-            count_flat = torch.sum(all_visible, dim = 0)
-            count = rearrange(count_flat, '(s n) -> s n', s = s, n = n)
-            good = torch.all(count >= self.cam_thresh_for_vis, dim = 0)
-            coords = coords[:, good, :]
-
-            # filter vis if available
-            if vis is not None:
-                vis = vis[:, good]
+            coords, vis = self.filter_keypoints(coords, vis, cgroup)
 
         if coords.shape[1] < 2:
             return None
@@ -360,115 +338,33 @@ class PosetailDataset(Dataset):
         p2d = project_points_torch(cgroup, coords)
         movement = torch.linalg.norm(torch.diff(p2d, dim=1), dim=-1)
         total_movement = torch.mean(torch.sum(movement, dim=1), dim=0)
+
         # should have at least 12 pixels of movement over the sampled frames
         good = total_movement >= 12
         if torch.sum(good) < 2: # not enough points with movement
             return None
 
-                
         # sample a random number of keypoints from available tracks 
         if self.kpts_to_sample: 
-
-            if isinstance(self.kpts_to_sample, int): 
-                num_kpts_to_sample = self.kpts_to_sample
-            else: # sample between a high and low bound 
-                num_kpts_to_sample = np.random.randint(self.kpts_to_sample[0], self.kpts_to_sample[1] + 1)
-
-            # sample if there are more keypoints than the number to sample
-            if coords.shape[1] > num_kpts_to_sample:
-                prob = (total_movement + 2) / torch.sum(total_movement + 2)
-                prob = prob.numpy()
-                ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
-                                        replace = False, p = prob)
-                coords = coords[:, ix_p]
-                # sample corresponding visibilities
-                if vis is not None: 
-                    vis = vis[:, ix_p]
+            coords, vis = self.sample_keypoints(coords, vis, total_movement)
 
         # failed to sample coordinates, just get another random sample
         if coords.shape[1] < 2:
             return None
-
         
         # cropping around coordinates
-        #   helps for small animals in large arenas
+        # helps for small animals in large arenas
         if self.crop_to_points:
-            # compute crops locations
-            p2d = project_points_torch(cgroup, coords)
-            crops = []
-            for cnum in range(p2d.shape[0]):
-                size = cgroup[cnum]['size']
-                pflat = p2d[cnum].reshape(-1, 2)
-                good = torch.all(torch.isfinite(pflat), dim=1)
-                pflat = pflat[good]
-                low = torch.clamp(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size).to(torch.int32)
-                high = torch.clamp(torch.max(pflat, dim=0).values + 20, torch.tensor([0,0]), size).to(torch.int32)
-
-                current_width = high[0] - low[0]
-                current_height = high[1] - low[1]
-
-                min_dim = max(self.min_crop_dim, current_width//2, current_height//2)
-
-                if current_width < min_dim:
-                    # Expand horizontally around center
-                    center_x = (low[0] + high[0]) // 2
-                    low[0] = torch.clamp(center_x - min_dim // 2, 0, size[0] - min_dim)
-                    high[0] = torch.clamp(low[0] + min_dim, 0, size[0])
-                    low[0] = high[0] - min_dim  # Adjust if clamping moved the window
-
-                if current_height < min_dim:
-                    # Expand vertically around center
-                    center_y = (low[1] + high[1]) // 2
-                    low[1] = torch.clamp(center_y - min_dim // 2, 0, size[1] - min_dim)
-                    high[1] = torch.clamp(low[1] + min_dim, 0, size[1])
-                    low[1] = high[1] - min_dim  # Adjust if clamping moved the window
-
-                crops.append(torch.cat([low, high]))
-            
-
-            # camera crops
-            camera_group_cropped = []
-            for cnum in range(len(cgroup)):
-                x1, y1, x2, y2 = crops[cnum]
-                cam = dict(cgroup[cnum])
-                cam['offset'] = cam['offset'] + torch.tensor([x1, y1], dtype=torch.int32, device='cpu')
-                cam['size'] = torch.tensor([x2 - x1, y2 - y1], dtype=torch.int32, device='cpu')
-                camera_group_cropped.append(cam)
-            cgroup = camera_group_cropped
+            cgroup, crops = self.crop_cgroup_to_points(cgroup, coords)
 
         # resize cameras
         if self.max_res != -1:
-            target_res = np.random.randint(self.min_res, self.max_res + 1)
-            camera_group_scaled = []
-            for cnum in range(len(cgroup)):
-                cam = dict(cgroup[cnum])
-                name = cam['name']
-                size = cam['size']
-                scale = float(target_res) / max(size)
-                cam['size'] = torch.round(size * scale).to(torch.int32)
-                cam['mat'] = cam['mat'] * scale
-                cam['mat'][2, 2] = 1
-                if 'offset' in cam:
-                    cam['offset'] = cam['offset'] * scale
-                camera_group_scaled.append(cam)
-            cgroup = camera_group_scaled
-
+            cgroup = self.resize_camera_group(cgroup)
 
         # arbitrary camera rotation
-        rvec = np.random.uniform(-2*np.pi, 2*np.pi, size=3)
-        rotmat, _ = cv2.Rodrigues(np.array(rvec))
-        rotmat = torch.as_tensor(rotmat, device=coords.device, dtype=coords.dtype)
-        coords = torch.matmul(coords, rotmat)
-
-        rmat = torch.eye(4, device=coords.device, dtype=coords.dtype)
-        rmat[:3,:3] = rotmat
-        camera_group_rotated = list()
-        for cam in cgroup:
-            cam_rot = dict(cam)
-            cam_rot['ext'] = torch.matmul(cam['ext'], rmat)
-            camera_group_rotated.append(cam_rot)
-        cgroup = camera_group_rotated
+        cgroup = self.rotate_camera_group(cgroup, coords)
             
+        # apply augmentation
         with ThreadPoolExecutor(max_workers=24) as executor:
             views_unloaded = []
             for cnum, cam_name in enumerate(cam_names):
@@ -502,14 +398,166 @@ class PosetailDataset(Dataset):
                 if should_augment:
                     aug_det = self.aug.to_deterministic()
                     imgs = [aug_det(image=img) for img in imgs]
+
                 imgs = torch.tensor(np.array(imgs), dtype = torch.float32, device='cpu')
                 imgs = imgs / 255.0
                 views.append(imgs)
 
-        # print(row['dataset'])
-
-        # print(idx, "loaded")
         return views, coords, vis, fnums, cgroup, row
+
+
+    def crop_cgroup_to_points(self, cgroup, coords): 
+            
+        # compute crops locations
+        p2d = project_points_torch(cgroup, coords)
+        crops = []
+
+        for cnum in range(p2d.shape[0]):
+            
+            size = cgroup[cnum]['size']
+            pflat = p2d[cnum].reshape(-1, 2)
+            good = torch.all(torch.isfinite(pflat), dim=1)
+            pflat = pflat[good]
+            low = torch.clamp(torch.min(pflat, dim=0).values - 20, torch.tensor([0,0]), size).to(torch.int32)
+            high = torch.clamp(torch.max(pflat, dim=0).values + 20, torch.tensor([0,0]), size).to(torch.int32)
+
+            current_width = high[0] - low[0]
+            current_height = high[1] - low[1]
+
+            min_dim = max(self.min_crop_dim, current_width//2, current_height//2)
+
+            if current_width < min_dim:
+                # Expand horizontally around center
+                center_x = (low[0] + high[0]) // 2
+                low[0] = torch.clamp(center_x - min_dim // 2, 0, size[0] - min_dim)
+                high[0] = torch.clamp(low[0] + min_dim, 0, size[0])
+                low[0] = high[0] - min_dim  # Adjust if clamping moved the window
+
+            if current_height < min_dim:
+                # Expand vertically around center
+                center_y = (low[1] + high[1]) // 2
+                low[1] = torch.clamp(center_y - min_dim // 2, 0, size[1] - min_dim)
+                high[1] = torch.clamp(low[1] + min_dim, 0, size[1])
+                low[1] = high[1] - min_dim  # Adjust if clamping moved the window
+
+            crops.append(torch.cat([low, high]))
+
+        # camera crops
+        camera_group_cropped = []
+        for cnum in range(len(cgroup)):
+            x1, y1, x2, y2 = crops[cnum]
+            cam = dict(cgroup[cnum])
+            cam['offset'] = cam['offset'] + torch.tensor([x1, y1], dtype=torch.int32, device='cpu')
+            cam['size'] = torch.tensor([x2 - x1, y2 - y1], dtype=torch.int32, device='cpu')
+            camera_group_cropped.append(cam)
+        
+        return camera_group_cropped, crops
+
+
+    def filter_keypoints(self, coords, vis, cgroup): 
+
+        # filter keypoints that are not visible from enough views 
+        s, n, _ = coords.shape
+        coords_flat = rearrange(coords, 's n r -> (s n) r')
+        all_visible = torch.stack([is_point_visible(cam, coords_flat) 
+                                    for cam in cgroup])
+        count_flat = torch.sum(all_visible, dim = 0)
+        count = rearrange(count_flat, '(s n) -> s n', s = s, n = n)
+        good = torch.all(count >= self.cam_thresh_for_vis, dim = 0)
+        coords = coords[:, good, :]
+
+        # filter vis if available
+        if vis is not None:
+            vis = vis[:, good]
+
+        return coords, vis
+
+
+    def sample_cameras(self, coords, vis, cam_names): 
+
+        # sample a number of camera views from a set of calibrated cameras
+        if isinstance(self.cams_to_sample, int): 
+            num_cams_to_sample = self.cams_to_sample
+        else: # sample between a high and low bound
+            num_cams_to_sample = np.random.randint(self.cams_to_sample[0], self.cams_to_sample[1] + 1)
+
+        if len(cam_names) > num_cams_to_sample:
+
+            ix_cams = np.random.choice(len(cam_names), size = num_cams_to_sample, replace = False)
+            cam_names = [cam_names[i] for i in ix_cams]
+
+            # determine visibilities only from the sampled cameras
+            if vis is not None: 
+                vis = vis[:, :, ix_cams]
+
+        return coords, vis, cam_names
+
+
+    def sample_keypoints(self, coords, vis, total_movement): 
+
+        if isinstance(self.kpts_to_sample, int): 
+            num_kpts_to_sample = self.kpts_to_sample
+
+        else: # sample between a high and low bound 
+            num_kpts_to_sample = np.random.randint(self.kpts_to_sample[0], self.kpts_to_sample[1] + 1)
+
+        # sample if there are more keypoints than the number to sample
+        if coords.shape[1] > num_kpts_to_sample:
+
+            prob = (total_movement + 2) / torch.sum(total_movement + 2)
+            prob = prob.numpy()
+            ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
+                                    replace = False, p = prob)
+            coords = coords[:, ix_p]
+
+            # sample corresponding visibilities
+            if vis is not None: 
+                vis = vis[:, ix_p]
+
+        return coords, vis 
+
+
+    def resize_camera_group(self, cgroup): 
+
+        target_res = np.random.randint(self.min_res, self.max_res + 1)
+        camera_group_scaled = []
+
+        for cnum in range(len(cgroup)):
+
+            cam = dict(cgroup[cnum])
+            size = cam['size']
+            scale = float(target_res) / max(size)
+            cam['size'] = torch.round(size * scale).to(torch.int32)
+            cam['mat'] = cam['mat'] * scale
+            cam['mat'][2, 2] = 1
+
+            if 'offset' in cam:
+                cam['offset'] = cam['offset'] * scale
+
+            camera_group_scaled.append(cam)
+
+        return camera_group_scaled
+
+
+    def rotate_camera_group(self, cgroup, coords): 
+                
+        rvec = np.random.uniform(-2*np.pi, 2*np.pi, size=3)
+        rotmat, _ = cv2.Rodrigues(np.array(rvec))
+        rotmat = torch.as_tensor(rotmat, device=coords.device, dtype=coords.dtype)
+        coords = torch.matmul(coords, rotmat)
+
+        rmat = torch.eye(4, device=coords.device, dtype=coords.dtype)
+        rmat[:3,:3] = rotmat
+        camera_group_rotated = list()
+
+        for cam in cgroup:
+            cam_rot = dict(cam)
+            cam_rot['ext'] = torch.matmul(cam['ext'], rmat)
+            camera_group_rotated.append(cam_rot)
+
+        cgroup = camera_group_rotated 
+
+        return cgroup
 
 
     def _generate_metadata(self, track_3d = True): 
@@ -520,6 +568,9 @@ class PosetailDataset(Dataset):
         with ThreadPoolExecutor(max_workers=24) as executor:
             futures = []
             for dataset in get_dirs(self.data_path):
+
+                if dataset in self.datasets_to_exclude: 
+                    continue
 
                 # NOTE: split folder structure must match here
                 dataset_path = os.path.join(self.data_path, dataset, self.split_dir)
