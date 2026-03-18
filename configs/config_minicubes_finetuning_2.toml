@@ -8,6 +8,7 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 num_workers = 96
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
+datasets_to_exclude = ['tuthill-fly', 'allen-mouse']
 
 [dataset.train]
 split_dir = 'train'

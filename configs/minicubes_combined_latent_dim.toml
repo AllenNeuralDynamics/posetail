@@ -14,7 +14,7 @@ device = "cuda"
 
 [model]
 mode_3d = "minicubes"
-hiera_requires_grad = true
+hiera_requires_grad = false
 stride_length = 8
 stride_overlap = 4
 downsample_factor = 2

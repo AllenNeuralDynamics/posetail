@@ -362,7 +362,7 @@ class PosetailDataset(Dataset):
             cgroup = self.resize_camera_group(cgroup)
 
         # arbitrary camera rotation
-        cgroup = self.rotate_camera_group(cgroup, coords)
+        cgroup, coords = self.rotate_camera_group(cgroup, coords)
             
         # apply augmentation
         with ThreadPoolExecutor(max_workers=24) as executor:
@@ -557,7 +557,7 @@ class PosetailDataset(Dataset):
 
         cgroup = camera_group_rotated 
 
-        return cgroup
+        return cgroup, coords
 
 
     def _generate_metadata(self, track_3d = True): 
