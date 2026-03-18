@@ -114,7 +114,7 @@ class PosetailInferenceDataset(Dataset):
         
         # load image/video data 
         img_path = row['img_path']
-        video_paths = glob.glob(os.path.join(img_path, '.mp4'))
+        video_paths = glob.glob(os.path.join(img_path, '*.mp4'))
 
         # data is in image format 
         if len(video_paths) == 0: 
@@ -130,9 +130,9 @@ class PosetailInferenceDataset(Dataset):
     def load_videos(self, video_paths, cgroup, start_ix, end_ix, interval): 
 
         cam_names = sorted([cam['name'] for cam in cgroup])
-
+        
         video_paths_subset = [video_path for video_path in video_paths 
-                              if os.splitext(os.path.basename(video_path))[0] in cam_names]
+                              if os.path.splitext(os.path.basename(video_path))[0] in cam_names]
         
         n_frames = end_ix - start_ix
         views = []
@@ -344,24 +344,29 @@ class PosetailInferenceDataset(Dataset):
                 
                 assert img_path is not None and n_cams > 0
 
-                # get starting indices 
-                data = np.load(pose_path)
+                # load coords and subject ids 
+                data = np.load(pose_path, allow_pickle = True)
                 coords = data['pose']
+                ids = None
+                if 'ids' in data: 
+                    ids = data['ids']
+                    print(ids)
 
+                # get starting indices
                 coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
                 start_ixs, intervals = self._get_start_ixs(coords)
 
                 # add a row to the metadata that will correspond
                 # to each sample within a batch
                 for start_ix, interval in zip(start_ixs, intervals): 
-                    row = [session, trial, metadata_path,
-                            pose_path, img_path, start_ix, interval, 
-                            camera_height_dict, camera_width_dict]
+                    row = [session, trial, metadata_path, pose_path, 
+                           img_path, start_ix, interval, ids, 
+                           camera_height_dict, camera_width_dict]
                     rows.append(row)
 
         columns = ['session', 'trial', 'camera_metadata_path', 
                    'pose_path', 'img_path', 'start_ix', 'interval', 
-                   'camera_heights', 'camera_widths']
+                   'subject_ids', 'camera_heights', 'camera_widths']
 
         df = pd.DataFrame(rows, columns = columns)
         df['camera_heights'] = df['camera_heights'].apply(json.dumps)
