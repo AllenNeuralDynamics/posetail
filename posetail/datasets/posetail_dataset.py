@@ -304,7 +304,7 @@ class PosetailDataset(Dataset):
 
         # sample a number of camera views from a set of calibrated cameras
         if self.cams_to_sample: 
-            coords, vis = self.cams_to_sample(coords, vis, cam_names)
+            coords, vis, cam_names = self.sample_cameras(coords, vis, cam_names)
 
         if vis is not None:
             vis = vis.sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
