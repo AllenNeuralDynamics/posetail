@@ -52,7 +52,7 @@ n_frames = 16
 min_res = 256
 max_res = 320
 cams_to_sample = [1, 8]
-kpts_to_sample = [64, 128]
+kpts_to_sample = [128, 256]
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -75,7 +75,7 @@ project_2d = false
 aug_prob = 0.0
 
 [training.optimizer]
-learning_rate = 1e-5
+learning_rate = 1e-6
 weight_decay = 1e-5
 amsgrad = false
 
