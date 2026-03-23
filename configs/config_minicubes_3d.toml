@@ -17,8 +17,8 @@ split_dir = 'train'
 n_frames = 16
 min_res = 256
 max_res = 320
-cams_to_sample = [1, 8] 
-kpts_to_sample = [8, 48]
+cams_to_sample = [1, 10] 
+kpts_to_sample = [8, 96]
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -104,7 +104,7 @@ print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 5e-5
+learning_rate = 3e-5
 weight_decay = 1e-5
 # weight_decay = 0
 amsgrad = false
