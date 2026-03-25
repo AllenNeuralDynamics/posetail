@@ -5,7 +5,7 @@ mode = "online"
 
 [dataset]
 batch_size = 1
-num_workers = 96
+num_workers = 16
 prefix = "/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility"
 # datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
