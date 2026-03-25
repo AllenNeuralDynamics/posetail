@@ -823,9 +823,6 @@ class Tracker(nn.Module):
                 volumes = F.normalize(volumes, p = 2, dim = 3, eps = 1e-6)
                 volumes_avg = torch.mean(volumes, dim = 0) 
 
-                # print('saving cube...')
-                # np.savez_compressed('/home/ruppk2@hhmi.org/output/cube.npz', data = volumes_avg.cpu().numpy())
-
                 # project volumes to get triplanes 
                 xy_planes, xz_planes, yz_planes = project_volumes(volumes_avg)
                 planes = torch.cat((xy_planes, xz_planes, yz_planes), dim = -3) 
@@ -847,11 +844,6 @@ class Tracker(nn.Module):
                 coords = ((coords - (self.cube_center - self.cube_extent)) *
                                     (self.cube_dim / (2 * self.cube_extent)) * 
                                      self.upsample_factor)
-                
-                # print('saving feature planes...')
-                # np.savez_compressed('/home/ruppk2@hhmi.org/output/feature_planes.npz',
-                #                      data = feature_planes.cpu().numpy(), 
-                #                      coords = coords.cpu().numpy())
                 
             elif self.mode_3d == 'minicubes':
                 feature_planes = feature_maps

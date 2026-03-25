@@ -11,7 +11,7 @@ num_workers = 24
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining'
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning-test'
-datasets_to_exclude = ['tuthill-fly', 'allen-mouse']
+datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
 [dataset.train]
 split_dir = 'train'

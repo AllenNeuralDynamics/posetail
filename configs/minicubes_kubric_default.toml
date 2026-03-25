@@ -1,13 +1,13 @@
 [wandb]
-project_name = "posetail-finetuning"
-path = "/groups/karashchuk/home/ruppk2/results/posetail-finetuning"
+project_name = "posetail-kubric-experiments"
+path = "/groups/karashchuk/home/ruppk2/results/posetail-kubric-experiments"
 mode = "online"
 
 [dataset]
 batch_size = 1
 num_workers = 96
-prefix = "/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining"
-# datasets_to_exclude = ['tuthill-fly', 'allen-mouse']
+prefix = "/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility"
+# datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
 [devices]
 device = "cuda"
@@ -28,7 +28,7 @@ upsample_factor = 1
 max_freq = 10
 n_iters = 4
 embedding_dim = 384
-latent_dim = 90
+latent_dim = 64
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 6
@@ -37,7 +37,7 @@ vc_head_requires_grad = true
 
 [training]
 seed = 3
-n_iterations = 800000
+n_iterations = 200000
 scheduler_type = "onecyclelr"
 max_grad_norm = 1.0
 checkpoint_freq = 20480
@@ -52,8 +52,8 @@ n_frames = 16
 min_res = 256
 max_res = 320
 cams_to_sample = [1, 8]
-kpts_to_sample = [128, 256]
-aug_prob = 0.4
+kpts_to_sample = [32, 80]
+aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
 balance_datasets = true

@@ -138,14 +138,37 @@ def run(config_path, fabric):
 
     model = fabric.setup(model)
 
+    # set up optimizer
+    optimizer = torch.optim.AdamW(
+        model.parameters(), 
+        lr = config.training.optimizer.learning_rate, 
+        weight_decay = config.training.optimizer.weight_decay,
+        amsgrad = config.training.optimizer.amsgrad,
+        fused = True)
+
+    optimizer = fabric.setup_optimizers(optimizer)
+
     # optionally load a model checkpoint 
     checkpoint_path = config.training.get('checkpoint_path', None)
+    finetune = config.training.get('finetune', False)
+    start_iteration = 0
+
     if checkpoint_path:
-        print(f'loading model checkpoint {checkpoint_path}...')
-        param_dict = torch.load(checkpoint_path, map_location='cpu')['model_state']
-        missing_keys, unexpected_keys = model.load_state_dict(param_dict, strict = False)
-        print(f'received missing keys: {missing_keys}')
-        print(f'received unexpected keys: {unexpected_keys}')
+
+        if finetune: 
+            checkpoint_dict = load_checkpoint(
+                config_path, checkpoint_path, model = model, 
+                device = 'cpu')
+            model = checkpoint_dict['model']
+
+        else: 
+            checkpoint_dict = load_checkpoint(
+                config_path, checkpoint_path, model = model, 
+                optimizer = optimizer, device = 'cpu')
+            
+            model = checkpoint_dict['model']
+            optimizer = checkpoint_dict['optimizer']
+            start_iteration = checkpoint_dict['iteration']
 
     # compile the model
     # model.cnn.compile()
@@ -175,16 +198,6 @@ def run(config_path, fabric):
     # reporter = MemReporter(model)
     # print(reporter.report())
     # print('')
-
-    # set up optimizer
-    optimizer = torch.optim.AdamW(
-        model.parameters(), 
-        lr = config.training.optimizer.learning_rate, 
-        weight_decay = config.training.optimizer.weight_decay,
-        amsgrad = config.training.optimizer.amsgrad,
-        fused = True)
-
-    optimizer = fabric.setup_optimizers(optimizer)
 
     # put metrics in terms of one gpu, since all logging/checkpointing 
     # will happen on the zero rank gpu
@@ -224,7 +237,7 @@ def run(config_path, fabric):
             train_iter = iter(train_loader)
             batch = next(train_iter)
 
-        global_i = i * fabric.world_size + fabric.local_rank
+        global_i = start_iteration + i * fabric.world_size + fabric.local_rank
         result_dict = {'iteration': global_i}
         evaluate = i % eval_metric_freq == 0
 

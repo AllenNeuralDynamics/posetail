@@ -110,22 +110,52 @@ def save_checkpoint(model, optimizer, prefix, i):
     torch.save(state_dict, checkpoint_path)
 
 
-def load_checkpoint(config_path, checkpoint_path):
+def load_checkpoint(config_path, checkpoint_path, model = None, 
+                    optimizer = None, device = None):
 
     config = load_config(config_path) 
 
-    device = torch.device(config.devices.device)
+    # configure device
+    if device is None: 
+        device = torch.device(config.devices.device)
 
     if not torch.cuda.is_available(): 
         device = torch.device('cpu')
 
-    model = Tracker(**config.model) 
-    model.to(device)
+    # load the model 
+    if model is None: 
+        model = Tracker(**config.model) 
+        model.to(device)
 
-    param_dict = torch.load(checkpoint_path, map_location = device)['model_state']
-    model.load_state_dict(param_dict)
+    print(f'loading model checkpoint {checkpoint_path}...')
+    checkpoint = torch.load(checkpoint_path, map_location = device)
+    param_dict = checkpoint['model_state']
 
-    return model
+    missing_keys, unexpected_keys = model.load_state_dict(param_dict, strict = False)
+    print(f'received missing keys: {missing_keys}')
+    print(f'received unexpected keys: {unexpected_keys}')
+
+    checkpoint_dict = {'model': model}
+
+    # continue training 
+    if optimizer is not None: 
+
+        # set up the optimizer (if provided)
+        optimizer.load_state_dict(checkpoint['optimizer_state'])
+
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.to(device)
+
+        #  laod the iteration where training left off
+        iteration = checkpoint.get('iteration', 0)
+
+        # update the return dict
+        checkpoint_dict['optimzier'] = optimizer
+        checkpoint_dict['iteration'] = iteration + 1
+
+    return checkpoint_dict
 
 def load_checkpoint_no_inductor(config_path, checkpoint_path): 
 
