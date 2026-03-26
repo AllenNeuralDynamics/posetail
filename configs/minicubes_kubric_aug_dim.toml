@@ -5,7 +5,7 @@ mode = "online"
 
 [dataset]
 batch_size = 1
-num_workers = 16
+num_workers = 24
 prefix = "/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility"
 # datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
@@ -28,7 +28,7 @@ upsample_factor = 1
 max_freq = 10
 n_iters = 4
 embedding_dim = 384
-latent_dim = 64
+latent_dim = 115
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 6
@@ -51,9 +51,9 @@ split_dir = "train"
 n_frames = 16
 min_res = 256
 max_res = 320
-cams_to_sample = [1, 8]
+cams_to_sample = [1, 5]
 kpts_to_sample = [32, 80]
-aug_prob = 0.25
+aug_prob = 0.4
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
 balance_datasets = true
