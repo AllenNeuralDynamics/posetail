@@ -10,8 +10,9 @@ from einops import rearrange, einsum, reduce, repeat
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor
-from posetail.posetail.networks import MinicubesV2V, SimpleV2V, ViewAttentionV2V, QueryViewAttentionV2V
+from posetail.posetail.networks import MinicubesV2V, SimpleV2V, SimplerV2V
 from posetail.posetail.networks import HieraFeatureExtractor, SAM2HieraFeatureExtractor 
+from posetail.posetail.networks import VJEPAFeatureExtractor 
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding, PadToMultiple
 
 from torchvision import transforms
@@ -101,10 +102,12 @@ class Tracker(nn.Module):
         # self.cnn = HieraFeatureExtractor(output_dim=self.latent_dim)
         freeze_nonlast_fpn = not (self.R == 3 and self.mode_3d == 'minicubes')
         # freeze_nonlast_fpn = True
-        self.cnn = SAM2HieraFeatureExtractor(output_dim=self.latent_dim,
-                                             requires_grad=self.hiera_requires_grad,
-                                             freeze_nonlast_fpn=freeze_nonlast_fpn)
-
+        # self.cnn = SAM2HieraFeatureExtractor(output_dim=self.latent_dim,
+        #                                      requires_grad=self.hiera_requires_grad,
+        #                                      freeze_nonlast_fpn=freeze_nonlast_fpn)
+        self.cnn = VJEPAFeatureExtractor(output_dim = self.latent_dim,
+                                         requires_grad = self.hiera_requires_grad)
+        
         # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         self.transform_norm = transforms.Compose([
             PadToMultiple(32),
@@ -125,7 +128,13 @@ class Tracker(nn.Module):
                 # self.minicube_v2v = MinicubesV2V(self.latent_dim)
                 # self.minicube_v2v = nn.Identity()
                 # self.minicube_v2v = SimpleV2V(self.latent_dim)
-                self.minicube_v2v = nn.ModuleList([SimpleV2V(self.latent_dim) for _ in range(self.corr_levels)])
+                # self.minicube_v2v = nn.ModuleList([
+                #     SimpleV2V(self.latent_dim) for i in range(self.corr_levels)
+                # ])
+                self.minicube_v2v = nn.ModuleList([
+                    SimplerV2V(self.cnn.out_dims[i])
+                    for i in range(self.corr_levels)
+                ])
                 # self.minicube_v2v = DepthwiseSeparableV2V(self.latent_dim)
                 # self.minicube_v2v = PlanesV2V(self.latent_dim)
                 # self.view_attention = nn.ModuleList([ QueryViewAttentionV2V(self.latent_dim) for _ in range(self.corr_levels) ])
@@ -787,10 +796,12 @@ class Tracker(nn.Module):
 
         for i, frames in enumerate(views):
 
-            frames = rearrange(frames, 'b t c h w -> (b t) c h w')
+            # frames = rearrange(frames, 'b t c h w -> (b t) c h w')
             if self.R == 3 and self.mode_3d == 'minicubes':
                 feature_map_levels_flat = self.cnn(frames, return_all=True)
-                ff = [ rearrange(f, '(b t) d h2 w2 -> b t d h2 w2 1', b = B, t = T + n_pad)
+                # ff = [ rearrange(f, '(b t) d h2 w2 -> b t d h2 w2 1', b = B, t = T + n_pad)
+                #        for f in feature_map_levels_flat ]
+                ff = [ rearrange(f, 'b t d h2 w2 -> b t d h2 w2 1')
                        for f in feature_map_levels_flat ]
             else:
                 feature_map = self.cnn(frames)

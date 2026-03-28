@@ -173,8 +173,8 @@ def run(config_path, fabric):
     # compile the model
     # model.cnn.compile()
 
-    model.cnn.stem.compile()
-    model.cnn.fpn.compile()
+    # model.cnn.stem.compile()
+    # model.cnn.fpn.compile()
 
     model.corr_mlp.compile()
     model.tsformer.compile()

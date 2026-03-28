@@ -377,7 +377,6 @@ class SAM2HieraFeatureExtractor(nn.Module):
         predictor = SAM2ImagePredictor.from_pretrained(pretrained_model)
         self.model = predictor.model.image_encoder.trunk
         
-
         for param in self.model.parameters():
             param.requires_grad = requires_grad
             device = param.device
@@ -469,9 +468,119 @@ class SAM2HieraFeatureExtractor(nn.Module):
             return list(out.values())
         else:
             return out[0]
-    
-    
 
+class VJEPAFeatureUpsampler(nn.Module):
+    def __init__(
+        self, 
+        in_dim=4096, 
+        out_dim=256,
+        num_spatial_ups=3,
+        patch_size=16,
+        tubelet_size=2,
+    ):
+        super().__init__()
+        
+        self.patch_size = patch_size
+        self.tubelet_size = tubelet_size
+        
+        self.channel_reduce = nn.Linear(in_dim, out_dim*2)  # operates on last dim, memory efficient
+        self.temporal_up = nn.ConvTranspose1d(out_dim*2, out_dim, kernel_size=tubelet_size, stride=tubelet_size)
+
+        self.out_dims = [out_dim] + [out_dim//2 for _ in range(num_spatial_ups)]
+        
+        self.spatial_ups = nn.ModuleList()
+        for i in range(num_spatial_ups):
+            self.spatial_ups.append(nn.Conv2d(self.out_dims[i], self.out_dims[i+1],
+                                              kernel_size=3, padding=1))
+                
+        
+        self.act = nn.SiLU()
+    
+    def forward(self, x, T_orig, H_orig, W_orig):
+        T_patches = T_orig // self.tubelet_size
+        H_patches = H_orig // self.patch_size
+        W_patches = W_orig // self.patch_size
+        B = x.shape[0]
+        
+        # Channel reduce first (on flat sequence)
+        x = self.channel_reduce(x)  # (B, N, 4096) -> (B, N, 256)
+        
+        # Temporal upsample
+        x = rearrange(x, 'b (t h w) c -> (b h w) c t', t=T_patches, h=H_patches, w=W_patches)
+        x = self.temporal_up(x)
+        x = rearrange(x, '(b h w) c t -> (b t) c h w', b=B, h=H_patches, w=W_patches)
+        T = T_patches * self.tubelet_size
+        
+        outputs = [rearrange(x, '(b t) c h w -> b t c h w', b=B, t=T)]
+        
+        for up in self.spatial_ups:
+            x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+            x = self.act(up(x))
+            outputs.append(rearrange(x, '(b t) c h w -> b t c h w', b=B, t=T))
+        
+        return outputs        
+    
+from hub.backbones import (
+    vjepa2_ac_vit_giant,
+    vjepa2_vit_giant,
+    vjepa2_vit_giant_384,
+    vjepa2_vit_huge,
+    vjepa2_vit_large,
+    vjepa2_1_vit_base_384,
+    vjepa2_1_vit_large_384,
+    vjepa2_1_vit_giant_384,
+    vjepa2_1_vit_gigantic_384,
+)
+
+# weird hackery for vjepa
+import hub # from vjepa
+import os
+import sys
+vjepa_path = os.path.dirname(os.path.dirname(hub.__path__[0]))
+sys.path.append(vjepa_path)
+
+class VJEPAFeatureExtractor(nn.Module):
+    def __init__(self, output_dim=256, version='large',
+                 requires_grad=False):
+        super().__init__()
+        
+        if version == 'base':
+            vjepa_encoder, vjepa_decoder = vjepa2_1_vit_base_384()
+        elif version == 'large':
+            vjepa_encoder, vjepa_decoder = vjepa2_1_vit_large_384()
+        elif version == 'giant':
+            vjepa_encoder, vjepa_decoder = vjepa2_1_vit_giant_384()
+        elif version == 'gigantic':
+            vjepa_encoder, vjepa_decoder = vjepa2_1_vit_gigantic_384()
+
+        self.encoder = vjepa_encoder
+        self.encoder.return_hierarchical = True
+
+        for param in self.encoder.parameters():
+            param.requires_grad = requires_grad
+            device = param.device
+
+        self.upsampler = VJEPAFeatureUpsampler(
+            in_dim = self.encoder.embed_dim * 4,
+            out_dim = output_dim,
+            num_spatial_ups = 3,
+            patch_size = self.encoder.patch_size,
+            tubelet_size = self.encoder.tubelet_size
+        )
+
+        self.out_dims = list(reversed(self.upsampler.out_dims))
+        
+    def forward(self, x, return_all=True):
+        B, T, C, H, W = x.shape
+        xr = rearrange(x, 'b t c h w -> b c t h w')
+        features = self.encoder(xr)
+        outputs = self.upsampler(features, T, H, W)
+        if return_all:
+            return list(reversed(outputs))
+        else:
+            return outputs[-1]
+        
+            
 class TriplaneFeatureExtractor(nn.Module):
 
     def __init__(self, input_dim, n_hidden_layers, 
@@ -658,6 +767,30 @@ class SimpleV2V(nn.Module):
                 # nn.init.normal_(m.weight, 0, 0.001)
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
+
+class SimplerV2V(nn.Module):
+    def __init__(self, latent_dim):
+        super().__init__()
+        self.conv1 = nn.Conv3d(latent_dim, latent_dim, kernel_size=3, padding=1)
+
+        self._initialize_weights()
+        
+    def forward(self, x):
+        return self.conv1(x) + x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                # nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.ConvTranspose3d):
+                # nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+                
 
                 
 class ViewAttentionV2V(nn.Module):
