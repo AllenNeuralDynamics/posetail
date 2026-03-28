@@ -48,7 +48,7 @@ device = 'cuda'
 [model]
 mode_3d = "minicubes"
 
-hiera_requires_grad = false
+hiera_requires_grad = true
 
 # processing
 stride_length = 8

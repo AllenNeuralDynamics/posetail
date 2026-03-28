@@ -117,7 +117,7 @@ def run(config_path, fabric):
         
         val_loader = fabric.setup_dataloaders(val_loader)
 
-    # torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
     
     if fabric.is_global_zero:
         wandb.init(

@@ -132,7 +132,7 @@ class Tracker(nn.Module):
                 #     SimpleV2V(self.latent_dim) for i in range(self.corr_levels)
                 # ])
                 self.minicube_v2v = nn.ModuleList([
-                    SimplerV2V(self.cnn.out_dims[i])
+                    SimpleV2V(self.cnn.out_dims[i])
                     for i in range(self.corr_levels)
                 ])
                 # self.minicube_v2v = DepthwiseSeparableV2V(self.latent_dim)
@@ -705,7 +705,7 @@ class Tracker(nn.Module):
             # update coords, vis, and conf
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
             if self.R == 3 and self.mode_3d == 'minicubes':
-                delta_coords = delta_coords * self.cube_scale * 16
+                delta_coords = delta_coords * self.cube_scale * 8
                 
             # delta_coords[:, 0] = 0 # initial coordinates should not change
             coords = coords + delta_coords # b s n 3
