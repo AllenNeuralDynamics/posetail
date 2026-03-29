@@ -554,14 +554,14 @@ class VJEPAFeatureExtractor(nn.Module):
             vjepa_encoder, vjepa_decoder = vjepa2_1_vit_gigantic_384()
 
         self.encoder = vjepa_encoder
-        self.encoder.return_hierarchical = True
+        # self.encoder.return_hierarchical = True
 
         for param in self.encoder.parameters():
             param.requires_grad = requires_grad
             device = param.device
 
         self.upsampler = VJEPAFeatureUpsampler(
-            in_dim = self.encoder.embed_dim * 4,
+            in_dim = self.encoder.embed_dim,
             out_dim = output_dim,
             num_spatial_ups = 3,
             patch_size = self.encoder.patch_size,
@@ -742,7 +742,32 @@ class MinicubesV2V(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
 
+class EmbedV2V(nn.Module):
+    def __init__(self, in_dim, latent_dim):
+        super().__init__()
+        self.conv1 = nn.Conv3d(in_dim, latent_dim // 2, kernel_size=3, padding=1)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv3d(latent_dim // 2, latent_dim, kernel_size=3, padding=1)
 
+        self._initialize_weights()
+        
+    def forward(self, x):
+        return self.conv2(self.relu(self.conv1(x))) + x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                # nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.ConvTranspose3d):
+                # nn.init.xavier_normal_(m.weight)
+                # nn.init.normal_(m.weight, 0, 0.001)
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.constant_(m.bias, 0)
+
+                
 class SimpleV2V(nn.Module):
     def __init__(self, latent_dim):
         super().__init__()

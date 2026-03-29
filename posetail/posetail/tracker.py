@@ -490,7 +490,7 @@ class Tracker(nn.Module):
         all_masks = []
         for ix_cam in range(n_cams):
             bt, d, h, w = feature_planes[ix_cam].shape
-            scale = torch.tensor([h, w], device = p2d.device) 
+            scale = torch.tensor([w, h], device = p2d.device) 
             p2d_scaled = 2 * p2d[ix_cam] / scale - 1
 
             # Create visibility mask: True if within [-1, 1] bounds
@@ -1007,7 +1007,12 @@ class Tracker(nn.Module):
                 mv = mv[:, :, center]
                 
                 tv = mv[:, 0]
-            
+
+                print(f"mv shape: {mv.shape}, min: {mv.min():.4f}, max: {mv.max():.4f}")
+                print(f"tv shape: {tv.shape}, min: {tv.min():.4f}, max: {tv.max():.4f}")
+                print(f"mv nan: {mv.isnan().any()}, inf: {mv.isinf().any()}")
+                print(f"tv nan: {tv.isnan().any()}, inf: {tv.isinf().any()}")
+
                 # corr_features = einsum(mv, tv, 'b s t n d, b t n d -> b s n t')
                 corr_features = einsum(mv, tv, 'b s n d, b n d -> b s n')
                 corr_features_levels.append(torch.mean(corr_features))
