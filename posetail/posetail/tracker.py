@@ -10,9 +10,8 @@ from einops import rearrange, einsum, reduce, repeat
 from posetail.posetail.cube import UnprojectViews, project_volumes, project_points_torch, get_camera_scale
 from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor
-from posetail.posetail.networks import MinicubesV2V, SimpleV2V, SimplerV2V
+from posetail.posetail.networks import MinicubesV2V, SimpleV2V, ViewAttentionV2V, QueryViewAttentionV2V
 from posetail.posetail.networks import HieraFeatureExtractor, SAM2HieraFeatureExtractor 
-from posetail.posetail.networks import VJEPAFeatureExtractor 
 from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding, PadToMultiple
 
 from torchvision import transforms
@@ -102,12 +101,10 @@ class Tracker(nn.Module):
         # self.cnn = HieraFeatureExtractor(output_dim=self.latent_dim)
         freeze_nonlast_fpn = not (self.R == 3 and self.mode_3d == 'minicubes')
         # freeze_nonlast_fpn = True
-        # self.cnn = SAM2HieraFeatureExtractor(output_dim=self.latent_dim,
-        #                                      requires_grad=self.hiera_requires_grad,
-        #                                      freeze_nonlast_fpn=freeze_nonlast_fpn)
-        self.cnn = VJEPAFeatureExtractor(output_dim = self.latent_dim,
-                                         requires_grad = self.hiera_requires_grad)
-        
+        self.cnn = SAM2HieraFeatureExtractor(output_dim=self.latent_dim,
+                                             requires_grad=self.hiera_requires_grad,
+                                             freeze_nonlast_fpn=freeze_nonlast_fpn)
+
         # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         self.transform_norm = transforms.Compose([
             PadToMultiple(32),
@@ -128,13 +125,7 @@ class Tracker(nn.Module):
                 # self.minicube_v2v = MinicubesV2V(self.latent_dim)
                 # self.minicube_v2v = nn.Identity()
                 # self.minicube_v2v = SimpleV2V(self.latent_dim)
-                # self.minicube_v2v = nn.ModuleList([
-                #     SimpleV2V(self.latent_dim) for i in range(self.corr_levels)
-                # ])
-                self.minicube_v2v = nn.ModuleList([
-                    SimpleV2V(self.cnn.out_dims[i])
-                    for i in range(self.corr_levels)
-                ])
+                self.minicube_v2v = nn.ModuleList([SimpleV2V(self.latent_dim) for _ in range(self.corr_levels)])
                 # self.minicube_v2v = DepthwiseSeparableV2V(self.latent_dim)
                 # self.minicube_v2v = PlanesV2V(self.latent_dim)
                 # self.view_attention = nn.ModuleList([ QueryViewAttentionV2V(self.latent_dim) for _ in range(self.corr_levels) ])
@@ -490,7 +481,7 @@ class Tracker(nn.Module):
         all_masks = []
         for ix_cam in range(n_cams):
             bt, d, h, w = feature_planes[ix_cam].shape
-            scale = torch.tensor([w, h], device = p2d.device) 
+            scale = torch.tensor([h, w], device = p2d.device) 
             p2d_scaled = 2 * p2d[ix_cam] / scale - 1
 
             # Create visibility mask: True if within [-1, 1] bounds
@@ -705,7 +696,7 @@ class Tracker(nn.Module):
             # update coords, vis, and conf
             delta_coords, delta_vis, delta_conf = torch.split(updates, [self.R, 1, 1], dim = -1)
             if self.R == 3 and self.mode_3d == 'minicubes':
-                delta_coords = delta_coords * self.cube_scale * 8
+                delta_coords = delta_coords * self.cube_scale * 16
                 
             # delta_coords[:, 0] = 0 # initial coordinates should not change
             coords = coords + delta_coords # b s n 3
@@ -796,12 +787,10 @@ class Tracker(nn.Module):
 
         for i, frames in enumerate(views):
 
-            # frames = rearrange(frames, 'b t c h w -> (b t) c h w')
+            frames = rearrange(frames, 'b t c h w -> (b t) c h w')
             if self.R == 3 and self.mode_3d == 'minicubes':
                 feature_map_levels_flat = self.cnn(frames, return_all=True)
-                # ff = [ rearrange(f, '(b t) d h2 w2 -> b t d h2 w2 1', b = B, t = T + n_pad)
-                #        for f in feature_map_levels_flat ]
-                ff = [ rearrange(f, 'b t d h2 w2 -> b t d h2 w2 1')
+                ff = [ rearrange(f, '(b t) d h2 w2 -> b t d h2 w2 1', b = B, t = T + n_pad)
                        for f in feature_map_levels_flat ]
             else:
                 feature_map = self.cnn(frames)
@@ -1007,12 +996,7 @@ class Tracker(nn.Module):
                 mv = mv[:, :, center]
                 
                 tv = mv[:, 0]
-
-                print(f"mv shape: {mv.shape}, min: {mv.min():.4f}, max: {mv.max():.4f}")
-                print(f"tv shape: {tv.shape}, min: {tv.min():.4f}, max: {tv.max():.4f}")
-                print(f"mv nan: {mv.isnan().any()}, inf: {mv.isinf().any()}")
-                print(f"tv nan: {tv.isnan().any()}, inf: {tv.isinf().any()}")
-
+            
                 # corr_features = einsum(mv, tv, 'b s t n d, b t n d -> b s n t')
                 corr_features = einsum(mv, tv, 'b s n d, b n d -> b s n')
                 corr_features_levels.append(torch.mean(corr_features))
@@ -1066,5 +1050,3 @@ class Tracker(nn.Module):
             mean_corr = sum(corr_features_levels) / len(corr_features_levels)
         
         return 1 - mean_corr
-
-
