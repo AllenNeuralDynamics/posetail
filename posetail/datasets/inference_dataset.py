@@ -19,6 +19,39 @@ from posetail.posetail.cube import project_points_torch, is_point_visible
 from train_utils import format_camera_group, dict_to_device
 
 
+
+def custom_collate(batch):
+    ''' 
+    custom collate functon to enable returning 
+    non-tensor, non-list, etc type objects from 
+    the default collate function
+    '''
+    batch = list(zip(*batch))
+
+    views = [torch.stack(v, dim = 0) for v in zip(*list(batch[0]))]
+    fnums = torch.stack(batch[3], axis = 0)
+    cgroup = batch[4][0]
+
+    # get coords (no nan masking, handle downstream)
+    coords = torch.stack(batch[1], axis = 0)
+
+    # get corresponding visibilities if present
+    vis = None
+    if batch[2][0] is not None: 
+        vis = torch.stack(batch[2], axis = 0).unsqueeze(-1)
+
+    rows = batch[5][0]
+        
+    batch = edict({'views': views, 
+                   'coords': coords,
+                   'vis': vis,
+                   'fnums': fnums,
+                   'cgroup': cgroup, 
+                   'sample_info': rows})
+
+    return batch
+
+
 class PosetailInferenceDataset(Dataset): 
 
     def __init__(self, dataset_path, config, split): 
@@ -58,7 +91,7 @@ class PosetailInferenceDataset(Dataset):
 
         # load keypoints and visibilities (if present)
         data = np.load(row['pose_path'])
-        coords = data['pose'][:, start_ix:end_ix:interval, :, :] 
+        coords = data['pose'][:, start_ix:end_ix:interval, :, :]
         coords = torch.tensor(coords, dtype = torch.float32, device = 'cpu')
 
         vis = None
@@ -276,31 +309,20 @@ class PosetailInferenceDataset(Dataset):
 
     def _get_start_ixs(self, coords, min_frames = 8):
 
-        safe = 0
         start_ixs = []
         intervals = []
 
-        n_start = coords.shape[0] // self.n_frames
-        if coords.shape[0] % self.n_frames != 0: 
-            n_start += 1
+        n_start = np.ceil(coords.shape[0] / self.n_frames).astype(int)
         
         for i in range(n_start): 
 
-            if safe > 0:
-                safe = safe - 1 
-                continue
-
             coords_subset = coords[i:i + self.n_frames, :, :]
-            enough_frames = coords_subset.shape[1] == self.n_frames
+            enough_frames = coords_subset.shape[0] >= self.n_frames
             
             # if there is enough frames (or enough to get by)
-            if enough_frames or coords_subset.shape[1] >= min_frames:
-
-                # if not all nans in the starting frame 
-                if np.isfinite(coords_subset[0]).any():
-                    start_ixs.append(i)
-                    intervals.append(1)
-                    safe = self.n_frames - 1
+            if enough_frames or coords_subset.shape[0] >= min_frames:
+                start_ixs.append(i * self.n_frames)
+                intervals.append(1)
 
         start_ixs = np.array(start_ixs)
         intervals = np.array(intervals)
@@ -350,11 +372,10 @@ class PosetailInferenceDataset(Dataset):
                 ids = None
                 if 'ids' in data: 
                     ids = data['ids']
-                    print(ids)
 
                 # get starting indices
                 coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
-                start_ixs, intervals = self._get_start_ixs(coords)
+                start_ixs, intervals = self._get_start_ixs(coords, min_frames = self.n_frames)
 
                 # add a row to the metadata that will correspond
                 # to each sample within a batch

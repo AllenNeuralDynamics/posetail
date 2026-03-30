@@ -63,16 +63,17 @@ def combine_predictions(prefix):
                 print(f'skipping... no prediction paths found at {trial_path}')
                 continue
 
-            data = [np.load(p) for p in prediction_paths]
+            data = [np.load(p) for p in prediction_paths] 
 
             # extract metadata 
-            keys_to_exclude = {'coords_pred', 'vis_pred', 'conf_pred',
-                               'coords_true', 'vis_true', 'fnums'}
+            keys_to_exclude = ['coords_pred', 'vis_pred', 'conf_pred',
+                               'coords_true', 'vis_true', 'fnums']
 
             sample_info = {k: data[0][k] for k in data[0].keys() if k not in keys_to_exclude}
 
             # combine predictions from each consecutive time period
             coords_pred = np.concatenate([d['coords_pred'] for d in data], axis = 0)
+
             vis_pred = np.concatenate([d['vis_pred'] for d in data], axis = 0)
             conf_pred = np.concatenate([d['conf_pred']for d in data], axis = 0)
             coords_true = np.concatenate([d['coords_true'] for d in data], axis = 0)
@@ -85,8 +86,9 @@ def combine_predictions(prefix):
                 'conf_pred': conf_pred,
                 'coords_true': coords_true,
                 'vis_true': vis_true,
-                'fnums': fnums
+                'fnums': fnums, 
             }
+
             results.update(sample_info)
 
             # save combined data 
@@ -103,16 +105,13 @@ def predict_on_dataset_3d(model, dataloader, outpath, device,
 
     for j, batch in enumerate(dataloader):
 
-        views = [view.to(device) for view in batch.views]
-        coords = batch.coords.to(device)
-        fnums = batch.fnums.cpu().numpy()
-
         if debug_ix and j == debug_ix: 
             break
 
         views = [view.to(device) for view in batch.views]
         coords = batch.coords.to(device)
         vis = batch.vis
+        fnums = batch.fnums.cpu().numpy()
         cgroup = batch.cgroup 
         sample_info = batch.sample_info
         
@@ -159,7 +158,14 @@ def predict_on_dataset_3d(model, dataloader, outpath, device,
             'vis_true': np.concatenate(vis_true, axis = 1),
         }
         results.update({'fnums': fnums})
-        results.update(sample_info)
+
+        keys_to_exclude = ['fnums']
+        if sample_info.subject_ids is not None: 
+            results.update({'subject_ids': sample_info.subject_ids})
+        else: 
+            keys_to_exclude.append('subject_ids')
+
+        results.update({k: sample_info[k] for k in sample_info.keys() if k not in keys_to_exclude})
 
         # save predictions
         start_ix = str(results['start_ix']).zfill(8)
@@ -170,26 +176,7 @@ def predict_on_dataset_3d(model, dataloader, outpath, device,
         np.savez(predictions_fname, **results)
         print(f'predictions saved to {predictions_fname}')
 
-    # combine predictions from each session and trial
-    combine_predictions(outpath)
-
-# def pad_array(coords, n_kpts = None): 
-
-#     coords_new = []
-
-#     # TODO: generalize later
-#     if n_kpts is None: 
-#         n_kpts = 20
-
-#     for x in coords:
-#         n, _ = x.shape
-#         padding = [(0, n_kpts - n), (0, 0)]
-#         x_new = np.pad(x, padding, mode = 'constant', constant_values = np.nan)
-#         coords_new.append(x_new)
-
-#     coords_new = np.array(coords_new)
-
-#     return coords_new
+    return outpath
 
 
 def generate_video_2d(video_path, results_path, outpath, run_id, scale, device): 
