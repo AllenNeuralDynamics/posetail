@@ -752,7 +752,7 @@ class EmbedV2V(nn.Module):
         self._initialize_weights()
         
     def forward(self, x):
-        return self.conv2(self.relu(self.conv1(x))) + x
+        return self.conv2(self.relu(self.conv1(x)))
 
     def _initialize_weights(self):
         for m in self.modules():

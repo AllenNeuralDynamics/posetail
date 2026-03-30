@@ -60,7 +60,7 @@ def parse_args():
         help = 'number of nodes to train the model on')
 
     parser.add_argument('--precision', 
-        default = '16-mixed', 
+        default = '32-true', 
         help = 'precision type with the option to use mixed precision, e.g. 32, 32-true, 16-mixed, bf16-mixed')
 
     args = parser.parse_args()
@@ -176,16 +176,16 @@ def run(config_path, fabric):
     # model.cnn.stem.compile()
     # model.cnn.fpn.compile()
 
-    model.corr_mlp.compile()
-    model.tsformer.compile()
+    # model.corr_mlp.compile()
+    # model.tsformer.compile()
 
-    if model.mode_3d == 'minicubes':
-        model.minicube_v2v.compile()
-        # model.view_attention.compile()
-    elif model.mode_3d == 'triplane':
-        model.triplane_cnn.compile()
+    # if model.mode_3d == 'minicubes':
+    #     model.minicube_v2v.compile()
+    #     # model.view_attention.compile()
+    # elif model.mode_3d == 'triplane':
+    #     model.triplane_cnn.compile()
         
-    model.mark_forward_method('get_feature_loss')
+    # model.mark_forward_method('get_feature_loss')
     
     # NOTE: memory profiling causes a CPU memory leak
     # profiler = LineProfiler(

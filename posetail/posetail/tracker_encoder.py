@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from einops import rearrange, einsum, reduce, repeat
 
-from posetail.posetail.cube import get_camera_scale
+from posetail.posetail.cube import get_camera_scale, from_homogeneous, to_homogeneous
 from posetail.posetail.cube import undistort_points, triangulate_simple_batch
 from posetail.posetail.utils import PadToMultiple
 from posetail.posetail.encoder_decoder import SceneRepresentation, QueryEncoder, Decoder
@@ -85,7 +85,7 @@ class TrackerEncoder(nn.Module):
 
         self.scene_encoder = SceneRepresentation(
             version='large',
-            freeze_encoder=hiera_requires_grad
+            freeze_encoder=~hiera_requires_grad
         )
         
         self.query_encoder = QueryEncoder(
@@ -113,6 +113,7 @@ class TrackerEncoder(nn.Module):
         W: width of image
         D: latent dimension
         '''
+        
         device = coords.device
 
         B, N, R = coords.shape
@@ -131,7 +132,7 @@ class TrackerEncoder(nn.Module):
             frames = frames.to(device)
             frames = rearrange(frames, 'b t h w c -> b t c h w')
             frames = self.transform_norm(frames)
-            views_norm.append(frame)
+            views_norm.append(frames)
 
         scene_features = self.scene_encoder(views_norm)
 
@@ -149,35 +150,72 @@ class TrackerEncoder(nn.Module):
         )
 
         outputs = self.decoder(scene_features, query_embeds, visible)
-        outputs = rearrange(outputs, 'b (t n) cams outdim -> cams b t n outdim',
+        outputs = rearrange(outputs,
+                            'b (t n) cams outdim -> cams b t n outdim',
                             t=T, n=N)
 
-        points_pred, vis_pred, conf_pred, depth_pred = torch.split(
+        points_pred, vis_pred_2d, conf_pred_2d_raw, depth_pred = torch.split(
             outputs, [2, 1, 1, 1], dim=-1
         )
-
-        depth_pred_scaled = (depth_pred + 0.5) * cube_scale * 500
         
+        depth_pred_scaled = (depth_pred[..., 0] + 0.5) * self.cube_scale * 500
+
+        vis_pred_2d = F.sigmoid(vis_pred_2d)
+        conf_pred_2d = F.sigmoid(conf_pred_2d_raw)
+
+        # zero out confidences for points outside of range
+        bad = ( (points_pred[..., 0] < -1.5) | (points_pred[..., 0] > 1.5) |
+                (points_pred[..., 1] < -1.5) | (points_pred[..., 1] > 1.5) ) 
+        conf_pred_2d = einsum(conf_pred_2d, ~bad, 'cams b t n r, cams b t n -> cams b t n r')
+
+        # clip points and get scales
         sizes = torch.stack([cam['size'] for cam in camera_group])
-        points_pred_scaled = points_pred * sizes
+        points_pred = torch.clip(points_pred, -1.5, 1.5)
+        points_pred_scaled = einsum((points_pred + 1) * 0.5, sizes,
+                                    'cams b t n r, cams r -> cams b t n r')
         
         points_und = torch.stack([
             undistort_points(camera_group[i], points_pred_scaled[i])
             for i in range(len(camera_group))
-        ]) 
+        ])
 
-        points_und_flat = rearrange(points_und, 'cams b t n r -> cams (b t n) r')
-        camera_mats = torch.stack([cam['ext'] for cam in camera_group])
-        weights = rearrange(conf_pred, 'cams b t n -> cams (b t n)')
-        points_3d_flat = triangulate_simple_batch(points_und_flat, camera_mats, weights)
-        points_3d = rearrange(points_3d, '(b t n) r -> b t n r', b=B, t=T, n=N)
+        # get 3d points from each cameras using rays
+        rays_norm = to_homogeneous(points_und)
+        rot_mats = torch.stack([cam['ext'][:3,:3] for cam in camera_group])
+        rays_world = einsum(rays_norm, rot_mats, 'cams b t n r, cams r x -> cams b t n x')
+        rays_world = F.normalize(rays_world, dim=-1)
+
+        centers = torch.stack([cam['center'] for cam in camera_group])
+        cadd = repeat(centers, 'cams r -> cams 1 1 1 r')
+        points_3d_all = cadd + einsum(rays_world, depth_pred_scaled,
+                                      'cams b t n r, cams b t n -> cams b t n r')
+
+        # average 3d predictions
+        conf_3d = torch.softmax(conf_pred_2d_raw[..., 0], dim=0)
+        points_3d = einsum(points_3d_all, conf_3d, 'cams b t n r, cams b t n -> b t n r')
+        
+        # points_und_flat = rearrange(points_und, 'cams b t n r -> cams (b t n) r')
+        # camera_mats = torch.stack([cam['ext'] for cam in camera_group])
+        # weights = rearrange(conf_pred_2d, 'cams b t n 1 -> cams (b t n)')
+        # points_3d_flat = triangulate_simple_batch(points_und_flat, camera_mats, weights)
+        # points_3d = rearrange(points_3d_flat, '(b t n) r -> b t n r', b=B, t=T, n=N)
+
+        # # zero out 3d points with no confidence
+        # bad_pred = torch.amax(conf_pred_2d[..., 0], dim=0) <= 1e-5
+        # points_3d = einsum(points_3d, ~bad_pred, 'b t n r, b t n -> b t n r') 
+        
+        vis_pred = torch.amax(vis_pred_2d, dim=0)
+        conf_pred = torch.amax(conf_pred_2d, dim=0)
         
         # assemble outputs 
         result_dict = {
             'coords_pred': points_3d, # (b, t, n, 3)
+            '3d_pred_cams': points_3d_all, # (cams, b, t, n, 3)
             '2d_pred': points_pred_scaled, # (cams, b, t, n, 2)
-            'vis_pred': vis_pred, # (cams, b, t, n)
-            'conf_pred': conf_pred, # (cams, b, t, n)
+            'vis_pred': vis_pred, # (b, t, n, 1)
+            'conf_pred': conf_pred, # (b, t, n, 1)
+            'vis_pred_2d': vis_pred_2d[..., 0], # (cams, b, t, n)
+            'conf_pred_2d': conf_pred_2d[..., 0], # (cams, b, t, n)
             'depth_pred': depth_pred_scaled # (cams, b, t, n)
         }
 

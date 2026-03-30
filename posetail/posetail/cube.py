@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from einops import rearrange, einsum
+from einops import rearrange, einsum, repeat
 
 
 def project_volumes(volumes): 
@@ -123,35 +123,34 @@ def triangulate_simple_batch(points, camera_mats, weights):
         p3d: [N, 3] triangulated 3d point
     '''
     C, N, _ = points.shape
-
     points = rearrange(points, 'c n r -> n c r')
-    
-    # Expand camera_mats to [N, C, 4, 4]
     cam_mats = repeat(camera_mats, 'c i j -> n c i j', n=N)
     
-    # Extract x, y coordinates and reshape weights
-    x = points[:, :, 0:1, None]  # [N, C, 1]
-    y = points[:, :, 1:2, None]  # [N, C, 1]
-    w = rearrange(weights, 'c n -> n c 1 1')  # [N, C, 1]
+    x = points[:, :, 0:1, None]
+    y = points[:, :, 1:2, None]
+    w = rearrange(weights, 'c n -> n c 1 1')
     
-    # Build equations for each camera
-    # x * mat[2] - mat[0] and y * mat[2] - mat[1]
-    eq_x = w * (x * cam_mats[:, :, 2:3, :] - cam_mats[:, :, 0:1, :])  # [N, C, 1, 4]
-    eq_y = w * (y * cam_mats[:, :, 2:3, :] - cam_mats[:, :, 1:2, :])  # [N, C, 1, 4]
+    eq_x = w * (x * cam_mats[:, :, 2:3, :] - cam_mats[:, :, 0:1, :])
+    eq_y = w * (y * cam_mats[:, :, 2:3, :] - cam_mats[:, :, 1:2, :])
     
-    # Stack and reshape to [N, C*2, 4]
     A = rearrange([eq_x, eq_y], 'two n c 1 j -> n (c two) j')
     
-    # SVD decomposition
-    u, s, vh = torch.linalg.svd(A, full_matrices=True)  # vh: [N, 4, 4]
+    # Use eigendecomposition of A^T A instead of SVD
+    # This is more numerically stable for gradients
+    ATA = torch.bmm(A.transpose(-2, -1), A)
     
-    # Take last row of vh for each point
-    p3d_homogeneous = vh[:, -1, :]  # [N, 4]
+    # Add small regularization
+    eps = 1e-6
+    ATA = ATA + eps * torch.eye(4, device=A.device, dtype=A.dtype)
     
-    # Convert from homogeneous to 3D coordinates
-    p3d = p3d_homogeneous[:, :3] / p3d_homogeneous[:, 3:4]  # [N, 3]
+    # Smallest eigenvalue's eigenvector
+    eigenvalues, eigenvectors = torch.linalg.eigh(ATA)
+    p3d_homogeneous = eigenvectors[:, :, 0]  # eigenvector for smallest eigenvalue
+    
+    p3d = from_homogeneous(p3d_homogeneous)
     
     return p3d
+
 
 
 def undistort_points(cam, points):

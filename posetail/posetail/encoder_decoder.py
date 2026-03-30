@@ -6,8 +6,29 @@ import torch.nn.functional as F
 
 from posetail.posetail.networks import EmbedV2V
 from posetail.posetail.cube import is_point_visible, project_points_torch
+from posetail.posetail.utils import get_fourier_encoding
 
-from einops import rearrange
+from einops import rearrange, repeat
+
+from hub.backbones import (
+    vjepa2_ac_vit_giant,
+    vjepa2_vit_giant,
+    vjepa2_vit_giant_384,
+    vjepa2_vit_huge,
+    vjepa2_vit_large,
+    vjepa2_1_vit_base_384,
+    vjepa2_1_vit_large_384,
+    vjepa2_1_vit_giant_384,
+    vjepa2_1_vit_gigantic_384,
+)
+
+# weird hackery for vjepa
+import hub # from vjepa
+import os
+import sys
+vjepa_path = os.path.dirname(os.path.dirname(hub.__path__[0]))
+sys.path.append(vjepa_path)
+
 
 def sample_feature_cubes_time(feature_planes, camera_group,
                               cube_centers, query_time, cube_interval,
@@ -216,6 +237,9 @@ class SceneRepresentation(nn.Module):
             for param in self.encoder.parameters():
                 param.requires_grad = False
             self.encoder.eval()
+        else:
+            for param in self.encoder.parameters():
+                param.requires_grad = True
         
         self.freeze_encoder = freeze_encoder
         

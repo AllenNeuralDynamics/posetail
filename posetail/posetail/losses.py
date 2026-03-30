@@ -161,9 +161,11 @@ class TotalLoss(nn.Module):
         coords_loss = coords_loss / scale
         occluded_coords_loss = occluded_coords_loss / scale
             
-        losses = [coords_loss, occluded_coords_loss, 
-                  vis_loss, conf_loss, 
-                  feature_loss, bad_feature_loss]
+        losses = [
+            coords_loss, occluded_coords_loss, 
+            vis_loss, conf_loss, 
+            # feature_loss, bad_feature_loss
+        ]
         
         # total_loss = 0
         # for loss in losses: 

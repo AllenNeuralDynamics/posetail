@@ -214,6 +214,10 @@ def format_camera(cam, offset_dict, cam_type, device):
         cam_dict['offset'] = torch.as_tensor(offset, device = device, dtype = torch.float)
     else:
         cam_dict['offset'] = torch.as_tensor([0.0, 0.0], device = device, dtype = torch.float)
+
+    R = cam_dict['ext'][:3,:3]
+    t = cam_dict['ext'][:3, 3]
+    cam_dict['center'] = -R.T @ t
         
     return cam_dict
 
