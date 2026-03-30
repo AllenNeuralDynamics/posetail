@@ -16,7 +16,7 @@ from lightning.fabric import Fabric
 
 from posetail.datasets.posetail_dataset import PosetailDataset, custom_collate
 from posetail.posetail.losses import *
-from posetail.posetail.tracker import Tracker
+from posetail.posetail.tracker_encoder import TrackerEncoder
 from train_utils import *
 
 
@@ -134,7 +134,7 @@ def run(config_path, fabric):
         wandb.save(wandb_config_path, base_path = exp_dir)
 
     # device = torch.device(config.devices.device)
-    model = Tracker(**config.model)
+    model = TrackerEncoder(**config.model)
 
     model = fabric.setup(model)
 

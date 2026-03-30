@@ -61,7 +61,7 @@ class TotalLoss(nn.Module):
 
         loss_names = ['vis_loss', 'conf_loss', 
                       'occluded_coords_loss', 'coords_loss',
-                      'feature_loss','bad_feature_loss',
+                      # 'feature_loss','bad_feature_loss',
                       'total_loss', 'cube_scale']
         self.loss_history = {loss_name: [] for loss_name in loss_names}
 
@@ -99,7 +99,10 @@ class TotalLoss(nn.Module):
 
         occluded_true = ~vis_true
 
-        if model.training:
+        # training = model.training
+        training = False
+        
+        if training:
 
             coords_pred_iters = outputs['coords_pred_iters']
             vis_pred_iters = outputs['vis_pred_iters']
@@ -114,46 +117,46 @@ class TotalLoss(nn.Module):
         # compute losses
         if valid_vis:
             vis_loss = self.bce_loss_vis(
-                vis_pred = vis_pred_iters if model.training else vis_pred,
-                vis_true = vis_true_unrolled if model.training else vis_true,
+                vis_pred = vis_pred_iters if training else vis_pred,
+                vis_true = vis_true_unrolled if training else vis_true,
                 device = device
             )
         else:
             vis_loss = torch.tensor(0.0, device=device)
 
         conf_loss = self.bce_loss_conf(
-            conf_pred = conf_pred_iters if model.training else conf_pred, 
-            coords_pred = coords_pred_iters if model.training else coords_pred,  
-            coords_true = coords_true_unrolled if model.training else coords_true, 
-            vis_true = vis_true_unrolled if model.training else vis_true,
+            conf_pred = conf_pred_iters if training else conf_pred, 
+            coords_pred = coords_pred_iters if training else coords_pred,  
+            coords_true = coords_true_unrolled if training else coords_true, 
+            vis_true = vis_true_unrolled if training else vis_true,
             scale = scale, 
             device = device
         )
 
         coords_loss = self.mae_loss_coords(
-            coords_pred = coords_pred_iters if model.training else coords_pred, 
-            coords_true = coords_true_unrolled if model.training else coords_true, 
-            vis_true = vis_true_unrolled if model.training else vis_true, 
+            coords_pred = coords_pred_iters if training else coords_pred, 
+            coords_true = coords_true_unrolled if training else coords_true, 
+            vis_true = vis_true_unrolled if training else vis_true, 
             device = device
         )
 
         if valid_vis:
             occluded_coords_loss = self.mae_loss_occluded_coords(
-                coords_pred = coords_pred_iters if model.training else coords_pred, 
-                coords_true = coords_true_unrolled if model.training else coords_true, 
-                vis_true = occluded_true_unrolled if model.training else occluded_true, 
+                coords_pred = coords_pred_iters if training else coords_pred, 
+                coords_true = coords_true_unrolled if training else coords_true, 
+                vis_true = occluded_true_unrolled if training else occluded_true, 
                 device = device
             )
         else:
             occluded_coords_loss = torch.tensor(0.0, device=device)
 
-        feature_loss, bad_feature_loss = self.feature_loss(
-                model = model, 
-                coords_true = coords_true, 
-                feature_planes_levels = outputs['feature_planes_levels'], 
-                cgroup = cgroup,
-                device = device
-        )
+        # feature_loss, bad_feature_loss = self.feature_loss(
+        #         model = model, 
+        #         coords_true = coords_true, 
+        #         feature_planes_levels = outputs['feature_planes_levels'], 
+        #         cgroup = cgroup,
+        #         device = device
+        # )
 
         coords_loss = coords_loss / scale
         occluded_coords_loss = occluded_coords_loss / scale
@@ -175,8 +178,8 @@ class TotalLoss(nn.Module):
         self.loss_history['vis_loss'].append(vis_loss.item())
         self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
-        self.loss_history['feature_loss'].append(feature_loss.item())
-        self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
+        # self.loss_history['feature_loss'].append(feature_loss.item())
+        # self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 
         self.loss_history['cube_scale'].append(scale)
         

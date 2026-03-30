@@ -91,6 +91,99 @@ def project_points_torch(camera_group, coords_3d, downsample_factor = 1):
     return coords_proj
 
 
+def triangulate_simple(points, camera_mats, weights):
+    '''
+    Inputs:
+        points: [C, 2] 2d points to triangulate
+        camera_mats: [C, 4, 4] camera extrinsics
+        weights: [C] weight for each camera
+    Outputs:
+        p3d: [3] triangulated 3d point
+    '''
+    num_cams = len(camera_mats)
+    A = torch.zeros((num_cams * 2, 4), dtype=points.dtype, device=points.device)
+    for i in range(num_cams):
+        x, y = points[i]
+        mat = camera_mats[i]
+        w = weights[i]
+        A[(i * 2):(i * 2 + 1)] = w * (x * mat[2] - mat[0])
+        A[(i * 2 + 1):(i * 2 + 2)] = w * (y * mat[2] - mat[1])
+    u, s, vh = torch.linalg.svd(A, full_matrices=True)
+    p3d = vh[-1]
+    p3d = p3d[:3] / p3d[3]
+    return p3d
+
+def triangulate_simple_batch(points, camera_mats, weights):
+    '''
+    Inputs:
+        points: [C, N, 2] 2d points to triangulate
+        camera_mats: [C, 4, 4] camera extrinsics
+        weights: [C, N] weight for each camera
+    Outputs:
+        p3d: [N, 3] triangulated 3d point
+    '''
+    C, N, _ = points.shape
+
+    points = rearrange(points, 'c n r -> n c r')
+    
+    # Expand camera_mats to [N, C, 4, 4]
+    cam_mats = repeat(camera_mats, 'c i j -> n c i j', n=N)
+    
+    # Extract x, y coordinates and reshape weights
+    x = points[:, :, 0:1, None]  # [N, C, 1]
+    y = points[:, :, 1:2, None]  # [N, C, 1]
+    w = rearrange(weights, 'c n -> n c 1 1')  # [N, C, 1]
+    
+    # Build equations for each camera
+    # x * mat[2] - mat[0] and y * mat[2] - mat[1]
+    eq_x = w * (x * cam_mats[:, :, 2:3, :] - cam_mats[:, :, 0:1, :])  # [N, C, 1, 4]
+    eq_y = w * (y * cam_mats[:, :, 2:3, :] - cam_mats[:, :, 1:2, :])  # [N, C, 1, 4]
+    
+    # Stack and reshape to [N, C*2, 4]
+    A = rearrange([eq_x, eq_y], 'two n c 1 j -> n (c two) j')
+    
+    # SVD decomposition
+    u, s, vh = torch.linalg.svd(A, full_matrices=True)  # vh: [N, 4, 4]
+    
+    # Take last row of vh for each point
+    p3d_homogeneous = vh[:, -1, :]  # [N, 4]
+    
+    # Convert from homogeneous to 3D coordinates
+    p3d = p3d_homogeneous[:, :3] / p3d_homogeneous[:, 3:4]  # [N, 3]
+    
+    return p3d
+
+
+def undistort_points(cam, points):
+    matrix = cam['mat']
+    dist = cam['dist']
+    offset = cam['offset']
+
+    shape = points.shape
+    points = points.reshape(-1, 2)
+    fx, fy = matrix[0, 0], matrix[1, 1]
+    cx, cy = matrix[0, 2], matrix[1, 2]
+    x = (points[:, 0] + offset[0] - cx) / fx
+    y = (points[:, 1] + offset[1] - cy) / fy
+    x0, y0 = x.clone(), y.clone()
+    for _ in range(5):
+        r2 = x*x + y*y
+        r4 = r2*r2
+        r6 = r4*r2
+        k1, k2, p1, p2 = dist[0], dist[1], dist[2], dist[3]
+        if dist.shape[0] > 4:
+            k3 = dist[4]
+        else:
+            k3 = torch.tensor(0.0, device=dist.device, dtype=dist.dtype)
+        radial = 1 + k1*r2 + k2*r4 + k3*r6
+        dx = 2*p1*x*y + p2*(r2 + 2*x*x)
+        dy = p1*(r2 + 2*y*y) + 2*p2*x*y
+        x = (x0 - dx) / radial
+        y = (y0 - dy) / radial
+        
+    return torch.stack([x, y], dim=1).reshape(shape)
+
+
 def projection_sensitivity(cam, p):
     p = p.float()
     n_points = p.shape[0]

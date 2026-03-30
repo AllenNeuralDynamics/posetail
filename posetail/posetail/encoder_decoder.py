@@ -101,9 +101,12 @@ def sample_feature_cubes_time(feature_planes, camera_group,
 
 
 class QueryEncoder(nn.Module):
-    def __init__(self, embed_dim=256, n_frames=16, vdim=8, corr_radius=2, max_freq=10, feature_dim=1024):
+    def __init__(self, embed_dim=256, decoder_dim=256,
+                 n_frames=16, vdim=8,
+                 corr_radius=2, max_freq=10):
         super().__init__()
         self.embed_dim = embed_dim
+        self.decoder_dim = decoder_dim
         self.vdim = vdim
         self.corr_radius = corr_radius
         self.max_freq = max_freq
@@ -120,6 +123,12 @@ class QueryEncoder(nn.Module):
         # Positional encodings
         self.linear_pos = nn.Linear(4 * max_freq, embed_dim)
         self.linear_depth = nn.Linear(2 * max_freq, embed_dim)
+
+        self.final_mlp = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim*4),
+            nn.GELU(),
+            nn.Linear(embed_dim*4, decoder_dim),
+        )
         
     def forward(self, preprocessed_views, camera_group,
                 query_coords, query_time, target_time,
@@ -181,7 +190,9 @@ class QueryEncoder(nn.Module):
         embed_total = embed_patch + embed_query_time + \
             embed_target_time + embed_pos + embed_depth
 
-        return embed_total, visible
+        embed_final = self.final_mlp(embed_total)
+        
+        return embed_final, visible
 
 class SceneRepresentation(nn.Module):
     def __init__(self, version='large', freeze_encoder=True):
@@ -211,7 +222,7 @@ class SceneRepresentation(nn.Module):
     def forward(self, views):
         """
         Args:
-            views: list of [B, T, H, W, C] tensors (preprocessed images, one list per camera)
+            views: list of [B, T, C, H, W] tensors (preprocessed images, one list per camera)
             
         Returns:
             encoded_views: list of [B, N_tokens, encoder_dim] tensors (one per camera)
@@ -235,7 +246,7 @@ class SceneRepresentation(nn.Module):
     
 
 
-class QueryDecoder(nn.Module):
+class Decoder(nn.Module):
     def __init__(self, embed_dim=256, encoder_dim=1024,
                  num_heads=8, num_layers=8, 
                  mlp_ratio=4.0, dropout=0.0):
@@ -320,7 +331,6 @@ class QueryDecoder(nn.Module):
             output = self.output_head(x)
 
             # Mask out invisible predictions
-            # Shape: [B, T_query, 1] to broadcast across the 5 output dims
             vis_mask_expanded = rearrange(vis_mask, 'b t -> b t 1')
             output = output * vis_mask_expanded.float()
             
