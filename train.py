@@ -25,7 +25,7 @@ python train.py --config-path configs/config_default_2d.toml
 python train.py --config-path configs/config_default_3d.toml --devices 1
 python train.py --config-path configs/config_default_3d.toml --devices 1 2
 pixi run python train.py --config-path configs/config_default_3d.toml --precision 32 --devices 1 
-pixi run python train.py --config-path configs/config_minicubes_full_training.toml --precision 16-mixed --devices 1 
+pixi run python train.py --config-path configs/minicubes_kubric_defauflt.toml --precision 32 --devices 1 
 '''
 
 def parse_args(): 

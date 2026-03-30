@@ -53,6 +53,8 @@ min_res = 256
 max_res = 320
 cams_to_sample = [1, 5]
 kpts_to_sample = [32, 80]
+speed_thresh = 1.0 
+prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -65,6 +67,8 @@ n_frames = 16
 max_res = 288
 cams_to_sample = 5
 kpts_to_sample = 32
+speed_thresh = 1.0 
+prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.0
 
 [dataset.test]
