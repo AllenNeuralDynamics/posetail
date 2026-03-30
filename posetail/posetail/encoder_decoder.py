@@ -70,7 +70,7 @@ def sample_feature_cubes_time(feature_planes, camera_group,
             align_corners=False,
             padding_mode="zeros")  # (b k) d total 1
         
-        samples = rearrange(samples_flat[..., 0], '(b k) d total -> b d k total', b=b, k=K)
+        samples = rearrange(samples_flat, '(b k) d total 1 -> b d k total', b=b, k=K)
         all_samples.append(samples)
         all_masks.append(valid_mask)
 
