@@ -8,13 +8,15 @@ import torch.nn.functional as F
 from einops import rearrange, einsum, reduce, repeat
 
 from posetail.posetail.cube import get_camera_scale, from_homogeneous, to_homogeneous
-from posetail.posetail.cube import undistort_points, triangulate_simple_batch
-from posetail.posetail.utils import PadToMultiple
+from posetail.posetail.cube import undistort_points, triangulate_simple_batch, project_points_torch
+from posetail.posetail.utils import PadToMultiple, PadToSize
 from posetail.posetail.encoder_decoder import SceneRepresentation, QueryEncoder, Decoder
 
 from torchvision import transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters())
 
 class TrackerEncoder(nn.Module): 
 
@@ -78,13 +80,13 @@ class TrackerEncoder(nn.Module):
         
         # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         self.transform_norm = transforms.Compose([
-            PadToMultiple(16),
+            PadToSize(256),
             transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD),
         ])
 
 
         self.scene_encoder = SceneRepresentation(
-            version='large',
+            version='giant',
             freeze_encoder=~hiera_requires_grad
         )
         
@@ -92,7 +94,7 @@ class TrackerEncoder(nn.Module):
             embed_dim=embedding_dim,
             decoder_dim=latent_dim,
             n_frames=self.n_frames, 
-            vdim=8, 
+            vdim=16, 
             corr_radius=corr_radius, 
             max_freq=self.max_freq
         )
@@ -104,6 +106,18 @@ class TrackerEncoder(nn.Module):
             mlp_ratio=embedding_factor
         )
 
+        self.p2d_scale = nn.Parameter(torch.tensor([32.0]))
+
+        self.depth_scale = nn.Parameter(torch.tensor([500.0]))
+
+
+    def print_summary(self):
+        print("PARAMETERS")
+        print("  total parameters: {:,d}".format(count_parameters(self)))
+        print("  query encoder params: {:,d}".format(count_parameters(self.query_encoder)))
+        print("  scene representation params: {:,d}".format(count_parameters(self.scene_encoder)))
+        print("  decoder params: {:,d}".format(count_parameters(self.decoder)))
+        
     def forward(self, views, coords, camera_group = None):
         '''
         B: batch size
@@ -158,21 +172,28 @@ class TrackerEncoder(nn.Module):
             outputs, [2, 1, 1, 1], dim=-1
         )
         
-        depth_pred_scaled = (depth_pred[..., 0] + 0.5) * self.cube_scale * 500
+        depth_pred_scaled = (depth_pred[..., 0] + 1) * self.cube_scale * self.depth_scale
 
         vis_pred_2d = F.sigmoid(vis_pred_2d)
         conf_pred_2d = F.sigmoid(conf_pred_2d_raw)
 
         # zero out confidences for points outside of range
-        bad = ( (points_pred[..., 0] < -1.5) | (points_pred[..., 0] > 1.5) |
-                (points_pred[..., 1] < -1.5) | (points_pred[..., 1] > 1.5) ) 
-        conf_pred_2d = einsum(conf_pred_2d, ~bad, 'cams b t n r, cams b t n -> cams b t n r')
+        # bad = ( (points_pred[..., 0] < -1.5) | (points_pred[..., 0] > 1.5) |
+        #         (points_pred[..., 1] < -1.5) | (points_pred[..., 1] > 1.5) ) 
+        # conf_pred_2d = einsum(conf_pred_2d, ~bad, 'cams b t n r, cams b t n -> cams b t n r')
 
         # clip points and get scales
-        sizes = torch.stack([cam['size'] for cam in camera_group])
-        points_pred = torch.clip(points_pred, -1.5, 1.5)
-        points_pred_scaled = einsum((points_pred + 1) * 0.5, sizes,
-                                    'cams b t n r, cams r -> cams b t n r')
+        # sizes = torch.stack([cam['size'] for cam in camera_group])
+        # points_pred = torch.clip(points_pred, -1.5, 1.5)
+        # points_pred_scaled = einsum((points_pred + 1) * 0.5, sizes,
+        #                             'cams b t n r, cams r -> cams b t n r')
+        # points_pred_scaled = F.sigmoid(points_pred) * 256
+        # points_pred_scaled = (points_pred + 1) * self.p2d_scale
+        
+        p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
+        p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T)
+        # Predict offsets instead of absolute bounded coordinates
+        points_pred_scaled = p2d_query + points_pred * self.p2d_scale 
         
         points_und = torch.stack([
             undistort_points(camera_group[i], points_pred_scaled[i])
@@ -190,13 +211,16 @@ class TrackerEncoder(nn.Module):
         points_3d_all = cadd + einsum(rays_world, depth_pred_scaled,
                                       'cams b t n r, cams b t n -> cams b t n r')
 
-        # average 3d predictions
+        # # average 3d predictions
         conf_3d = torch.softmax(conf_pred_2d_raw[..., 0], dim=0)
         points_3d = einsum(points_3d_all, conf_3d, 'cams b t n r, cams b t n -> b t n r')
-        
+
+
+        # triangulate points
         # points_und_flat = rearrange(points_und, 'cams b t n r -> cams (b t n) r')
         # camera_mats = torch.stack([cam['ext'] for cam in camera_group])
         # weights = rearrange(conf_pred_2d, 'cams b t n 1 -> cams (b t n)')
+        # points_und_flat = torch.clip(points_und_flat, -2, 2)
         # points_3d_flat = triangulate_simple_batch(points_und_flat, camera_mats, weights)
         # points_3d = rearrange(points_3d_flat, '(b t n) r -> b t n r', b=B, t=T, n=N)
 

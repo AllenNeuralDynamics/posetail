@@ -4,8 +4,8 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
-from einops import rearrange
-from posetail.posetail.cube import get_camera_scale
+from einops import rearrange, repeat
+from posetail.posetail.cube import get_camera_scale, project_points_torch
 
 
 class TotalLoss(nn.Module): 
@@ -48,6 +48,20 @@ class TotalLoss(nn.Module):
             weight = self.coords_loss_weight
         )
 
+        self.mae_loss_coords_2d = WeightedMAELoss(
+            gamma = self.gamma, 
+            delta = 16, 
+            use_huber_loss = True, 
+            weight = self.coords_loss_weight * 100 / 16.0
+        )
+
+        self.mae_loss_coords_depth = WeightedMAELoss(
+            gamma = self.gamma, 
+            delta = self.delta, 
+            use_huber_loss = self.use_huber_loss, 
+            weight = self.coords_loss_weight * 10
+        )
+        
         self.mae_loss_occluded_coords = WeightedMAELoss(
             gamma = self.gamma, 
             delta = self.delta, 
@@ -61,6 +75,7 @@ class TotalLoss(nn.Module):
 
         loss_names = ['vis_loss', 'conf_loss', 
                       'occluded_coords_loss', 'coords_loss',
+                      '2d_loss', 'depth_loss',
                       # 'feature_loss','bad_feature_loss',
                       'total_loss', 'cube_scale']
         self.loss_history = {loss_name: [] for loss_name in loss_names}
@@ -81,17 +96,31 @@ class TotalLoss(nn.Module):
     def forward(self, model, outputs, coords_true, 
                 vis_true, cgroup = None, device = None):
 
+        # coords_true: b t n r
+        
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
         conf_pred = outputs['conf_pred']
 
+        coords_pred_2d = outputs['2d_pred']
+        depth_pred = outputs['depth_pred'][..., None]
+
+        coords_true_2d = project_points_torch(cgroup, coords_true)
+
+        centers = rearrange(torch.stack([cam['center'] for cam in cgroup]),
+                            'cams r -> cams 1 1 1 r')
+        ctrue_cams = repeat(coords_true, 'b t n r -> cams b t n r',
+                            cams=len(cgroup))
+        depths_true = torch.linalg.norm(coords_true - centers, dim=-1)[..., None]
+        
         if vis_true is None:
             valid_vis = False
             vis_true = get_vis_true(coords_true) 
         else:
             valid_vis = True
             
-
+        vis_true_cams = repeat(vis_true, 'b t n 1 -> cams b t n 1', cams=len(cgroup))
+            
         if model.R == 3:
             scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
         else:
@@ -140,6 +169,21 @@ class TotalLoss(nn.Module):
             device = device
         )
 
+
+        coords_loss_2d = self.mae_loss_coords_2d(
+            coords_pred = coords_pred_2d,
+            coords_true = coords_true_2d,
+            vis_true = vis_true_cams,
+            device = device
+        )
+
+        coords_loss_depth = self.mae_loss_coords_depth(
+            coords_pred = depth_pred,
+            coords_true = depths_true,
+            vis_true = vis_true_cams,
+            device = device
+        )
+        
         if valid_vis:
             occluded_coords_loss = self.mae_loss_occluded_coords(
                 coords_pred = coords_pred_iters if training else coords_pred, 
@@ -160,10 +204,12 @@ class TotalLoss(nn.Module):
 
         coords_loss = coords_loss / scale
         occluded_coords_loss = occluded_coords_loss / scale
-            
+        coords_loss_depth = coords_loss_depth / scale
+        
         losses = [
             coords_loss, occluded_coords_loss, 
-            vis_loss, conf_loss, 
+            vis_loss, conf_loss,
+            coords_loss_2d, coords_loss_depth
             # feature_loss, bad_feature_loss
         ]
         
@@ -180,6 +226,9 @@ class TotalLoss(nn.Module):
         self.loss_history['vis_loss'].append(vis_loss.item())
         self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
+
+        self.loss_history['2d_loss'].append(coords_loss_2d.item())
+        self.loss_history['depth_loss'].append(coords_loss_depth.item())
         # self.loss_history['feature_loss'].append(feature_loss.item())
         # self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 

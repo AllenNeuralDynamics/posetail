@@ -123,6 +123,48 @@ def triangulate_simple_batch(points, camera_mats, weights):
         p3d: [N, 3] triangulated 3d point
     '''
     C, N, _ = points.shape
+
+    points = rearrange(points, 'c n r -> n c r')
+    
+    # Expand camera_mats to [N, C, 4, 4]
+    cam_mats = repeat(camera_mats, 'c i j -> n c i j', n=N)
+    
+    # Extract x, y coordinates and reshape weights
+    x = points[:, :, 0:1, None]  # [N, C, 1]
+    y = points[:, :, 1:2, None]  # [N, C, 1]
+    w = rearrange(weights, 'c n -> n c 1 1')  # [N, C, 1]
+    
+    # Build equations for each camera
+    # x * mat[2] - mat[0] and y * mat[2] - mat[1]
+    eq_x = w * (x * cam_mats[:, :, 2:3, :] - cam_mats[:, :, 0:1, :])  # [N, C, 1, 4]
+    eq_y = w * (y * cam_mats[:, :, 2:3, :] - cam_mats[:, :, 1:2, :])  # [N, C, 1, 4]
+    
+    # Stack and reshape to [N, C*2, 4]
+    A = rearrange([eq_x, eq_y], 'two n c 1 j -> n (c two) j')
+    
+    # SVD decomposition
+    u, s, vh = torch.linalg.svd(A, full_matrices=True)  # vh: [N, 4, 4]
+    
+    # Take last row of vh for each point
+    p3d_homogeneous = vh[:, -1, :]  # [N, 4]
+    
+    # Convert from homogeneous to 3D coordinates
+    p3d = p3d_homogeneous[:, :3] / p3d_homogeneous[:, 3:4]  # [N, 3]
+    
+    return p3d
+
+
+def triangulate_simple_batch_reg(points, camera_mats, weights):
+    '''
+    Inputs:
+        points: [C, N, 2] 2d points to triangulate
+        camera_mats: [C, 4, 4] camera extrinsics
+        weights: [C, N] weight for each camera
+    Outputs:
+        p3d: [N, 3] triangulated 3d point
+    '''
+    C, N, _ = points.shape
+
     points = rearrange(points, 'c n r -> n c r')
     cam_mats = repeat(camera_mats, 'c i j -> n c i j', n=N)
     

@@ -8,6 +8,7 @@ mode = 'online' # 'online', 'offline', 'disabled'
 batch_size = 1
 num_workers = 24
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
+# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/wrapped'
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning-test'
@@ -18,21 +19,23 @@ split_dir = 'train'
 n_frames = 16
 min_res = 256
 max_res = 256
-cams_to_sample = [2, 8] 
-kpts_to_sample = [64, 128]
+cams_to_sample = [1, 1] 
+kpts_to_sample = [2048, 2048]
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
 balance_datasets = true
 n_samples_per_dataset = -1
+crop_to_points = false
 
 [dataset.val]
 split_dir = 'val'
 n_frames = 16
 max_res = 256
-cams_to_sample = 5
+cams_to_sample = 1
 kpts_to_sample = 32
 aug_prob = 0.0
+crop_to_points = false
 
 [dataset.test]
 split_dir = 'test'
@@ -84,7 +87,7 @@ max_freq = 10
 n_iters = 4
 embedding_dim = 256
 # embedding_dim = 512
-latent_dim = 256
+latent_dim = 1024
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 8
@@ -105,8 +108,8 @@ print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 1e-5
-weight_decay = 1e-2
+learning_rate = 3e-5
+weight_decay = 1e-5
 # weight_decay = 0
 amsgrad = false
 
@@ -130,7 +133,8 @@ use_huber_loss = false
 
 # weights for calculating total loss (use 0 to not compute a specific loss)
 vis_loss_weight = 4
-conf_loss_weight = 0.2
+conf_loss_weight = 0.0
 coords_loss_weight = 0.10
 occluded_coords_loss_weight = 0.01
-feature_loss_weight = 1.0
+feature_loss_weight = 0.0
+

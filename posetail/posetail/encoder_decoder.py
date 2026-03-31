@@ -99,14 +99,15 @@ def sample_feature_cubes_time(feature_planes, camera_group,
     volumes = torch.stack(all_samples)
     masks = torch.stack(all_masks)  # ncams b k total
 
-    masks_expanded = repeat(masks, "ncams b k total -> ncams b d k total",
-                            d=volumes.shape[2])
+    # masks_expanded = repeat(masks, "ncams b k total -> ncams b d k total",
+    #                         d=volumes.shape[2])
 
     # apply softmax from learnable triangulation
-    volumes[~masks_expanded] = -1e3
-    weights = F.softmax(volumes, dim=0)
-    mean_volume = torch.sum(volumes * weights, dim=0)
-
+    # volumes[~masks_expanded] = -1e3
+    # weights = F.softmax(volumes, dim=0)
+    # mean_volume = torch.sum(volumes * weights, dim=0)
+    mean_volume = torch.mean(volumes, dim=0)
+    
     mv_flat = rearrange(mean_volume, 'b d k (x y z) -> (b k) d z y x',
                         x=cube_size, y=cube_size, z=cube_size)
     if v2v is not None:
@@ -185,9 +186,10 @@ class QueryEncoder(nn.Module):
                                       'b t embed -> b t 1 embed')
         
         # 2D position encoding
-        sizes = torch.stack([cam['size'] for cam in camera_group])
+        # sizes = torch.stack([cam['size'] for cam in camera_group])
         p2d_full = project_points_torch(camera_group, query_coords)
-        pp = rearrange(p2d_full, 'ncams b t r -> b t ncams r', b=B) / sizes
+        # pp = rearrange(p2d_full, 'ncams b t r -> b t ncams r', b=B) / sizes
+        pp = rearrange(p2d_full, 'ncams b t r -> b t ncams r', b=B) / 256 - 0.5
         fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
         embed_pos = self.linear_pos(fourier_pos)
 
@@ -214,6 +216,7 @@ class QueryEncoder(nn.Module):
         embed_final = self.final_mlp(embed_total)
         
         return embed_final, visible
+    
 
 class SceneRepresentation(nn.Module):
     def __init__(self, version='large', freeze_encoder=True):
@@ -230,18 +233,24 @@ class SceneRepresentation(nn.Module):
             vjepa_encoder, vjepa_decoder = vjepa2_1_vit_gigantic_384()
         
         self.encoder = vjepa_encoder
+        self.embed_dim = self.encoder.embed_dim * 4
+        self.patch_size = self.encoder.patch_size
+        self.tubelet_size = self.encoder.tubelet_size
 
-        self.embed_dim = self.encoder.embed_dim
+        self.encoder.return_hierarchical = True
         
         if freeze_encoder:
             for param in self.encoder.parameters():
                 param.requires_grad = False
             self.encoder.eval()
-        else:
-            for param in self.encoder.parameters():
-                param.requires_grad = True
         
         self.freeze_encoder = freeze_encoder
+        
+        n_tokens = (16 // self.tubelet_size) * (256 // self.patch_size) * (256 // self.patch_size)
+        self.pos_embed = nn.Parameter(
+            torch.zeros(1, n_tokens, self.embed_dim)
+        )
+        
         
     def forward(self, views):
         """
@@ -253,21 +262,23 @@ class SceneRepresentation(nn.Module):
         """
         encoded = []
         
-        # Set encoder to eval mode if frozen
         if self.freeze_encoder:
             self.encoder.eval()
         
         for imgs in views:
             xr = rearrange(imgs, 'b t c h w -> b c t h w')
+            B, C, T, H, W = xr.shape
             
             # Encode
             with torch.set_grad_enabled(not self.freeze_encoder):
-                feat = self.encoder(xr)
-            
+                feat = self.encoder(xr) # [b, n_tokens, embed_dim]
+
+            # Add position embeddings
+            feat = feat + self.pos_embed
+                
             encoded.append(feat)
         
-        return encoded
-    
+        return encoded    
 
 
 class Decoder(nn.Module):
@@ -309,7 +320,14 @@ class Decoder(nn.Module):
         self.norm2s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         
         # Final output head
-        self.output_head = nn.Linear(embed_dim, 2 + 1 + 1 + 1)  # 2d, depth, conf, vis
+        # self.output_head = nn.Linear(embed_dim, 2 + 1 + 1 + 1)  # 2d, depth, conf, vis
+        self.output_head = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim),
+            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim),
+            nn.GELU(),
+            nn.Linear(embed_dim, 5)
+        )
         
     def forward(self, scene_features, query_embeds, visible):
         """
@@ -345,7 +363,7 @@ class Decoder(nn.Module):
                     value=kv,
                     need_weights=False
                 )
-                x = self.norm1s[layer_idx](attn_out)
+                x = self.norm1s[layer_idx](x + attn_out)
                 
                 # MLP with residual
                 mlp_out = self.mlps[layer_idx](x)
@@ -355,8 +373,8 @@ class Decoder(nn.Module):
             output = self.output_head(x)
 
             # Mask out invisible predictions
-            vis_mask_expanded = rearrange(vis_mask, 'b t -> b t 1')
-            output = output * vis_mask_expanded.float()
+            # vis_mask_expanded = rearrange(vis_mask, 'b t -> b t 1')
+            # output = output * vis_mask_expanded.float()
             
             outputs_per_cam.append(output)
             

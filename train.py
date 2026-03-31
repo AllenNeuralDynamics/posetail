@@ -117,7 +117,7 @@ def run(config_path, fabric):
         
         val_loader = fabric.setup_dataloaders(val_loader)
 
-    torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(False)
     
     if fabric.is_global_zero:
         wandb.init(
@@ -137,6 +137,8 @@ def run(config_path, fabric):
     model = TrackerEncoder(**config.model)
 
     model = fabric.setup(model)
+
+    model.print_summary()
 
     # set up optimizer
     optimizer = torch.optim.AdamW(
@@ -184,7 +186,10 @@ def run(config_path, fabric):
     #     # model.view_attention.compile()
     # elif model.mode_3d == 'triplane':
     #     model.triplane_cnn.compile()
-        
+
+    # model.query_encoder.compile()
+    # model.decoder.compile()
+    
     # model.mark_forward_method('get_feature_loss')
     
     # NOTE: memory profiling causes a CPU memory leak
