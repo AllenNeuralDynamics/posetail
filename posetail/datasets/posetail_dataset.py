@@ -507,30 +507,36 @@ class PosetailDataset(Dataset):
         # sample if there are more keypoints than the number to sample
         if coords.shape[1] > num_kpts_to_sample:
 
-            dynamic_mask = avg_speed >= self.speed_thresh
-            static_mask = ~dynamic_mask
+            # sample a proportion of static vs dynamic points if a speed thresh is provided
+            if self.speed_thresh is not None: 
 
-            num_dynamic = int(num_kpts_to_sample * self.prop_dynamic_kpts_to_sample)
-            num_static = num_kpts_to_sample - num_dynamic
+                dynamic_mask = avg_speed >= self.speed_thresh
+                static_mask = ~dynamic_mask
 
-            dynamic_idx = torch.where(dynamic_mask)[0].cpu().numpy()
-            static_idx = torch.where(static_mask)[0].cpu().numpy()
+                num_dynamic = int(num_kpts_to_sample * self.prop_dynamic_kpts_to_sample)
+                num_static = num_kpts_to_sample - num_dynamic
 
-            num_dynamic = min(num_dynamic, len(dynamic_idx))
-            num_static = min(num_static, len(static_idx))
+                dynamic_idx = torch.where(dynamic_mask)[0].cpu().numpy()
+                static_idx = torch.where(static_mask)[0].cpu().numpy()
 
-            sampled_dynamic = np.random.choice(dynamic_idx, size = num_dynamic, replace = False) if len(dynamic_idx) > 0 else []
-            sampled_static = np.random.choice(static_idx, size = num_static, replace = False)if len(static_idx) > 0 else []
+                num_dynamic = min(num_dynamic, len(dynamic_idx))
+                num_static = min(num_static, len(static_idx))
 
-            ix_p = np.concatenate([sampled_dynamic, sampled_static])
-            np.random.shuffle(ix_p)
+                sampled_dynamic = np.random.choice(dynamic_idx, size = num_dynamic, replace = False) if len(dynamic_idx) > 0 else []
+                sampled_static = np.random.choice(static_idx, size = num_static, replace = False) if len(static_idx) > 0 else []
 
-            # prob = (total_movement + 2) / torch.sum(total_movement + 2)
-            # prob = prob.numpy()
+                ix_p = np.concatenate([sampled_dynamic, sampled_static])
+                np.random.shuffle(ix_p)
+                coords = coords[:, ix_p]
 
-            # ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
-            #                         replace = False, p = prob)
-            coords = coords[:, ix_p]
+            # otherwise, default to sampling probabilities based on total movement
+            else: 
+                prob = (total_movement + 2) / torch.sum(total_movement + 2)
+                prob = prob.numpy()
+
+                ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
+                                        replace = False, p = prob)
+                coords = coords[:, ix_p]
 
             # sample corresponding visibilities
             if vis is not None: 
