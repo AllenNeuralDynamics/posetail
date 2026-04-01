@@ -111,7 +111,7 @@ class TrackerEncoder(nn.Module):
 
         self.p2d_scale = nn.Parameter(torch.tensor([32.0]))
 
-        self.depth_scale = nn.Parameter(torch.tensor([500.0]))
+        self.depth_scale = nn.Parameter(torch.tensor([50.0]))
 
         self.p3d_scale = nn.Parameter(torch.tensor([50.0]))
 
@@ -185,14 +185,20 @@ class TrackerEncoder(nn.Module):
         points_3d_offsets, points_pred, vis_pred_2d, conf_pred_2d_raw, depth_pred = torch.split(
             outputs, [3, 2, 1, 1, 1], dim=-1
         )
-        
-        depth_pred_scaled = (depth_pred[..., 0] + 1) * self.cube_scale * self.depth_scale
+
 
         vis_pred_2d = F.sigmoid(vis_pred_2d)
         conf_pred_2d = F.sigmoid(conf_pred_2d_raw)
 
         conf_3d = torch.softmax(conf_pred_2d_raw[..., 0], dim=0)
 
+
+        qc = rearrange(query_coords, 'b (t n) r -> b t n 1 r', t=T, n=N)
+        centers = torch.stack([cam['center'] for cam in camera_group])
+        depths_query = torch.linalg.norm(qc - centers, dim=-1)
+        depths_query_shaped = rearrange(depths_query, 'b t n cams -> cams b t n')
+        depth_pred_scaled = depths_query_shaped + depth_pred[..., 0] * self.cube_scale * self.depth_scale
+        
 
         # zero out confidences for points outside of range
         # bad = ( (points_pred[..., 0] < -1.5) | (points_pred[..., 0] > 1.5) |
