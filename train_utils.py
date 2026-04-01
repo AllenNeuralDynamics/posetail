@@ -258,6 +258,11 @@ def train_iteration(config, model, fabric, batch,
     coords = batch.coords.to(device)
     vis = batch.vis
     cgroup = batch.cgroup 
+    vis_2d = batch.vis_2d
+    query_times = batch.query_times
+
+    query_coords = coords[:, query_times[0],
+                          torch.arange(len(query_times[0]))]
     
     # fallback if visibilities are not provided
     # if vis is None: 
@@ -272,7 +277,8 @@ def train_iteration(config, model, fabric, batch,
 
     outputs = model(
         views = list(views), 
-        coords = coords[:, 0, ...], # coords for first frame
+        coords = query_coords,
+        query_times = query_times,
         camera_group = cgroup)
 
     coords_pred = outputs['coords_pred']
@@ -282,7 +288,8 @@ def train_iteration(config, model, fabric, batch,
         model = model, 
         outputs = outputs,
         coords_true = coords, 
-        vis_true = vis, 
+        vis_true = vis,
+        vis_true_cams = vis_2d,
         cgroup = cgroup, 
         device = coords_pred.device)
         
@@ -366,10 +373,14 @@ def train_epoch(config, model, fabric, dataloader,
         coords = batch.coords.to(device)
         vis = batch.vis
         cgroup = batch.cgroup 
+        vis_2d = batch.vis_2d
+        query_times = batch.query_times
+
+        query_coords = coords[:, query_times[0], torch.arange(len(query_times[0]))]
         
         # fallback if visibilities are not provided
-        if vis is None: 
-            vis = get_vis_true(coords)
+        # if vis is None: 
+        #     vis = get_vis_true(coords)
 
         if cgroup: 
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
@@ -378,7 +389,8 @@ def train_epoch(config, model, fabric, dataloader,
 
         outputs = model(
             views = list(views), 
-            coords = coords[:, 0, ...], 
+            coords = query_coords,
+            query_times = query_times,
             camera_group = cgroup)
 
         coords_pred = outputs['coords_pred']
@@ -388,7 +400,8 @@ def train_epoch(config, model, fabric, dataloader,
             model = model, 
             outputs = outputs,
             coords_true = coords, 
-            vis_true = vis, 
+            vis_true = vis,
+            vis_true_cams = vis_2d,
             cgroup = cgroup, 
             device = coords_pred.device)
 
@@ -479,7 +492,11 @@ def test_epoch(config, model, dataloader, loss = None,
         views = [view.to(device) for view in batch.views]
         coords = batch.coords.to(device)
         vis = batch.vis
-        cgroup = batch.cgroup 
+        cgroup = batch.cgroup
+        vis_2d = batch.vis_2d
+        query_times = batch.query_times
+
+        query_coords = coords[:, query_times[0], torch.arange(len(query_times[0]))]
         
         # fallback if visibilities are not provided
         # if vis is None: 
@@ -492,7 +509,8 @@ def test_epoch(config, model, dataloader, loss = None,
         with torch.no_grad():
             outputs = model(
                 views = list(views), 
-                coords = coords[:, 0, ...], 
+                coords = query_coords,
+                query_times = query_times,
                 camera_group = cgroup)
         
         coords_pred = outputs['coords_pred']
@@ -503,7 +521,8 @@ def test_epoch(config, model, dataloader, loss = None,
                 model = model, 
                 outputs = outputs,
                 coords_true = coords, 
-                vis_true = vis, 
+                vis_true = vis,
+                vis_true_cams = vis_2d,
                 cgroup = cgroup, 
                 device = coords_pred.device)
 

@@ -3,6 +3,7 @@
 import argparse
 import os
 import wandb
+import time
 
 import torch
 import torch.multiprocessing as mp
@@ -113,11 +114,15 @@ def run(config_path, fabric):
             batch_size = config.dataset.batch_size, 
             collate_fn = custom_collate,
             shuffle = True,
-            num_workers = config.dataset.num_workers)
+            num_workers = config.dataset.num_workers,
+            prefetch_factor=2, 
+            persistent_workers=True,
+            pin_memory=True
+        )
         
         val_loader = fabric.setup_dataloaders(val_loader)
 
-    torch.autograd.set_detect_anomaly(False)
+    torch.autograd.set_detect_anomaly(True)
     
     if fabric.is_global_zero:
         wandb.init(
@@ -234,6 +239,7 @@ def run(config_path, fabric):
 
     train_iter = iter(train_loader)
 
+    iter_time = time.time()
     for i in range(iters_per_gpu):
 
         try:
@@ -273,7 +279,8 @@ def run(config_path, fabric):
 
         # log losses and eval metrics to wandb and print to console 
         if fabric.is_global_zero:
-
+            result_dict['train/iter_time'] = time.time() - iter_time
+            iter_time = time.time()
             wandb.log(result_dict)
             write_json(json_path, result_dict)
             wandb.save(json_path, base_path = exp_dir)

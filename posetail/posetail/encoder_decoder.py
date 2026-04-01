@@ -121,30 +121,142 @@ def sample_feature_cubes_time(feature_planes, camera_group,
     return mean_volume
 
 
+def sample_patches(images: torch.Tensor, centers: torch.Tensor,
+                   query_times: torch.Tensor, patch_size: int) -> torch.Tensor:
+    """
+    Sample patches from images at given center coordinates and times.
+    
+    Args:
+        images: [B, T, C, H, W]
+        centers: [B, Z, R] pixel coordinates (x, y) of patch centers, R=2
+        query_times: [B, Z] time indices into T
+        patch_size: P
+    
+    Returns:
+        patches: [B, Z, C, P, P]
+    """
+    B, T, C, H, W = images.shape
+    Z = centers.shape[1]
+    P = patch_size
+
+    # Build patch offset grid: [P, P, 2]
+    lin = torch.arange(P, dtype=centers.dtype, device=centers.device)
+    grid_y, grid_x = torch.meshgrid(lin, lin, indexing='ij')
+    offset_x = grid_x - (P - 1) / 2.0
+    offset_y = grid_y - (P - 1) / 2.0
+    offsets = torch.stack([offset_x, offset_y], dim=-1)  # [P, P, 2]
+
+    # Compute absolute pixel coordinates: [B, Z, P, P, 2]
+    px = centers[:, :, None, None, :] + offsets[None, None, :, :, :]  # [B, Z, P, P, 2]
+
+    # Normalize to [-1, 1] for grid_sample with align_corners=False
+    scales = torch.tensor([W, H], dtype=images.dtype, device=images.device)
+    grid = (2.0 * px + 1.0) / scales - 1.0  # [B, Z, P, P, 2]
+
+    # Gather frames at query times: [B, T, C, H, W] -> [B, Z, C, H, W]
+    t_idx = repeat(query_times, 'b z -> b z c h w', c=C, h=H, w=W)
+    frames = torch.gather(images, dim=1, index=t_idx)  # [B, Z, C, H, W]
+
+    # Flatten batch and Z dimensions for grid_sample
+    frames_flat = rearrange(frames, 'b z c h w -> (b z) c h w')
+    grid_flat = rearrange(grid, 'b z p q r -> (b z) p q r')
+
+    # Sample patches
+    patches_flat = F.grid_sample(
+        frames_flat,
+        grid_flat,
+        mode='bilinear',
+        padding_mode='zeros',
+        align_corners=False
+    )  # [B*Z, C, P, P]
+
+    # Reshape back to [B, Z, C, P, P]
+    patches = rearrange(patches_flat, '(b z) c p q -> b z c p q', b=B, z=Z)
+
+    return patches
+
+
+class PatchProcessor(nn.Module):
+    def __init__(self, in_channels, patch_size, embed_dim, 
+                 conv_channels=[32, 64, 128], kernel_size=3):
+        super().__init__()
+        self.patch_size = patch_size
+        self.embed_dim = embed_dim
+        
+        # Build conv layers
+        layers = []
+        prev_c = in_channels
+        for c in conv_channels:
+            layers.extend([
+                nn.Conv2d(prev_c, c, kernel_size, padding=kernel_size//2),
+                nn.BatchNorm2d(c),
+                nn.GELU(),
+            ])
+            prev_c = c
+        self.convs = nn.Sequential(*layers)
+        
+        # Calculate output spatial size (assuming no pooling/stride)
+        conv_out_size = patch_size  
+        
+        # MLP to process flattened conv features
+        mlp_in_dim = conv_channels[-1] * conv_out_size * conv_out_size
+        self.mlp = nn.Sequential(
+            nn.Linear(mlp_in_dim, embed_dim * 2),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(embed_dim * 2, embed_dim),
+        )
+        
+    def forward(self, patches):
+        """
+        Args:
+            patches: [B, C, P, P]
+        Returns:
+            embed: [B, embed_dim]
+        """
+        # Apply convs
+        x = self.convs(patches)  # [B, C_out, P, P]
+        
+        # Flatten spatial dimensions
+        x = rearrange(x, 'b c p q -> b (c p q)')
+        
+        # Apply MLP
+        embed = self.mlp(x)  # [B, embed_dim]
+        
+        return embed
+
 
 class QueryEncoder(nn.Module):
     def __init__(self, embed_dim=256, decoder_dim=256,
-                 n_frames=16, vdim=8,
-                 corr_radius=2, max_freq=10):
+                 n_frames=16, corr_radius=2, max_freq=10,
+                 patch_size=9):
         super().__init__()
         self.embed_dim = embed_dim
         self.decoder_dim = decoder_dim
-        self.vdim = vdim
         self.corr_radius = corr_radius
         self.max_freq = max_freq
+        self.patch_size = patch_size
+        self.n_frames = n_frames
         
         # Time embeddings
         self.t_query_embed = nn.Embedding(n_frames, embed_dim)
         self.t_target_embed = nn.Embedding(n_frames, embed_dim)
         
-        # Volume processing
-        self.v2v = EmbedV2V(3, vdim)
-        in_dim_vol = (corr_radius * 2 + 1) ** 3 * vdim
-        self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
+        # # Volume processing
+        # self.v2v = EmbedV2V(3, vdim)
+        # in_dim_vol = (corr_radius * 2 + 1) ** 3 * vdim
+        # self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
         
         # Positional encodings
         self.linear_pos = nn.Linear(4 * max_freq, embed_dim)
         self.linear_depth = nn.Linear(2 * max_freq, embed_dim)
+
+        self.patch_processor = PatchProcessor(
+            in_channels=3,
+            patch_size=patch_size,
+            embed_dim=embed_dim,
+            conv_channels=[32, 64, 128],
+        )
 
         self.final_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim*4),
@@ -169,15 +281,42 @@ class QueryEncoder(nn.Module):
             visible: [B, T_query, N_cams] which points are visible
         """
         B, T_query, _ = query_coords.shape
+
+        assert len(preprocessed_views) == len(camera_group), "number of views and cameras should match"
+        n_cams = len(camera_group)
         
-        # Sample feature volumes
-        volumes = sample_feature_cubes_time(
-            preprocessed_views, camera_group, query_coords, query_time,
-            cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
-        volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
+        # 2D position encoding
+        sizes = torch.stack([
+            torch.tensor([view.shape[-1], view.shape[-2]], #[W, H] 
+                         dtype=torch.float32, device=query_coords.device)
+            for view in preprocessed_views
+        ])
+        p2d_full = project_points_torch(camera_group, query_coords)
+        pp = rearrange(p2d_full, 'ncams b t r -> b t ncams r', b=B) / sizes
+        fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
+        embed_pos = self.linear_pos(fourier_pos)
         
-        # Embed volume features
-        embed_patch = self.linear_volume(volumes)
+        # # Volume feature embeddings
+        # volumes = sample_feature_cubes_time(
+        #     preprocessed_views, camera_group, query_coords, query_time,
+        #     cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
+        # volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
+        # embed_patch = self.linear_volume(volumes)
+        #
+
+        # Pixel patch embeddings
+        
+        patches = torch.stack([
+            sample_patches(preprocessed_views[i], p2d_full[i],
+                           query_time, self.patch_size)
+            for i in range(n_cams)
+        ]) # [N_cams, B, T_query, C, P, P]
+        #
+        patches_flat = rearrange(patches, 'cams b t c p q -> (cams b t) c p q')
+        embed_flat = self.patch_processor(patches_flat)  # [(N_cams*B*T_query), embed_dim]
+        embed_patch = rearrange(embed_flat, '(cams b t) d -> b t cams d', 
+                                cams=n_cams, b=B, t=T_query)  # [B, T_query, N_cams, embed_dim]
+
         
         # Time embeddings
         embed_query_time = rearrange(self.t_query_embed(query_time),
@@ -185,13 +324,6 @@ class QueryEncoder(nn.Module):
         embed_target_time = rearrange(self.t_target_embed(target_time),
                                       'b t embed -> b t 1 embed')
         
-        # 2D position encoding
-        # sizes = torch.stack([cam['size'] for cam in camera_group])
-        p2d_full = project_points_torch(camera_group, query_coords)
-        # pp = rearrange(p2d_full, 'ncams b t r -> b t ncams r', b=B) / sizes
-        pp = rearrange(p2d_full, 'ncams b t r -> b t ncams r', b=B) / 256 - 0.5
-        fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
-        embed_pos = self.linear_pos(fourier_pos)
 
         qflat = rearrange(query_coords, 'b t r -> (b t) r')
         visible = []
@@ -204,7 +336,7 @@ class QueryEncoder(nn.Module):
         # Depth encoding
         centers = torch.stack([cam['center'] for cam in camera_group])
         qc = rearrange(query_coords, 'b t r -> b t 1 r')
-        depths = torch.linalg.norm(qc - centers, dim=-1) / (cube_scale * 500) - 0.5
+        depths = torch.linalg.norm(qc - centers, dim=-1) / (cube_scale * 500)
         dr = rearrange(depths, "b t ncams -> b t ncams 1", b=B)
         fourier_depth = get_fourier_encoding(dr, min_freq=0, max_freq=self.max_freq)
         embed_depth = self.linear_depth(fourier_depth)
@@ -219,7 +351,7 @@ class QueryEncoder(nn.Module):
     
 
 class SceneRepresentation(nn.Module):
-    def __init__(self, version='large', freeze_encoder=True):
+    def __init__(self, version='large', freeze_encoder=True, n_frames=16, image_size=256):
         super().__init__()
         
         # Initialize encoder
@@ -245,8 +377,11 @@ class SceneRepresentation(nn.Module):
             self.encoder.eval()
         
         self.freeze_encoder = freeze_encoder
+
+        self.n_frames = n_frames
+        self.image_size = image_size
         
-        n_tokens = (16 // self.tubelet_size) * (256 // self.patch_size) * (256 // self.patch_size)
+        n_tokens = (n_frames // self.tubelet_size) * (image_size // self.patch_size) * (image_size // self.patch_size)
         self.pos_embed = nn.Parameter(
             torch.zeros(1, n_tokens, self.embed_dim)
         )
@@ -320,13 +455,13 @@ class Decoder(nn.Module):
         self.norm2s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         
         # Final output head
-        # self.output_head = nn.Linear(embed_dim, 2 + 1 + 1 + 1)  # 2d, depth, conf, vis
+        # self.output_head = nn.Linear(embed_dim, 3 + 2 + 1 + 1 + 1)  # 3d, 2d, depth, conf, vis
         self.output_head = nn.Sequential(
             nn.Linear(embed_dim, embed_dim),
             nn.GELU(),
             nn.Linear(embed_dim, embed_dim),
             nn.GELU(),
-            nn.Linear(embed_dim, 5)
+            nn.Linear(embed_dim, 8)
         )
         
     def forward(self, scene_features, query_embeds, visible):
@@ -351,7 +486,7 @@ class Decoder(nn.Module):
             kv = scene_features[cam_idx]
 
             # Get visibility mask for this camera: [B, T_query]
-            vis_mask = visible[:, :, cam_idx]
+            # vis_mask = visible[:, :, cam_idx]
             
             # Apply cross-attention + MLP layers
             x = query

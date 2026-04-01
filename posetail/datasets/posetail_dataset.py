@@ -151,22 +151,30 @@ def custom_collate(batch):
     fnums = torch.stack(batch[3], axis = 0)
     cgroup = batch[4][0]
 
-    # mask nan coordinates in the first frame
+    # # mask nan coordinates in the first frame
     coords = torch.stack(batch[1], axis = 0)
-    mask = torch.isfinite(coords).all(dim = -1).all(dim = 1).all(dim = 0)
-    coords_masked = coords[:, :, mask, :]
+    # mask = torch.isfinite(coords).all(dim = -1).all(dim = 1).all(dim = 0)
+    # coords_masked = coords[:, :, mask, :]
 
-    # get corresponding visibilities if present
-    vis_masked = None
+    # # get corresponding visibilities if present
+    # vis_masked = None
+    # if batch[2][0] is not None: 
+    #     vis = torch.stack(batch[2], axis = 0)
+    #     vis_masked = vis[:, :, mask].unsqueeze(-1)
+
+    vis = None
     if batch[2][0] is not None: 
-        vis = torch.stack(batch[2], axis = 0)
-        vis_masked = vis[:, :, mask].unsqueeze(-1)
+        vis = torch.stack(batch[2], axis = 0)[..., None]
 
     rows = batch[5][0]
-        
+    query_times = torch.stack(batch[6])
+    vis_2d = torch.stack(batch[7])
+    
     batch = edict({'views': views, 
-                   'coords': coords_masked,
-                   'vis': vis_masked,
+                   'coords': coords,
+                   'query_times': query_times,
+                   'vis': vis,
+                   'vis_2d': vis_2d[..., None],
                    'fnums': fnums,
                    'cgroup': cgroup, 
                    'sample_info': rows})
@@ -272,9 +280,11 @@ class PosetailDataset(Dataset):
 
         # load visibilities (if present)
         vis = None
+        vis_2d = None
         if 'vis' in data: 
             vis = data['vis'][:, start_ix:end_ix:interval, :, :]
             vis = torch.tensor(vis, dtype = torch.float32, device = 'cpu')
+            vis_2d = vis.clone()
             vis[torch.isnan(vis)] = 1
             vis = vis.bool()
 
@@ -292,6 +302,7 @@ class PosetailDataset(Dataset):
         coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
         if vis is not None:
             vis = rearrange(vis, 's t n c -> t (s n) c') # (time, n_kpts, cams)
+            vis_2d = rearrange(vis_2d, 's t n c -> t (s n) c')
         
         # load camera resolutions for resizing
         # res_dict = json.loads(row['res_dict'])
@@ -304,32 +315,33 @@ class PosetailDataset(Dataset):
 
         # sample a number of camera views from a set of calibrated cameras
         if self.cams_to_sample: 
-            coords, vis, cam_names = self.sample_cameras(coords, vis, cam_names)
+            coords, vis, vis_2d, cam_names = self.sample_cameras(coords, vis, vis_2d, cam_names)
 
         if vis is not None:
             vis = vis.sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
-                
-        # filter coords based on which coords are visible
-        # in the first frame (will sample from these)
-        if vis is not None:
-            mask = vis[0].bool()
-            coords = coords[:, mask, :]
-            vis = vis[:, mask]
 
-        # filter coords that are not nan throughout
-        mask = torch.all(torch.isfinite(coords), dim=(0, 2))
+        # filter coords based on which coords are visible enough times
+        valid_mask = torch.isfinite(coords[..., 0])  # (time, n_kpts)
+        if vis is not None:
+            valid_mask = valid_mask & vis
+        sum_good = torch.sum(valid_mask, dim=0) 
+
+        # some number visible and not nan 
+        mask = sum_good >= 6
         coords = coords[:, mask]
 
         if vis is not None: 
             vis = vis[:, mask]
-
+            vis_2d = vis_2d[:, mask]
+            
+        # load cameras
         cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path']) 
         cgroup = cgroup.subset_cameras_names(cam_names)
         cgroup = format_camera_group(cgroup, offset_dict, cam_type, device = 'cpu')
         
         # filter points that are visible in enough views
         if self.enable_kpt_filtering:
-            coords, vis = self.filter_keypoints(coords, vis, cgroup)
+            coords, vis, vis_2d = self.filter_keypoints(coords, vis, vis_2d, cgroup)
 
         if coords.shape[1] < 2:
             return None
@@ -346,7 +358,7 @@ class PosetailDataset(Dataset):
 
         # sample a random number of keypoints from available tracks 
         if self.kpts_to_sample: 
-            coords, vis = self.sample_keypoints(coords, vis, total_movement)
+            coords, vis, vis_2d = self.sample_keypoints(coords, vis, vis_2d, total_movement)
 
         # failed to sample coordinates, just get another random sample
         if coords.shape[1] < 2:
@@ -363,7 +375,19 @@ class PosetailDataset(Dataset):
 
         # arbitrary camera rotation
         cgroup, coords = self.rotate_camera_group(cgroup, coords)
-            
+
+        # setup possible query_times (n_kpts) 
+        query_times = []
+        for kpt_idx in range(coords.shape[1]):
+            good = torch.isfinite(coords[:, kpt_idx, 0])
+            if vis is not None:
+                good = good & vis[:, kpt_idx]
+            valid_times = torch.where(good)[0]
+            sample_ix = torch.randint(0, len(valid_times), (1,))
+            query_times.append(valid_times[sample_ix].item())
+        query_times = torch.tensor(query_times, dtype=torch.int32)            
+
+        
         # apply augmentation
         with ThreadPoolExecutor(max_workers=24) as executor:
             views_unloaded = []
@@ -403,7 +427,7 @@ class PosetailDataset(Dataset):
                 imgs = imgs / 255.0
                 views.append(imgs)
 
-        return views, coords, vis, fnums, cgroup, row
+        return views, coords, vis, fnums, cgroup, row, query_times, vis_2d
 
 
     def crop_cgroup_to_points(self, cgroup, coords): 
@@ -454,7 +478,7 @@ class PosetailDataset(Dataset):
         return camera_group_cropped, crops
 
 
-    def filter_keypoints(self, coords, vis, cgroup): 
+    def filter_keypoints(self, coords, vis, vis_2d, cgroup): 
 
         # filter keypoints that are not visible from enough views 
         s, n, _ = coords.shape
@@ -469,11 +493,12 @@ class PosetailDataset(Dataset):
         # filter vis if available
         if vis is not None:
             vis = vis[:, good]
+            vis_2d = vis_2d[:, good]
 
-        return coords, vis
+        return coords, vis, vis_2d
 
 
-    def sample_cameras(self, coords, vis, cam_names): 
+    def sample_cameras(self, coords, vis, vis_2d, cam_names): 
 
         # sample a number of camera views from a set of calibrated cameras
         if isinstance(self.cams_to_sample, int): 
@@ -489,11 +514,12 @@ class PosetailDataset(Dataset):
             # determine visibilities only from the sampled cameras
             if vis is not None: 
                 vis = vis[:, :, ix_cams]
+                vis_2d = vis_2d[:, :, ix_cams]
 
-        return coords, vis, cam_names
+        return coords, vis, vis_2d, cam_names
 
 
-    def sample_keypoints(self, coords, vis, total_movement): 
+    def sample_keypoints(self, coords, vis, vis_2d, total_movement): 
 
         if isinstance(self.kpts_to_sample, int): 
             num_kpts_to_sample = self.kpts_to_sample
@@ -513,8 +539,9 @@ class PosetailDataset(Dataset):
             # sample corresponding visibilities
             if vis is not None: 
                 vis = vis[:, ix_p]
+                vis_2d = vis_2d[:, ix_p]
 
-        return coords, vis 
+        return coords, vis, vis_2d
 
 
     def resize_camera_group(self, cgroup): 

@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 from posetail.posetail.cube import get_camera_scale, project_points_torch
 
+from collections import defaultdict
 
 class TotalLoss(nn.Module): 
 
@@ -48,6 +49,27 @@ class TotalLoss(nn.Module):
             weight = self.coords_loss_weight
         )
 
+        self.mae_loss_coords_direct = WeightedMAELoss(
+            gamma = self.gamma, 
+            delta = self.delta, 
+            use_huber_loss = self.use_huber_loss, 
+            weight = self.coords_loss_weight * 0.5
+        )
+
+        self.mae_loss_coords_rays = WeightedMAELoss(
+            gamma = self.gamma, 
+            delta = self.delta, 
+            use_huber_loss = self.use_huber_loss, 
+            weight = self.coords_loss_weight * 0.5
+        )
+
+        self.mae_loss_coords_triangulate = WeightedMAELoss(
+            gamma = self.gamma, 
+            delta = self.delta, 
+            use_huber_loss = self.use_huber_loss, 
+            weight = self.coords_loss_weight * 0.5
+        )
+        
         self.mae_loss_coords_2d = WeightedMAELoss(
             gamma = self.gamma, 
             delta = 16, 
@@ -69,17 +91,25 @@ class TotalLoss(nn.Module):
             weight = self.occluded_coords_loss_weight
         )
 
+        self.mae_loss_occluded_coords_2d = WeightedMAELoss(
+            gamma = self.gamma, 
+            delta = 16, 
+            use_huber_loss = True,
+            weight = self.occluded_coords_loss_weight * 10 / 16.0
+        )
+        
         if self.feature_loss_weight > 0: 
             self.feature_loss = FeatureLoss(
                 weight = self.feature_loss_weight)
 
-        loss_names = ['vis_loss', 'conf_loss', 
-                      'occluded_coords_loss', 'coords_loss',
-                      '2d_loss', 'depth_loss',
-                      # 'feature_loss','bad_feature_loss',
-                      'total_loss', 'cube_scale']
-        self.loss_history = {loss_name: [] for loss_name in loss_names}
-
+        # loss_names = ['vis_loss', 'conf_loss', 
+        #               'occluded_coords_loss', 'coords_loss',
+        #               '2d_loss', 'depth_loss',
+        #               # 'feature_loss','bad_feature_loss',
+        #               'total_loss', 'cube_scale']
+        # self.loss_history = {loss_name: [] for loss_name in loss_names}
+        self.loss_history = defaultdict(list)
+        
     def collapse_history(self, prefix = ''): 
         
         loss_summary = {}
@@ -94,7 +124,7 @@ class TotalLoss(nn.Module):
 
 
     def forward(self, model, outputs, coords_true, 
-                vis_true, cgroup = None, device = None):
+                vis_true, vis_true_cams, cgroup = None, device = None):
 
         # coords_true: b t n r
         
@@ -106,20 +136,21 @@ class TotalLoss(nn.Module):
         depth_pred = outputs['depth_pred'][..., None]
 
         coords_true_2d = project_points_torch(cgroup, coords_true)
+        coords_true_cams = repeat(coords_true, 'b t n r -> cams b t n r',
+                                  cams=len(cgroup)) 
 
         centers = rearrange(torch.stack([cam['center'] for cam in cgroup]),
                             'cams r -> cams 1 1 1 r')
-        ctrue_cams = repeat(coords_true, 'b t n r -> cams b t n r',
-                            cams=len(cgroup))
-        depths_true = torch.linalg.norm(coords_true - centers, dim=-1)[..., None]
+        
+        depths_true = torch.linalg.norm(coords_true_cams - centers, dim=-1)[..., None]
         
         if vis_true is None:
             valid_vis = False
-            vis_true = get_vis_true(coords_true) 
+            vis_true = get_vis_true(coords_true)
+            vis_true_cams = repeat(vis_true, 'b t n 1 -> cams b t n 1', cams=len(cgroup))
         else:
             valid_vis = True
-            
-        vis_true_cams = repeat(vis_true, 'b t n 1 -> cams b t n 1', cams=len(cgroup))
+            vis_true_cams = rearrange(vis_true_cams, 'b t n cams 1 -> cams b t n 1')
             
         if model.R == 3:
             scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
@@ -150,8 +181,14 @@ class TotalLoss(nn.Module):
                 vis_true = vis_true_unrolled if training else vis_true,
                 device = device
             )
+            vis_loss_cams = self.bce_loss_vis(
+                vis_pred = rearrange(outputs['vis_pred_2d'], 'b t n cams -> b t n cams 1'),
+                vis_true = vis_true_cams,
+                device = device
+            )
         else:
             vis_loss = torch.tensor(0.0, device=device)
+            vis_loss_cams = torch.tensor(0.0, device=device)
 
         conf_loss = self.bce_loss_conf(
             conf_pred = conf_pred_iters if training else conf_pred, 
@@ -169,7 +206,30 @@ class TotalLoss(nn.Module):
             device = device
         )
 
+        coords_loss_direct = self.mae_loss_coords_direct(
+            coords_pred = outputs['3d_pred_cams_direct'],
+            coords_true = coords_true_cams,
+            vis_true = vis_true_cams, 
+            device = device
+        )
 
+        coords_loss_rays = self.mae_loss_coords_rays(
+            coords_pred = outputs['3d_pred_cams_rays'],
+            coords_true = coords_true_cams,
+            vis_true = vis_true_cams,
+            device = device
+        )
+
+        if outputs['3d_pred_triangulate'] is not None:
+            coords_loss_triangulate = self.mae_loss_coords_triangulate(
+                coords_pred = outputs['3d_pred_triangulate'],
+                coords_true = coords_true,
+                vis_true = vis_true,
+                device = device
+            )
+        else:
+            coords_loss_triangulate = torch.tensor(0.0, device=device)
+        
         coords_loss_2d = self.mae_loss_coords_2d(
             coords_pred = coords_pred_2d,
             coords_true = coords_true_2d,
@@ -191,8 +251,16 @@ class TotalLoss(nn.Module):
                 vis_true = occluded_true_unrolled if training else occluded_true, 
                 device = device
             )
+
+            occluded_coords_loss_2d = self.mae_loss_occluded_coords_2d(
+                coords_pred = coords_pred_2d,
+                coords_true = coords_true_2d,
+                vis_true = ~vis_true_cams,
+                device = device
+            )            
         else:
             occluded_coords_loss = torch.tensor(0.0, device=device)
+            occluded_coords_loss_2d = torch.tensor(0.0, device=device)
 
         # feature_loss, bad_feature_loss = self.feature_loss(
         #         model = model, 
@@ -205,11 +273,18 @@ class TotalLoss(nn.Module):
         coords_loss = coords_loss / scale
         occluded_coords_loss = occluded_coords_loss / scale
         coords_loss_depth = coords_loss_depth / scale
+
+        coords_loss_direct = coords_loss_direct / scale
+        coords_loss_rays = coords_loss_rays / scale
+        coords_loss_triangulate = coords_loss_triangulate / scale
         
         losses = [
-            coords_loss, occluded_coords_loss, 
-            vis_loss, conf_loss,
-            coords_loss_2d, coords_loss_depth
+            coords_loss, occluded_coords_loss,
+            coords_loss_direct, coords_loss_rays, coords_loss_triangulate,
+            vis_loss, vis_loss_cams,
+            conf_loss,
+            coords_loss_2d, coords_loss_depth,
+            occluded_coords_loss_2d,
             # feature_loss, bad_feature_loss
         ]
         
@@ -223,11 +298,18 @@ class TotalLoss(nn.Module):
 
         self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['occluded_coords_loss'].append(occluded_coords_loss.item())
+
+        self.loss_history['3d_direct'].append(coords_loss_direct.item())
+        self.loss_history['3d_rays'].append(coords_loss_rays.item())
+        self.loss_history['3d_triangulate'].append(coords_loss_triangulate.item())
+        
         self.loss_history['vis_loss'].append(vis_loss.item())
+        self.loss_history['vis_2d_loss'].append(vis_loss_cams.item())
         self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
 
         self.loss_history['2d_loss'].append(coords_loss_2d.item())
+        self.loss_history['2d_occluded_loss'].append(occluded_coords_loss_2d.item())
         self.loss_history['depth_loss'].append(coords_loss_depth.item())
         # self.loss_history['feature_loss'].append(feature_loss.item())
         # self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
@@ -429,8 +511,10 @@ class FeatureLoss(nn.Module):
 
 def get_vis_true(coords):
 
-    vis = ~torch.isnan(torch.einsum('bsnr->bsn', coords))
-    vis = rearrange(vis, 'b s n -> b s n 1')
+    # vis = ~torch.isnan(torch.einsum('bsnr->bsn', coords))
+    # vis = rearrange(vis, 'b s n -> b s n 1')
+
+    vis = torch.isfinite(coords[..., 0])[..., None]
 
     return vis 
 
