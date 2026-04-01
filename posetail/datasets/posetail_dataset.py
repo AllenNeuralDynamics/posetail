@@ -427,7 +427,7 @@ class PosetailDataset(Dataset):
             current_width = high[0] - low[0]
             current_height = high[1] - low[1]
 
-            min_dim = max(self.min_crop_dim, current_width//2, current_height//2)
+            min_dim = max(self.min_crop_dim, current_width, current_height)
 
             if current_width < min_dim:
                 # Expand horizontally around center
