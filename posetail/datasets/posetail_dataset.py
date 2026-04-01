@@ -207,6 +207,8 @@ class PosetailDataset(Dataset):
         # for sampling cameras, keypoints
         self.cams_to_sample = format_sample_input(config.dataset[split].get('cams_to_sample', None))
         self.kpts_to_sample = format_sample_input(config.dataset[split].get('kpts_to_sample', None))
+        self.speed_thresh = config.dataset[split].get('speed_thresh', None) 
+        self.prop_dynamic_kpts_to_sample = config.dataset[split].get('prop_dynamic_kpts_to_sample', 0.7)
         self.cam_thresh_for_vis = config.dataset[split].get('cam_thresh_for_vis', 1) 
         self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', False)
         
@@ -351,10 +353,12 @@ class PosetailDataset(Dataset):
         if coords.shape[1] < 2:
             return None
                 
-        # compute total movement in pixels, averaged across cameras
+        # compute total movement and speed in pixels, averaged across cameras
         p2d = project_points_torch(cgroup, coords)
-        movement = torch.linalg.norm(torch.diff(p2d, dim=1), dim=-1)
-        total_movement = torch.mean(torch.sum(movement, dim=1), dim=0)
+        movement = torch.linalg.norm(torch.diff(p2d, dim = 1), dim = -1)
+        movement = torch.nan_to_num(movement, 0.0)
+        total_movement = torch.mean(torch.sum(movement, dim = 1), dim = 0)
+        avg_speed = torch.mean(torch.mean(movement, dim = 1), dim = 0) 
 
         # should have at least 12 pixels of movement over the sampled frames
         good = total_movement >= 12
@@ -363,7 +367,7 @@ class PosetailDataset(Dataset):
 
         # sample a random number of keypoints from available tracks 
         if self.kpts_to_sample: 
-            coords, vis, vis_2d = self.sample_keypoints(coords, vis, vis_2d, total_movement)
+            coords, vis, vis_2d = self.sample_keypoints(coords, vis, vis_2d, total_movement, avg_speed)
 
         # failed to sample coordinates, just get another random sample
         if coords.shape[1] < 2:
@@ -453,7 +457,7 @@ class PosetailDataset(Dataset):
             current_width = high[0] - low[0]
             current_height = high[1] - low[1]
 
-            min_dim = max(self.min_crop_dim, current_width//2, current_height//2)
+            min_dim = max(self.min_crop_dim, current_width, current_height)
 
             if current_width < min_dim:
                 # Expand horizontally around center
@@ -524,7 +528,7 @@ class PosetailDataset(Dataset):
         return coords, vis, vis_2d, cam_names
 
 
-    def sample_keypoints(self, coords, vis, vis_2d, total_movement): 
+    def sample_keypoints(self, coords, vis, vis_2d, total_movement, avg_speed): 
 
         if isinstance(self.kpts_to_sample, int): 
             num_kpts_to_sample = self.kpts_to_sample
@@ -534,14 +538,36 @@ class PosetailDataset(Dataset):
 
         # sample if there are more keypoints than the number to sample
         if coords.shape[1] > num_kpts_to_sample:
+            # sample a proportion of static vs dynamic points if a speed thresh is provided
+            if self.speed_thresh is not None: 
 
-            prob = (total_movement + 2) / torch.nansum(total_movement + 2)
-            prob = prob.numpy()
-            prob[np.isnan(prob)] = 0.0001
-            prob = prob / np.sum(prob)
-            ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
-                                    replace = False, p = prob)
-            coords = coords[:, ix_p]
+                dynamic_mask = avg_speed >= self.speed_thresh
+                static_mask = ~dynamic_mask
+
+                num_dynamic = int(num_kpts_to_sample * self.prop_dynamic_kpts_to_sample)
+                num_static = num_kpts_to_sample - num_dynamic
+
+                dynamic_idx = torch.where(dynamic_mask)[0].cpu().numpy()
+                static_idx = torch.where(static_mask)[0].cpu().numpy()
+
+                num_dynamic = min(num_dynamic, len(dynamic_idx))
+                num_static = min(num_static, len(static_idx))
+
+                sampled_dynamic = np.random.choice(dynamic_idx, size = num_dynamic, replace = False) if len(dynamic_idx) > 0 else []
+                sampled_static = np.random.choice(static_idx, size = num_static, replace = False) if len(static_idx) > 0 else []
+
+                ix_p = np.concatenate([sampled_dynamic, sampled_static])
+                np.random.shuffle(ix_p)
+                coords = coords[:, ix_p]
+
+            # otherwise, default to sampling probabilities based on total movement
+            else: 
+                prob = (total_movement + 2) / torch.sum(total_movement + 2)
+                prob = prob.numpy()
+                
+                ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
+                                        replace = False, p = prob)
+                coords = coords[:, ix_p]
 
             # sample corresponding visibilities
             if vis is not None: 

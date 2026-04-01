@@ -49,7 +49,7 @@ device = 'cuda'
 
 
 [model]
-mode_3d = "minicubes"
+mode_3d = "encoder"
 
 hiera_requires_grad = false
 

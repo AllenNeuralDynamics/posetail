@@ -49,10 +49,12 @@ debug_ix = -1
 [dataset.train]
 split_dir = "train"
 n_frames = 16
-min_res = 512
-max_res = 512
+min_res = 256
+max_res = 320
 cams_to_sample = [1, 5]
-kpts_to_sample = [32, 80]
+kpts_to_sample = [128, 192]
+speed_thresh = 1.0 
+prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -65,6 +67,8 @@ n_frames = 16
 max_res = 288
 cams_to_sample = 5
 kpts_to_sample = 32
+speed_thresh = 1.0 
+prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.0
 
 [dataset.test]
@@ -85,7 +89,7 @@ cycle_momentum = false
 
 [training.losses]
 gamma = 0.8
-pixel_thresh = 9
+pixel_thresh = 3
 delta = 6
 use_huber_loss = false
 vis_loss_weight = 1
