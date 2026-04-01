@@ -166,15 +166,19 @@ def custom_collate(batch):
     if batch[2][0] is not None: 
         vis = torch.stack(batch[2], axis = 0)[..., None]
 
+    vis_2d = None
+    if batch[7][0] is not None:
+        vis_2d = torch.stack(batch[7], axis=0)[..., None]
+
+        
     rows = batch[5][0]
     query_times = torch.stack(batch[6])
-    vis_2d = torch.stack(batch[7])
     
     batch = edict({'views': views, 
                    'coords': coords,
                    'query_times': query_times,
                    'vis': vis,
-                   'vis_2d': vis_2d[..., None],
+                   'vis_2d': vis_2d,
                    'fnums': fnums,
                    'cgroup': cgroup, 
                    'sample_info': rows})
@@ -298,6 +302,7 @@ class PosetailDataset(Dataset):
             coords = coords[ix_sample, None]
             if vis is not None:
                 vis = vis[ix_sample, None]
+                vis_2d = vis_2d[ix_sample, None]
             
         coords = rearrange(coords, 's t n r -> t (s n) r') # (time, n_kpts, 3)
         if vis is not None:
@@ -530,8 +535,10 @@ class PosetailDataset(Dataset):
         # sample if there are more keypoints than the number to sample
         if coords.shape[1] > num_kpts_to_sample:
 
-            prob = (total_movement + 2) / torch.sum(total_movement + 2)
+            prob = (total_movement + 2) / torch.nansum(total_movement + 2)
             prob = prob.numpy()
+            prob[np.isnan(prob)] = 0.0001
+            prob = prob / np.sum(prob)
             ix_p = np.random.choice(coords.shape[1], size = num_kpts_to_sample,
                                     replace = False, p = prob)
             coords = coords[:, ix_p]
