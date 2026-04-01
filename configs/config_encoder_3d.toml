@@ -20,7 +20,7 @@ n_frames = 16
 min_res = 256
 max_res = 256
 cams_to_sample = [1, 12] 
-kpts_to_sample = [700, 700]
+kpts_to_sample = [400, 400]
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -85,7 +85,7 @@ upsample_factor = 1
 # transformer
 max_freq = 10
 # n_iters = 4
-embedding_dim = 512
+embedding_dim = 1024
 # embedding_dim = 512
 latent_dim = 1024
 # n_virtual = 64
@@ -103,7 +103,7 @@ scheduler_type = 'onecyclelr'
 max_grad_norm = 10.0
 checkpoint_freq = 20480 # in iterations
 eval_metric_freq = 4 # in iterations
-val_freq = 16 # in iterations
+val_freq = 128 # in iterations
 print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 

@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from einops import rearrange, repeat
-from posetail.posetail.cube import get_camera_scale, project_points_torch
+from posetail.posetail.cube import get_camera_scale, project_points_torch, is_point_visible
 
 from collections import defaultdict
 
@@ -46,7 +46,7 @@ class TotalLoss(nn.Module):
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight
+            weight = self.coords_loss_weight * 10
         )
 
         self.mae_loss_coords_direct = WeightedMAELoss(
@@ -60,7 +60,7 @@ class TotalLoss(nn.Module):
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 0.1
+            weight = self.coords_loss_weight * 0.001 # tends to be much higher than other losses
         )
 
         self.mae_loss_coords_triangulate = WeightedMAELoss(
@@ -126,7 +126,7 @@ class TotalLoss(nn.Module):
     def forward(self, model, outputs, coords_true, 
                 vis_true, vis_true_cams, cgroup = None, device = None):
 
-        # coords_true: b t n r
+        B, T, N, R = coords_true.shape
         
         coords_pred = outputs['coords_pred']
         vis_pred = outputs['vis_pred']
@@ -147,7 +147,15 @@ class TotalLoss(nn.Module):
         if vis_true is None:
             valid_vis = False
             vis_true = get_vis_true(coords_true)
-            vis_true_cams = repeat(vis_true, 'b t n 1 -> cams b t n 1', cams=len(cgroup))
+            # vis_true_cams = repeat(vis_true, 'b t n 1 -> cams b t n 1', cams=len(cgroup))
+
+            qflat = rearrange(coords_true, 'b t n r -> (b t n) r')
+            visible = torch.stack([
+                is_point_visible(cam, qflat, margin=2)
+                for cam in cgroup
+            ])
+            vis_true_cams = rearrange(visible, 'cams (b t n) -> cams b t n 1', b=B, t=T, n=N)
+            
         else:
             valid_vis = True
             vis_true_cams = rearrange(vis_true_cams, 'b t n cams 1 -> cams b t n 1')
