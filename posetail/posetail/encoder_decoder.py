@@ -243,10 +243,10 @@ class QueryEncoder(nn.Module):
         self.t_target_embed = nn.Embedding(n_frames, embed_dim)
         
         # # Volume processing
-        # vdim = 8
-        # self.v2v = EmbedV2V(3, vdim)
-        # in_dim_vol = (corr_radius * 2 + 1) ** 3 * vdim
-        # self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
+        vdim = 8
+        self.v2v = EmbedV2V(3, vdim)
+        in_dim_vol = (corr_radius * 2 + 1) ** 3 * vdim
+        self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
         
         # Positional encodings
         self.linear_pos = nn.Linear(4 * max_freq, embed_dim)
@@ -297,13 +297,12 @@ class QueryEncoder(nn.Module):
         fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
         embed_pos = self.linear_pos(fourier_pos)
         
-        # # Volume feature embeddings
-        # volumes = sample_feature_cubes_time(
-        #     preprocessed_views, camera_group, query_coords, query_time,
-        #     cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
-        # volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
-        # embed_volume = self.linear_volume(volumes)
-        
+        # # # Volume feature embeddings
+        volumes = sample_feature_cubes_time(
+            preprocessed_views, camera_group, query_coords, query_time,
+            cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
+        volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
+        embed_volume = self.linear_volume(volumes)
 
         # Pixel patch embeddings
         
@@ -344,8 +343,10 @@ class QueryEncoder(nn.Module):
         
         # Combine all embeddings
         embed_total = embed_patch + embed_query_time + \
-            embed_target_time + embed_pos + embed_depth
-
+            embed_target_time + embed_pos + embed_depth + \
+            embed_volume
+        
+        
         embed_final = self.final_mlp(embed_total)
         
         return embed_final, visible
