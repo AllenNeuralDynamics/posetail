@@ -97,7 +97,7 @@ def sample_feature_cubes_time(feature_planes, camera_group,
 
     # volumes: cams b d k total            
     volumes = torch.stack(all_samples)
-    masks = torch.stack(all_masks)  # ncams b k total
+    # masks = torch.stack(all_masks)  # ncams b k total
 
     # masks_expanded = repeat(masks, "ncams b k total -> ncams b d k total",
     #                         d=volumes.shape[2])
@@ -243,9 +243,10 @@ class QueryEncoder(nn.Module):
         self.t_target_embed = nn.Embedding(n_frames, embed_dim)
         
         # # Volume processing
-        # self.v2v = EmbedV2V(3, vdim)
-        # in_dim_vol = (corr_radius * 2 + 1) ** 3 * vdim
-        # self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
+        vdim = 8
+        self.v2v = EmbedV2V(3, vdim)
+        in_dim_vol = (corr_radius * 2 + 1) ** 3 * vdim
+        self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
         
         # Positional encodings
         self.linear_pos = nn.Linear(4 * max_freq, embed_dim)
@@ -297,12 +298,12 @@ class QueryEncoder(nn.Module):
         embed_pos = self.linear_pos(fourier_pos)
         
         # # Volume feature embeddings
-        # volumes = sample_feature_cubes_time(
-        #     preprocessed_views, camera_group, query_coords, query_time,
-        #     cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
-        # volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
-        # embed_patch = self.linear_volume(volumes)
-        #
+        volumes = sample_feature_cubes_time(
+            preprocessed_views, camera_group, query_coords, query_time,
+            cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
+        volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
+        embed_volume = self.linear_volume(volumes)
+        
 
         # Pixel patch embeddings
         
@@ -343,7 +344,8 @@ class QueryEncoder(nn.Module):
         
         # Combine all embeddings
         embed_total = embed_patch + embed_query_time + \
-            embed_target_time + embed_pos + embed_depth
+            embed_target_time + embed_pos + embed_depth + \
+            embed_volume
 
         embed_final = self.final_mlp(embed_total)
         
@@ -399,19 +401,34 @@ class SceneRepresentation(nn.Module):
         
         if self.freeze_encoder:
             self.encoder.eval()
-        
-        for imgs in views:
-            xr = rearrange(imgs, 'b t c h w -> b c t h w')
-            B, C, T, H, W = xr.shape
-            
-            # Encode
-            with torch.set_grad_enabled(not self.freeze_encoder):
-                feat = self.encoder(xr) # [b, n_tokens, embed_dim]
 
-            # Add position embeddings
-            feat = feat + self.pos_embed
+        views_stacked = torch.stack(views)
+
+        xr = rearrange(views_stacked, 'cams b t c h w -> (cams b) c t h w')
+        
+        # Encode
+        with torch.set_grad_enabled(not self.freeze_encoder):
+            feat = self.encoder(xr) # [b, n_tokens, embed_dim]
+            
+        # Add position embeddings
+        feat = feat + self.pos_embed
+
+        encoded = rearrange(feat,
+                            '(cams b) tokens embed -> cams b tokens embed',
+                            cams=len(views)) 
+            
+        # for imgs in views:
+        #     xr = rearrange(imgs, 'b t c h w -> b c t h w')
+        #     B, C, T, H, W = xr.shape
+            
+        #     # Encode
+        #     with torch.set_grad_enabled(not self.freeze_encoder):
+        #         feat = self.encoder(xr) # [b, n_tokens, embed_dim]
+
+        #     # Add position embeddings
+        #     feat = feat + self.pos_embed
                 
-            encoded.append(feat)
+        #     encoded.append(feat)
         
         return encoded    
 

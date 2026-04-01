@@ -53,21 +53,21 @@ class TotalLoss(nn.Module):
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 0.5
+            weight = self.coords_loss_weight * 0.1
         )
 
         self.mae_loss_coords_rays = WeightedMAELoss(
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 0.5
+            weight = self.coords_loss_weight * 0.1
         )
 
         self.mae_loss_coords_triangulate = WeightedMAELoss(
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 0.5
+            weight = self.coords_loss_weight * 0.1
         )
         
         self.mae_loss_coords_2d = WeightedMAELoss(
@@ -98,9 +98,9 @@ class TotalLoss(nn.Module):
             weight = self.occluded_coords_loss_weight * 10 / 16.0
         )
         
-        if self.feature_loss_weight > 0: 
-            self.feature_loss = FeatureLoss(
-                weight = self.feature_loss_weight)
+        # if self.feature_loss_weight > 0: 
+        #     self.feature_loss = FeatureLoss(
+        #         weight = self.feature_loss_weight)
 
         # loss_names = ['vis_loss', 'conf_loss', 
         #               'occluded_coords_loss', 'coords_loss',
@@ -212,7 +212,14 @@ class TotalLoss(nn.Module):
             vis_true = vis_true_cams, 
             device = device
         )
-
+        
+        coords_loss_direct += self.mae_loss_coords_direct(
+            coords_pred = outputs['3d_pred_direct'],
+            coords_true = coords_true,
+            vis_true = vis_true, 
+            device = device
+        )
+        
         coords_loss_rays = self.mae_loss_coords_rays(
             coords_pred = outputs['3d_pred_cams_rays'],
             coords_true = coords_true_cams,
@@ -220,6 +227,13 @@ class TotalLoss(nn.Module):
             device = device
         )
 
+        coords_loss_rays += self.mae_loss_coords_direct(
+            coords_pred = outputs['3d_pred_rays'],
+            coords_true = coords_true,
+            vis_true = vis_true, 
+            device = device
+        )
+        
         if outputs['3d_pred_triangulate'] is not None:
             coords_loss_triangulate = self.mae_loss_coords_triangulate(
                 coords_pred = outputs['3d_pred_triangulate'],
@@ -255,7 +269,7 @@ class TotalLoss(nn.Module):
             occluded_coords_loss_2d = self.mae_loss_occluded_coords_2d(
                 coords_pred = coords_pred_2d,
                 coords_true = coords_true_2d,
-                vis_true = ~vis_true_cams,
+                vis_true = (1.0 - vis_true_cams),
                 device = device
             )            
         else:
