@@ -28,7 +28,7 @@ upsample_factor = 1
 max_freq = 10
 n_iters = 4
 embedding_dim = 384
-latent_dim = 64
+latent_dim = 115
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 6
@@ -53,8 +53,8 @@ min_res = 256
 max_res = 320
 cams_to_sample = [1, 5]
 kpts_to_sample = [32, 80]
-# speed_thresh = 1.0 
-# prop_dynamic_kpts_to_sample = 0.7
+speed_thresh = 1.0 
+prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -67,8 +67,8 @@ n_frames = 16
 max_res = 288
 cams_to_sample = 5
 kpts_to_sample = 32
-# speed_thresh = 1.0 
-# prop_dynamic_kpts_to_sample = 0.7
+speed_thresh = 1.0 
+prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.0
 
 [dataset.test]
@@ -79,7 +79,7 @@ project_2d = false
 aug_prob = 0.0
 
 [training.optimizer]
-learning_rate = 1e-5
+learning_rate = 1e-6
 weight_decay = 1e-5
 amsgrad = false
 
