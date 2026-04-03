@@ -203,7 +203,7 @@ class PosetailDataset(Dataset):
 
         self.crop_to_points = config.dataset[split].get('crop_to_points', True)
         self.min_crop_dim = config.dataset[split].get('min_crop_dim', 64)
-        
+
         # for sampling cameras, keypoints
         self.cams_to_sample = format_sample_input(config.dataset[split].get('cams_to_sample', None))
         self.kpts_to_sample = format_sample_input(config.dataset[split].get('kpts_to_sample', None))
@@ -211,11 +211,13 @@ class PosetailDataset(Dataset):
         self.prop_dynamic_kpts_to_sample = config.dataset[split].get('prop_dynamic_kpts_to_sample', 0.7)
         self.cam_thresh_for_vis = config.dataset[split].get('cam_thresh_for_vis', 1) 
         self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', False)
+        self.query_anytime = config.dataset[split].get('query_anytime', False)
         
         # for balancing datasets
         self.balance_datasets = config.dataset[split].get('balance_datasets', True)
         self.n_samples_per_dataset = config.dataset[split].get('n_samples_per_dataset', -1) # default balances based on dataset with the most samples
 
+        
         # augmentation
         self.aug = iaa.Sequential([
             iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
@@ -328,18 +330,32 @@ class PosetailDataset(Dataset):
             vis = vis.sum(dim = -1) >= self.cam_thresh_for_vis # (time, n_kpts)                
 
         # filter coords based on which coords are visible enough times
-        valid_mask = torch.isfinite(coords[..., 0])  # (time, n_kpts)
-        if vis is not None:
-            valid_mask = valid_mask & vis
-        sum_good = torch.sum(valid_mask, dim=0) 
+        if self.query_anytime:
+            valid_mask = torch.isfinite(coords[..., 0])  # (time, n_kpts)
+            if vis is not None:
+                valid_mask = valid_mask & vis
+            sum_good = torch.sum(valid_mask, dim=0) 
 
-        # some number visible and not nan 
-        mask = sum_good >= 6
-        coords = coords[:, mask]
+            # some number visible and not nan 
+            mask = sum_good >= 6
+            coords = coords[:, mask]
+            if vis is not None: 
+                vis = vis[:, mask]
+                vis_2d = vis_2d[:, mask]
+        else:
+            # filter in the first frame (will sample from these)
+            if vis is not None:
+                mask = vis[0].bool()
+                coords = coords[:, mask, :]
+                vis = vis[:, mask]
+                vis_2d = vis_2d[:, mask]
 
-        if vis is not None: 
-            vis = vis[:, mask]
-            vis_2d = vis_2d[:, mask]
+            # filter coords that are not nan throughout
+            mask = torch.all(torch.isfinite(coords), dim=(0, 2))
+            coords = coords[:, mask]
+            if vis is not None: 
+                vis = vis[:, mask]
+                vis_2d = vis_2d[:, mask]
             
         # load cameras
         cgroup, offset_dict, cam_type = self._load_cameras(row['camera_metadata_path']) 
@@ -385,17 +401,19 @@ class PosetailDataset(Dataset):
         # arbitrary camera rotation
         cgroup, coords = self.rotate_camera_group(cgroup, coords)
 
-        # setup possible query_times (n_kpts) 
-        query_times = []
-        for kpt_idx in range(coords.shape[1]):
-            good = torch.isfinite(coords[:, kpt_idx, 0])
-            if vis is not None:
-                good = good & vis[:, kpt_idx]
-            valid_times = torch.where(good)[0]
-            sample_ix = torch.randint(0, len(valid_times), (1,))
-            query_times.append(valid_times[sample_ix].item())
-        query_times = torch.tensor(query_times, dtype=torch.int32)            
-
+        # setup possible query_times (n_kpts)
+        if self.query_anytime:
+            query_times = []
+            for kpt_idx in range(coords.shape[1]):
+                good = torch.isfinite(coords[:, kpt_idx, 0])
+                if vis is not None:
+                    good = good & vis[:, kpt_idx]
+                valid_times = torch.where(good)[0]
+                sample_ix = torch.randint(0, len(valid_times), (1,))
+                query_times.append(valid_times[sample_ix].item())
+            query_times = torch.tensor(query_times, dtype=torch.int32, device='cpu')            
+        else:
+            query_times = torch.zeros((coords.shape[1],), dtype=torch.int32, device='cpu')
         
         # apply augmentation
         with ThreadPoolExecutor(max_workers=24) as executor:

@@ -2,6 +2,8 @@ import torch
 
 from einops import rearrange
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters())
 
 def init_kwargs(kwargs_dict):
      

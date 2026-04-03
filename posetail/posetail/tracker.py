@@ -12,7 +12,7 @@ from posetail.posetail.transformer import TimeSpaceTransformer, MLP
 from posetail.posetail.networks import ResidualFeatureExtractor, TriplaneFeatureExtractor
 from posetail.posetail.networks import MinicubesV2V, SimpleV2V, ViewAttentionV2V, QueryViewAttentionV2V
 from posetail.posetail.networks import HieraFeatureExtractor, SAM2HieraFeatureExtractor 
-from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding, PadToMultiple
+from posetail.posetail.utils import get_pos_encoding, get_fourier_encoding, PadToMultiple, count_parameters
 
 from torchvision import transforms
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
@@ -168,6 +168,15 @@ class Tracker(nn.Module):
         # freeze modules (e.g. for fine-tuning)
         self.freeze_modules() 
 
+    def print_summary(self):
+        print("PARAMETERS")
+        print("  total parameters: {:,d}".format(count_parameters(self)))
+        if self.mode_3d == 'triplane':
+            print("  triplane cnn params: {:,d}".format(count_parameters(self.triplane_cnn)))
+        elif self.mode_3d == 'minicubes':
+            print("  minicube v2v params: {:,d}".format(count_parameters(self.minicube_v2v)))
+        print("  corr mlp params: {:,d}".format(count_parameters(self.corr_mlp)))
+        print("  timesformer params: {:,d}".format(count_parameters(self.tsformer)))
 
     def freeze_modules(self): 
 
@@ -724,7 +733,7 @@ class Tracker(nn.Module):
         return coords_unscaled
 
 
-    def forward(self, views, coords, camera_group = None):
+    def forward(self, views, coords, query_times = None, camera_group = None):
         '''
         B: batch size
         T: number of frames in video
@@ -733,6 +742,8 @@ class Tracker(nn.Module):
         W: width of image
         D: latent dimension
         '''
+        #TODO: actually handle query times
+        
         device = coords.device
 
         B, N, R = coords.shape

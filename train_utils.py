@@ -292,17 +292,19 @@ def train_iteration(config, model, fabric, batch,
         vis_true_cams = vis_2d,
         cgroup = cgroup, 
         device = coords_pred.device)
+
+    if torch.all(torch.isfinite(total_loss)):
+        fabric.backward(total_loss)
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
+                                       error_if_nonfinite = False)
+
+        # fabric.clip_gradients(model, optimizer, 
+        #     max_norm = config.training.max_grad_norm, 
+        #     error_if_nonfinite = False)
+
+        optimizer.step()
         
-    fabric.backward(total_loss)
-
-    torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
-                                   error_if_nonfinite = False)
-
-    # fabric.clip_gradients(model, optimizer, 
-    #     max_norm = config.training.max_grad_norm, 
-    #     error_if_nonfinite = False)
-
-    optimizer.step()
     optimizer.zero_grad()
  
     if evaluate:
