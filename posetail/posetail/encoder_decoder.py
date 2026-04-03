@@ -488,7 +488,7 @@ class Decoder(nn.Module):
             query_embeds: [B, T_query, N_cams, embed_dim] from QueryEncoder
             visible: [B, T_query, N_cams] which ones to use
         Returns:
-            outputs: [B, T_query, N_cams, 5] predictions (2d pos, depth, conf, vis)
+            outputs: [B, T_query, N_cams, 8] predictions (3d, 2d pos, depth, conf, vis)
         """
         B, T_query, N_cams, _ = query_embeds.shape
         
@@ -521,7 +521,7 @@ class Decoder(nn.Module):
                 mlp_out = self.mlps[layer_idx](x)
                 x = self.norm2s[layer_idx](x + mlp_out)
 
-            # Project to output: [B, T_query, 5]
+            # Project to output: [B, T_query, R]
             output = self.output_head(x)
 
             # Mask out invisible predictions
