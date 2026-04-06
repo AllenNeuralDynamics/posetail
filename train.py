@@ -27,7 +27,7 @@ python train.py --config-path configs/config_default_2d.toml
 python train.py --config-path configs/config_default_3d.toml --devices 1
 python train.py --config-path configs/config_default_3d.toml --devices 1 2
 pixi run python train.py --config-path configs/config_default_3d.toml --precision 32 --devices 1 
-pixi run python train.py --config-path configs/minicubes_kubric_defauflt.toml --precision 32 --devices 1 
+pixi run python train.py --config-path configs/minicubes_kubric_default.toml --precision 32 --devices 1 
 '''
 
 def parse_args(): 
@@ -95,9 +95,9 @@ def run(config_path, fabric):
         sampler = sampler,
         shuffle = False,
         num_workers = config.dataset.num_workers,
-        prefetch_factor=2, 
-        persistent_workers=True,
-        pin_memory=True
+        prefetch_factor = 2, 
+        persistent_workers = True,
+        pin_memory = True
     )
 
     train_loader = fabric.setup_dataloaders(train_loader)
@@ -120,7 +120,8 @@ def run(config_path, fabric):
             persistent_workers=True,
             pin_memory=True
         )
-        
+
+
         val_loader = fabric.setup_dataloaders(val_loader)
 
     torch.autograd.set_detect_anomaly(False)
