@@ -1,6 +1,6 @@
 [wandb]
 project_name = "posetail-full-training"
-path = "/groups/karashchuk/home/ruppk2/results/posetail-kubric-experiments"
+path = "/groups/karashchuk/home/ruppk2/results/posetail-full-training"
 mode = "online"
 
 [dataset]
