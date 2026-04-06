@@ -2,6 +2,8 @@ import torch
 
 from einops import rearrange
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters())
 
 def init_kwargs(kwargs_dict):
      
@@ -65,6 +67,32 @@ class PadToMultiple:
         *batch_dims, c, h, w = original_shape
         pad_h = (self.multiple - h % self.multiple) % self.multiple
         pad_w = (self.multiple - w % self.multiple) % self.multiple
+        
+        if pad_h == 0 and pad_w == 0:
+            return img
+        
+        # Reshape to 4D for padding (B, C, H, W)
+        img_4d = img.reshape(-1, c, h, w)  # Flatten all batch dims, keep C, H, W
+        
+        # Pad
+        padded = torch.nn.functional.pad(img_4d, (0, pad_w, 0, pad_h), mode='constant', value=0)
+        # padded = torch.nn.functional.pad(img_4d, (0, pad_w, 0, pad_h), mode='replicate')
+        
+        # Reshape back to original batch structure
+        new_shape = batch_dims + [c, h + pad_h, w + pad_w]
+        return padded.reshape(new_shape)
+
+
+class PadToSize:
+    def __init__(self, size=256):
+        self.size = size
+    
+    def __call__(self, img):
+        # Works for any shape - assumes last 2 dims are H, W
+        original_shape = img.shape
+        *batch_dims, c, h, w = original_shape
+        pad_h = max(self.size - h, 0)
+        pad_w = max(self.size - w, 0)
         
         if pad_h == 0 and pad_w == 0:
             return img

@@ -214,6 +214,10 @@ def format_camera(cam, offset_dict, cam_type, device):
         cam_dict['offset'] = torch.as_tensor(offset, device = device, dtype = torch.float)
     else:
         cam_dict['offset'] = torch.as_tensor([0.0, 0.0], device = device, dtype = torch.float)
+
+    R = cam_dict['ext'][:3,:3]
+    t = cam_dict['ext'][:3, 3]
+    cam_dict['center'] = -R.T @ t
         
     return cam_dict
 
@@ -254,6 +258,11 @@ def train_iteration(config, model, fabric, batch,
     coords = batch.coords.to(device)
     vis = batch.vis
     cgroup = batch.cgroup 
+    vis_2d = batch.vis_2d
+    query_times = batch.query_times
+
+    query_coords = coords[:, query_times[0],
+                          torch.arange(len(query_times[0]))]
     
     # fallback if visibilities are not provided
     # if vis is None: 
@@ -268,7 +277,8 @@ def train_iteration(config, model, fabric, batch,
 
     outputs = model(
         views = list(views), 
-        coords = coords[:, 0, ...], # coords for first frame
+        coords = query_coords,
+        query_times = query_times,
         camera_group = cgroup)
 
     coords_pred = outputs['coords_pred']
@@ -278,20 +288,23 @@ def train_iteration(config, model, fabric, batch,
         model = model, 
         outputs = outputs,
         coords_true = coords, 
-        vis_true = vis, 
+        vis_true = vis,
+        vis_true_cams = vis_2d,
         cgroup = cgroup, 
         device = coords_pred.device)
+
+    if torch.all(torch.isfinite(total_loss)):
+        fabric.backward(total_loss)
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
+                                       error_if_nonfinite = False)
+
+        # fabric.clip_gradients(model, optimizer, 
+        #     max_norm = config.training.max_grad_norm, 
+        #     error_if_nonfinite = False)
+
+        optimizer.step()
         
-    fabric.backward(total_loss)
-
-    torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
-                                   error_if_nonfinite = False)
-
-    # fabric.clip_gradients(model, optimizer, 
-    #     max_norm = config.training.max_grad_norm, 
-    #     error_if_nonfinite = False)
-
-    optimizer.step()
     optimizer.zero_grad()
  
     if evaluate:
@@ -362,10 +375,14 @@ def train_epoch(config, model, fabric, dataloader,
         coords = batch.coords.to(device)
         vis = batch.vis
         cgroup = batch.cgroup 
+        vis_2d = batch.vis_2d
+        query_times = batch.query_times
+
+        query_coords = coords[:, query_times[0], torch.arange(len(query_times[0]))]
         
         # fallback if visibilities are not provided
-        if vis is None: 
-            vis = get_vis_true(coords)
+        # if vis is None: 
+        #     vis = get_vis_true(coords)
 
         if cgroup: 
             cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
@@ -374,7 +391,8 @@ def train_epoch(config, model, fabric, dataloader,
 
         outputs = model(
             views = list(views), 
-            coords = coords[:, 0, ...], 
+            coords = query_coords,
+            query_times = query_times,
             camera_group = cgroup)
 
         coords_pred = outputs['coords_pred']
@@ -384,7 +402,8 @@ def train_epoch(config, model, fabric, dataloader,
             model = model, 
             outputs = outputs,
             coords_true = coords, 
-            vis_true = vis, 
+            vis_true = vis,
+            vis_true_cams = vis_2d,
             cgroup = cgroup, 
             device = coords_pred.device)
 
@@ -475,7 +494,11 @@ def test_epoch(config, model, dataloader, loss = None,
         views = [view.to(device) for view in batch.views]
         coords = batch.coords.to(device)
         vis = batch.vis
-        cgroup = batch.cgroup 
+        cgroup = batch.cgroup
+        vis_2d = batch.vis_2d
+        query_times = batch.query_times
+
+        query_coords = coords[:, query_times[0], torch.arange(len(query_times[0]))]
         
         # fallback if visibilities are not provided
         # if vis is None: 
@@ -488,7 +511,8 @@ def test_epoch(config, model, dataloader, loss = None,
         with torch.no_grad():
             outputs = model(
                 views = list(views), 
-                coords = coords[:, 0, ...], 
+                coords = query_coords,
+                query_times = query_times,
                 camera_group = cgroup)
         
         coords_pred = outputs['coords_pred']
@@ -499,7 +523,8 @@ def test_epoch(config, model, dataloader, loss = None,
                 model = model, 
                 outputs = outputs,
                 coords_true = coords, 
-                vis_true = vis, 
+                vis_true = vis,
+                vis_true_cams = vis_2d,
                 cgroup = cgroup, 
                 device = coords_pred.device)
 

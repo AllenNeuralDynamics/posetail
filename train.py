@@ -3,6 +3,7 @@
 import argparse
 import os
 import wandb
+import time
 
 import torch
 import torch.multiprocessing as mp
@@ -17,6 +18,7 @@ from lightning.fabric import Fabric
 from posetail.datasets.posetail_dataset import PosetailDataset, custom_collate
 from posetail.posetail.losses import *
 from posetail.posetail.tracker import Tracker
+from posetail.posetail.tracker_encoder import TrackerEncoder
 from train_utils import *
 
 
@@ -60,7 +62,7 @@ def parse_args():
         help = 'number of nodes to train the model on')
 
     parser.add_argument('--precision', 
-        default = '16-mixed', 
+        default = '32-true', 
         help = 'precision type with the option to use mixed precision, e.g. 32, 32-true, 16-mixed, bf16-mixed')
 
     args = parser.parse_args()
@@ -113,14 +115,16 @@ def run(config_path, fabric):
             batch_size = config.dataset.batch_size, 
             collate_fn = custom_collate,
             shuffle = True,
-            num_workers = config.dataset.num_workers, 
-            prefetch_factor = 2, 
-            persistent_workers = True,
-            pin_memory = True)
-        
+            num_workers = config.dataset.num_workers,
+            prefetch_factor=2, 
+            persistent_workers=True,
+            pin_memory=True
+        )
+
+
         val_loader = fabric.setup_dataloaders(val_loader)
 
-    # torch.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(False)
     
     if fabric.is_global_zero:
         wandb.init(
@@ -137,9 +141,14 @@ def run(config_path, fabric):
         wandb.save(wandb_config_path, base_path = exp_dir)
 
     # device = torch.device(config.devices.device)
-    model = Tracker(**config.model)
-
+    if config.model['mode_3d'] == 'encoder':
+        model = TrackerEncoder(**config.model)
+    else:
+        model = Tracker(**config.model)
+        
     model = fabric.setup(model)
+
+    model.print_summary()
 
     # set up optimizer
     optimizer = torch.optim.AdamW(
@@ -176,19 +185,23 @@ def run(config_path, fabric):
     # compile the model
     # model.cnn.compile()
 
-    model.cnn.stem.compile()
-    model.cnn.fpn.compile()
+    # model.cnn.stem.compile()
+    # model.cnn.fpn.compile()
 
-    model.corr_mlp.compile()
-    model.tsformer.compile()
+    # model.corr_mlp.compile()
+    # model.tsformer.compile()
 
-    if model.mode_3d == 'minicubes':
-        model.minicube_v2v.compile()
-        # model.view_attention.compile()
-    elif model.mode_3d == 'triplane':
-        model.triplane_cnn.compile()
-        
-    model.mark_forward_method('get_feature_loss')
+    # if model.mode_3d == 'minicubes':
+    #     model.minicube_v2v.compile()
+    #     # model.view_attention.compile()
+    # elif model.mode_3d == 'triplane':
+    #     model.triplane_cnn.compile()
+
+    # model.query_encoder.compile()
+    # model.decoder.compile()
+
+    if model.mode_3d != 'encoder':
+        model.mark_forward_method('get_feature_loss')
     
     # NOTE: memory profiling causes a CPU memory leak
     # profiler = LineProfiler(
@@ -232,6 +245,7 @@ def run(config_path, fabric):
 
     train_iter = iter(train_loader)
 
+    iter_time = time.time()
     for i in range(iters_per_gpu):
 
         try:
@@ -271,7 +285,11 @@ def run(config_path, fabric):
 
         # log losses and eval metrics to wandb and print to console 
         if fabric.is_global_zero:
-
+            result_dict['train/iter_time'] = time.time() - iter_time
+            result_dict['train/loader_time'] = ( result_dict['train/iter_time']
+                                                 - result_dict['train/elapsed_time']
+                                                 - result_dict.get('val/elapsed_time', 0.0) )
+            iter_time = time.time()
             wandb.log(result_dict)
             write_json(json_path, result_dict)
             wandb.save(json_path, base_path = exp_dir)
