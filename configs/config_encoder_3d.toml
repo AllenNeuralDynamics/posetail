@@ -89,7 +89,7 @@ debug_ix = -1 # only works for val
 learning_rate = 1e-4
 weight_decay = 0.05
 # weight_decay = 0
-warmup_steps = 1000
+warmup_steps = 1024
 
 [training.scheduler]
 # milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
