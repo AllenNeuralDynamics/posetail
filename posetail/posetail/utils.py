@@ -31,7 +31,7 @@ def get_pos_encoding(pos, dim, dtype = torch.double):
     cos_encoding = torch.cos(m)
 
     encoding = torch.cat((sin_encoding, cos_encoding), dim = 1)
-    encoding = rearrange(encoding, 'p d -> 1 p 1 d').float()
+    encoding = rearrange(encoding, 'p d -> 1 p 1 d').to(dtype)
 
     return encoding
 
@@ -39,7 +39,7 @@ def get_pos_encoding(pos, dim, dtype = torch.double):
 @torch.compile
 def get_fourier_encoding(coords, min_freq = 0, max_freq = 1):
 
-    freqs = 2 ** torch.arange(min_freq, max_freq, device = coords.device).float()
+    freqs = 2 ** torch.arange(min_freq, max_freq, device = coords.device, dtype = coords.dtype)
     freq_coords = torch.einsum('bsnr,f->bsnfr', coords, freqs)
     freq_coords = rearrange(freq_coords, 'b s n f r -> b s n (f r)')
 

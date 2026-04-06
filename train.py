@@ -206,8 +206,10 @@ def run(config_path, fabric):
     # elif model.mode_3d == 'triplane':
     #     model.triplane_cnn.compile()
 
-    # model.query_encoder.compile()
-    # model.decoder.compile()
+    
+    # if model.mode_3d == 'encoder':
+    #     model.query_encoder.compile()
+    #     model.decoder.compile()
 
     if hasattr(model, 'get_feature_loss'):
         model.mark_forward_method('get_feature_loss')

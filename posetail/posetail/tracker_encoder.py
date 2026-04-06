@@ -200,7 +200,8 @@ class TrackerEncoder(nn.Module):
         points_pred_scaled = p2d_query + points_pred * self.p2d_scale
 
         exts = torch.stack([cam['ext'] for cam in camera_group])
-        exts_inv = torch.stack([torch.linalg.inv(cam['ext']) for cam in camera_group])
+        exts_inv = torch.stack([cam['ext_inv'] for cam in camera_group])
+        # exts_inv = torch.stack([torch.linalg.inv(cam['ext'].to(torch.float32)).to(cam['ext'].dtype) for cam in camera_group])
         query_coords_cams_flat = from_homogeneous(
             einsum(to_homogeneous(query_coords), exts,
                    'b tn r, cams x r -> cams b tn x')
@@ -241,7 +242,9 @@ class TrackerEncoder(nn.Module):
             camera_mats = torch.stack([cam['ext'] for cam in camera_group])
             weights = rearrange(conf_pred_2d, 'cams b t n 1 -> cams (b t n)')
             points_und_flat = torch.clip(points_und_flat, -2, 2)
-            points_3d_flat = triangulate_simple_batch(points_und_flat, camera_mats, weights)
+            points_3d_flat = triangulate_simple_batch(points_und_flat.to(torch.float32),
+                                                      camera_mats.to(torch.float32),
+                                                      weights.to(torch.float32)).to(points_und_flat.dtype)
             points_3d_tri = rearrange(points_3d_flat, '(b t n) r -> b t n r', b=B, t=T, n=N)
         else:
             points_3d_tri = None

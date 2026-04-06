@@ -283,7 +283,7 @@ class QueryEncoder(nn.Module):
         # 2D position encoding
         sizes = torch.stack([
             torch.tensor([view.shape[-1], view.shape[-2]], #[W, H] 
-                         dtype=torch.float32, device=query_coords.device)
+                         dtype=query_coords.dtype, device=query_coords.device)
             for view in preprocessed_views
         ])
         p2d_full = project_points_torch(camera_group, query_coords)
@@ -328,7 +328,7 @@ class QueryEncoder(nn.Module):
         visible = rearrange(visible, 'ncams (b t) -> b t ncams', b=B)
         
         # Depth encoding
-        centers = torch.stack([cam['center'] for cam in camera_group])
+        centers = torch.stack([cam['center'] for cam in camera_group]).to(query_coords.dtype)
         qc = rearrange(query_coords, 'b t r -> b t 1 r')
         depths = torch.linalg.norm(qc - centers, dim=-1) / (cube_scale * 500)
         dr = rearrange(depths, "b t ncams -> b t ncams 1", b=B)

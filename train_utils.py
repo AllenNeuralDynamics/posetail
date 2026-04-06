@@ -215,6 +215,8 @@ def format_camera(cam, offset_dict, cam_type, device):
     else:
         cam_dict['offset'] = torch.as_tensor([0.0, 0.0], device = device, dtype = torch.float)
 
+    cam_dict['ext_inv'] = torch.linalg.inv(cam_dict['ext'])
+        
     R = cam_dict['ext'][:3,:3]
     t = cam_dict['ext'][:3, 3]
     cam_dict['center'] = -R.T @ t
@@ -274,7 +276,6 @@ def train_iteration(config, model, fabric, batch,
     optimizer.zero_grad()
 
     # with fabric.autocast():
-
     outputs = model(
         views = list(views), 
         coords = query_coords,
