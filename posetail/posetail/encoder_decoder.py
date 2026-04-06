@@ -11,11 +11,6 @@ from posetail.posetail.utils import get_fourier_encoding
 from einops import rearrange, repeat
 
 from hub.backbones import (
-    vjepa2_ac_vit_giant,
-    vjepa2_vit_giant,
-    vjepa2_vit_giant_384,
-    vjepa2_vit_huge,
-    vjepa2_vit_large,
     vjepa2_1_vit_base_384,
     vjepa2_1_vit_large_384,
     vjepa2_1_vit_giant_384,
@@ -189,7 +184,6 @@ class PatchProcessor(nn.Module):
         for c in conv_channels:
             layers.extend([
                 nn.Conv2d(prev_c, c, kernel_size, padding=kernel_size//2),
-                nn.BatchNorm2d(c),
                 nn.GELU(),
             ])
             prev_c = c
@@ -492,47 +486,38 @@ class Decoder(nn.Module):
         """
         B, T_query, N_cams, _ = query_embeds.shape
         
-        # Process each camera separately
-        outputs_per_cam = []
+        # Stack scene features: [N_cams, B, N_tokens, encoder_dim]
+        # kv_stacked = torch.stack(scene_features, dim=0)
+        kv_stacked = scene_features
         
-        for cam_idx in range(N_cams):
-            # Get query for this camera: [B, T_query, embed_dim]
-            query = query_embeds[:, :, cam_idx, :]
+        # Reshape for batched processing: [(N_cams*B), N_tokens, encoder_dim]
+        kv = rearrange(kv_stacked, 'cams b tokens dim -> (cams b) tokens dim')
+        
+        # Reshape queries: [(N_cams*B), T_query, embed_dim]
+        query = rearrange(query_embeds, 'b t cams dim -> (cams b) t dim')
+        
+        # Apply cross-attention + MLP layers
+        x = query
+        for layer_idx in range(self.num_layers):
+            # Cross-attention with residual
+            attn_out, _ = self.cross_attns[layer_idx](
+                query=x,
+                key=kv,
+                value=kv,
+                need_weights=False
+            )
+            x = self.norm1s[layer_idx](x + attn_out)
             
-            # Get scene features for this camera: [B, N_tokens, encoder_dim]
-            kv = scene_features[cam_idx]
-
-            # Get visibility mask for this camera: [B, T_query]
-            # vis_mask = visible[:, :, cam_idx]
-            
-            # Apply cross-attention + MLP layers
-            x = query
-            for layer_idx in range(self.num_layers):
-                # Cross-attention with residual
-                attn_out, _ = self.cross_attns[layer_idx](
-                    query=x,
-                    key=kv,
-                    value=kv,
-                    need_weights=False
-                )
-                x = self.norm1s[layer_idx](x + attn_out)
-                
-                # MLP with residual
-                mlp_out = self.mlps[layer_idx](x)
-                x = self.norm2s[layer_idx](x + mlp_out)
-
-            # Project to output: [B, T_query, R]
-            output = self.output_head(x)
-
-            # Mask out invisible predictions
-            # vis_mask_expanded = rearrange(vis_mask, 'b t -> b t 1')
-            # output = output * vis_mask_expanded.float()
-            
-            outputs_per_cam.append(output)
-            
-                    
-        # Stack outputs: [B, T_query, N_cams, 5]
-        outputs = torch.stack(outputs_per_cam, dim=2)
+            # MLP with residual
+            mlp_out = self.mlps[layer_idx](x)
+            x = self.norm2s[layer_idx](x + mlp_out)
+        
+        # Project to output: [(N_cams*B), T_query, 8]
+        output = self.output_head(x)
+        
+        # Reshape back: [B, T_query, N_cams, 8]
+        outputs = rearrange(output, '(cams b) t dim -> b t cams dim', 
+                           cams=N_cams, b=B)
         
         return outputs
     
