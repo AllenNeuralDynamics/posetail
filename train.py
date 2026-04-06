@@ -198,8 +198,9 @@ def run(config_path, fabric):
 
     # model.query_encoder.compile()
     # model.decoder.compile()
-    
-    # model.mark_forward_method('get_feature_loss')
+
+    if model.mode_3d != 'encoder':
+        model.mark_forward_method('get_feature_loss')
     
     # NOTE: memory profiling causes a CPU memory leak
     # profiler = LineProfiler(

@@ -15,7 +15,12 @@ class TotalLoss(nn.Module):
                  use_huber_loss = False, vis_loss_weight = 1, 
                  conf_loss_weight = 1, coords_loss_weight = 1, 
                  occluded_coords_loss_weight = 1, 
-                 feature_loss_weight = 0.5):
+                 feature_loss_weight = 0.5,
+                 coords_loss_direct_weight = 0.1,
+                 coords_loss_rays_weight = 0.001,
+                 coords_loss_triangulate_weight = 0.1,
+                 coords_loss_2d_weight = 1,
+                 coords_loss_depth_weight = 1):
         super().__init__()
 
         self.gamma = gamma
@@ -30,6 +35,12 @@ class TotalLoss(nn.Module):
         self.coords_loss_weight = coords_loss_weight
         self.occluded_coords_loss_weight = occluded_coords_loss_weight
         self.feature_loss_weight = feature_loss_weight
+
+        self.coords_loss_direct_weight = coords_loss_direct_weight
+        self.coords_loss_rays_weight = coords_loss_rays_weight
+        self.coords_loss_triangulate_weight = coords_loss_triangulate_weight
+        self.coords_loss_2d_weight = coords_loss_2d_weight
+        self.coords_loss_depth_weight = coords_loss_depth_weight
 
         self.bce_loss_vis = BCELossVis(
             gamma = self.gamma, 
@@ -46,42 +57,42 @@ class TotalLoss(nn.Module):
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 10
+            weight = self.coords_loss_weight
         )
 
         self.mae_loss_coords_direct = WeightedMAELoss(
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 0.1
+            weight = self.coords_loss_direct_weight
         )
 
         self.mae_loss_coords_rays = WeightedMAELoss(
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 0.001 # tends to be much higher than other losses
+            weight = self.coords_loss_rays_weight
         )
 
         self.mae_loss_coords_triangulate = WeightedMAELoss(
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 0.1
+            weight = self.coords_loss_triangulate_weight
         )
         
         self.mae_loss_coords_2d = WeightedMAELoss(
             gamma = self.gamma, 
             delta = 16, 
             use_huber_loss = True, 
-            weight = self.coords_loss_weight * 100 / 16.0
+            weight = self.coords_loss_2d_weight / 16.0
         )
 
         self.mae_loss_coords_depth = WeightedMAELoss(
             gamma = self.gamma, 
             delta = self.delta, 
             use_huber_loss = self.use_huber_loss, 
-            weight = self.coords_loss_weight * 10
+            weight = self.coords_loss_depth_weight
         )
         
         self.mae_loss_occluded_coords = WeightedMAELoss(
@@ -91,16 +102,15 @@ class TotalLoss(nn.Module):
             weight = self.occluded_coords_loss_weight
         )
 
-        self.mae_loss_occluded_coords_2d = WeightedMAELoss(
-            gamma = self.gamma, 
-            delta = 16, 
-            use_huber_loss = True,
-            weight = self.occluded_coords_loss_weight * 10 / 16.0
-        )
+        # self.mae_loss_occluded_coords_2d = WeightedMAELoss(
+        #     gamma = self.gamma, 
+        #     delta = 16, 
+        #     use_huber_loss = True,
+        #     weight = self.occluded_coords_loss_weight * 10 / 16.0
+        # )
         
-        # if self.feature_loss_weight > 0: 
-        #     self.feature_loss = FeatureLoss(
-        #         weight = self.feature_loss_weight)
+        self.feature_loss = FeatureLoss(
+            weight = self.feature_loss_weight)
 
         # loss_names = ['vis_loss', 'conf_loss', 
         #               'occluded_coords_loss', 'coords_loss',
@@ -132,8 +142,17 @@ class TotalLoss(nn.Module):
         vis_pred = outputs['vis_pred']
         conf_pred = outputs['conf_pred']
 
-        coords_pred_2d = outputs['2d_pred']
-        depth_pred = outputs['depth_pred'][..., None]
+        # Handle 2D predictions
+        if '2d_pred' in outputs:
+            coords_pred_2d = outputs['2d_pred']
+        else:
+            coords_pred_2d = None
+            
+        # Handle depth predictions
+        if 'depth_pred' in outputs:
+            depth_pred = outputs['depth_pred'][..., None]
+        else:
+            depth_pred = None
 
         coords_true_2d = project_points_torch(cgroup, coords_true)
         coords_true_cams = repeat(coords_true, 'b t n r -> cams b t n r',
@@ -167,11 +186,9 @@ class TotalLoss(nn.Module):
 
         occluded_true = ~vis_true
 
-        # training = model.training
-        training = False
+        training_iters = model.training and 'coords_pred_iters' in outputs
         
-        if training:
-
+        if training_iters:
             coords_pred_iters = outputs['coords_pred_iters']
             vis_pred_iters = outputs['vis_pred_iters']
             conf_pred_iters = outputs['conf_pred_iters']
@@ -185,112 +202,134 @@ class TotalLoss(nn.Module):
         # compute losses
         if valid_vis:
             vis_loss = self.bce_loss_vis(
-                vis_pred = vis_pred_iters if training else vis_pred,
-                vis_true = vis_true_unrolled if training else vis_true,
+                vis_pred = vis_pred_iters if training_iters else vis_pred,
+                vis_true = vis_true_unrolled if training_iters else vis_true,
                 device = device
             )
-            vis_loss_cams = self.bce_loss_vis(
-                vis_pred = rearrange(outputs['vis_pred_2d'], 'b t n cams -> b t n cams 1'),
-                vis_true = vis_true_cams,
-                device = device
-            )
+            if 'vis_pred_2d' in outputs:
+                vis_loss_cams = self.bce_loss_vis(
+                    vis_pred = rearrange(outputs['vis_pred_2d'], 'b t n cams -> b t n cams 1'),
+                    vis_true = vis_true_cams,
+                    device = device
+                )
+            else:
+                vis_loss_cams = torch.tensor(0.0, device=device)
         else:
             vis_loss = torch.tensor(0.0, device=device)
             vis_loss_cams = torch.tensor(0.0, device=device)
 
         conf_loss = self.bce_loss_conf(
-            conf_pred = conf_pred_iters if training else conf_pred, 
-            coords_pred = coords_pred_iters if training else coords_pred,  
-            coords_true = coords_true_unrolled if training else coords_true, 
-            vis_true = vis_true_unrolled if training else vis_true,
+            conf_pred = conf_pred_iters if training_iters else conf_pred, 
+            coords_pred = coords_pred_iters if training_iters else coords_pred,  
+            coords_true = coords_true_unrolled if training_iters else coords_true, 
+            vis_true = vis_true_unrolled if training_iters else vis_true,
             scale = scale, 
             device = device
         )
 
         coords_loss = self.mae_loss_coords(
-            coords_pred = coords_pred_iters if training else coords_pred, 
-            coords_true = coords_true_unrolled if training else coords_true, 
-            vis_true = vis_true_unrolled if training else vis_true, 
+            coords_pred = coords_pred_iters if training_iters else coords_pred, 
+            coords_true = coords_true_unrolled if training_iters else coords_true, 
+            vis_true = vis_true_unrolled if training_iters else vis_true, 
             device = device
         )
 
-        coords_loss_direct = self.mae_loss_coords_direct(
-            coords_pred = outputs['3d_pred_cams_direct'],
-            coords_true = coords_true_cams,
-            vis_true = vis_true_cams, 
-            device = device
-        )
+        coords_loss_direct = torch.tensor(0.0, device=device)
+        coords_loss_rays = torch.tensor(0.0, device=device)
+        coords_loss_triangulate = torch.tensor(0.0, device=device)
         
-        coords_loss_direct += self.mae_loss_coords_direct(
-            coords_pred = outputs['3d_pred_direct'],
-            coords_true = coords_true,
-            vis_true = vis_true, 
-            device = device
-        )
+        if '3d_pred_cams_direct' in outputs:
+            coords_loss_direct += self.mae_loss_coords_direct(
+                coords_pred = outputs['3d_pred_cams_direct'],
+                coords_true = coords_true_cams,
+                vis_true = vis_true_cams, 
+                device = device
+            )
         
-        coords_loss_rays = self.mae_loss_coords_rays(
-            coords_pred = outputs['3d_pred_cams_rays'],
-            coords_true = coords_true_cams,
-            vis_true = vis_true_cams,
-            device = device
-        )
-
-        coords_loss_rays += self.mae_loss_coords_direct(
-            coords_pred = outputs['3d_pred_rays'],
-            coords_true = coords_true,
-            vis_true = vis_true, 
-            device = device
-        )
+        if '3d_pred_direct' in outputs:
+            coords_loss_direct += self.mae_loss_coords_direct(
+                coords_pred = outputs['3d_pred_direct'],
+                coords_true = coords_true,
+                vis_true = vis_true, 
+                device = device
+            )
         
-        if outputs['3d_pred_triangulate'] is not None:
-            coords_loss_triangulate = self.mae_loss_coords_triangulate(
+        if '3d_pred_cams_rays' in outputs:
+            coords_loss_rays += self.mae_loss_coords_rays(
+                coords_pred = outputs['3d_pred_cams_rays'],
+                coords_true = coords_true_cams,
+                vis_true = vis_true_cams,
+                device = device
+            )
+        
+        if '3d_pred_rays' in outputs:
+            coords_loss_rays += self.mae_loss_coords_direct(
+                coords_pred = outputs['3d_pred_rays'],
+                coords_true = coords_true,
+                vis_true = vis_true, 
+                device = device
+            )
+        
+        if '3d_pred_triangulate' in outputs and outputs['3d_pred_triangulate'] is not None:
+            coords_loss_triangulate += self.mae_loss_coords_triangulate(
                 coords_pred = outputs['3d_pred_triangulate'],
                 coords_true = coords_true,
                 vis_true = vis_true,
                 device = device
             )
-        else:
-            coords_loss_triangulate = torch.tensor(0.0, device=device)
         
-        coords_loss_2d = self.mae_loss_coords_2d(
-            coords_pred = coords_pred_2d,
-            coords_true = coords_true_2d,
-            vis_true = vis_true_cams,
-            device = device
-        )
-
-        coords_loss_depth = self.mae_loss_coords_depth(
-            coords_pred = depth_pred,
-            coords_true = depths_true,
-            vis_true = vis_true_cams,
-            device = device
-        )
+        if coords_pred_2d is not None:
+            coords_loss_2d = self.mae_loss_coords_2d(
+                coords_pred = coords_pred_2d,
+                coords_true = coords_true_2d,
+                vis_true = vis_true_cams,
+                device = device
+            )
+        else:
+            coords_loss_2d = torch.tensor(0.0, device=device)
+            
+        if depth_pred is not None:
+            coords_loss_depth = self.mae_loss_coords_depth(
+                coords_pred = depth_pred,
+                coords_true = depths_true,
+                vis_true = vis_true_cams,
+                device = device
+            )
+        else:
+            coords_loss_depth = torch.tensor(0.0, device=device)
         
         if valid_vis:
             occluded_coords_loss = self.mae_loss_occluded_coords(
-                coords_pred = coords_pred_iters if training else coords_pred, 
-                coords_true = coords_true_unrolled if training else coords_true, 
-                vis_true = occluded_true_unrolled if training else occluded_true, 
+                coords_pred = coords_pred_iters if training_iters else coords_pred, 
+                coords_true = coords_true_unrolled if training_iters else coords_true, 
+                vis_true = occluded_true_unrolled if training_iters else occluded_true, 
                 device = device
             )
-
-            occluded_coords_loss_2d = self.mae_loss_occluded_coords_2d(
-                coords_pred = coords_pred_2d,
-                coords_true = coords_true_2d,
-                vis_true = (1.0 - vis_true_cams),
-                device = device
-            )            
+            
+            # if coords_pred_2d is not None:
+            #     occluded_coords_loss_2d = self.mae_loss_occluded_coords_2d(
+            #         coords_pred = coords_pred_2d,
+            #         coords_true = coords_true_2d,
+            #         vis_true = (1.0 - vis_true_cams),
+            #         device = device
+            #     )            
+            # else:
+            #     occluded_coords_loss_2d = torch.tensor(0.0, device=device)
         else:
             occluded_coords_loss = torch.tensor(0.0, device=device)
-            occluded_coords_loss_2d = torch.tensor(0.0, device=device)
+            # occluded_coords_loss_2d = torch.tensor(0.0, device=device)
 
-        # feature_loss, bad_feature_loss = self.feature_loss(
-        #         model = model, 
-        #         coords_true = coords_true, 
-        #         feature_planes_levels = outputs['feature_planes_levels'], 
-        #         cgroup = cgroup,
-        #         device = device
-        # )
+        if 'feature_planes_levels' in outputs and self.feature_loss_weight > 0:
+            feature_loss, bad_feature_loss = self.feature_loss(
+                    model = model, 
+                    coords_true = coords_true, 
+                    feature_planes_levels = outputs['feature_planes_levels'], 
+                    cgroup = cgroup,
+                    device = device
+            )
+        else:
+            feature_loss = torch.tensor(0.0, device=device)
+            bad_feature_loss = torch.tensor(0.0, device=device)
 
         coords_loss = coords_loss / scale
         occluded_coords_loss = occluded_coords_loss / scale
@@ -306,8 +345,8 @@ class TotalLoss(nn.Module):
             vis_loss, vis_loss_cams,
             conf_loss,
             coords_loss_2d, coords_loss_depth,
-            occluded_coords_loss_2d,
-            # feature_loss, bad_feature_loss
+            # occluded_coords_loss_2d,
+            feature_loss, bad_feature_loss
         ]
         
         # total_loss = 0
@@ -330,11 +369,14 @@ class TotalLoss(nn.Module):
         self.loss_history['conf_loss'].append(conf_loss.item())
         self.loss_history['total_loss'].append(total_loss.item())
 
+        # Record 2D and depth losses if they were computed
         self.loss_history['2d_loss'].append(coords_loss_2d.item())
-        self.loss_history['2d_occluded_loss'].append(occluded_coords_loss_2d.item())
+        # self.loss_history['2d_occluded_loss'].append(occluded_coords_loss_2d.item())
         self.loss_history['depth_loss'].append(coords_loss_depth.item())
-        # self.loss_history['feature_loss'].append(feature_loss.item())
-        # self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
+
+        # feature loss
+        self.loss_history['feature_loss'].append(feature_loss.item())
+        self.loss_history['bad_feature_loss'].append(bad_feature_loss.item())
 
         self.loss_history['cube_scale'].append(scale)
         
