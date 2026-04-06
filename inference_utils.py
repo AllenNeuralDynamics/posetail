@@ -136,6 +136,8 @@ def predict_on_dataset_3d(model, dataloader, outpath, device,
             coords_subset = coords[:, :, i * max_kpts : i * max_kpts + max_kpts, :]
             vis_subset = vis[:, :, i * max_kpts : i * max_kpts + max_kpts, :]
 
+            # TODO: handle NaNs, don't want to pass in coords that are NaN
+
             # get model predictions given coords in the first frame
             with torch.no_grad():
                 outputs = model(

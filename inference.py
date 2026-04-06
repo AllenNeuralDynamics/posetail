@@ -53,7 +53,7 @@ def run_inference(dataset_path, config_path, checkpoint_path, outpath,
     dataset = PosetailInferenceDataset(
         dataset_path = dataset_path, 
         config = config, 
-        split = split) 
+        split = split)
 
     dataloader = DataLoader(
         dataset, 
@@ -87,11 +87,11 @@ if __name__ == '__main__':
     # checkpoint_path = args.checkpoint_path
     # outpath = args.outpath
 
-    dataset_name = 'cmupanoptic' # 'cmupanoptic_3dgs' # dex_ycb
+    dataset_name = 'johnson-mouse' # 'kubric-multiview' # cmupanoptic' # 'cmupanoptic_3dgs' 'dex_ycb'
     dataset_path = f'/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning/{dataset_name}' 
-    split = 'test'
-    n_frames = 25
-    max_kpts = 1800
+    split = 'val'
+    n_frames = 24
+    max_kpts = 1200
     
     # pretrained on kubric
     # checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-pretrain/wandb/run-20260211_151402-9iwgznvx/files/checkpoints/checkpoint_599992.pth'
@@ -107,8 +107,11 @@ if __name__ == '__main__':
     # checkpoint_path = '/groups/karashchuk/home/ruppk2/results/posetail-finetuning/wandb/run-20260319_114230-3a22514h/files/checkpoints/checkpoint_00348160.pth'
     # outpath = f'/home/ruppk2@hhmi.org/dataset_scripts/predictions_3a22514h/{dataset_name}'
 
-    checkpoint_path = '/groups/karashchuk/home/ruppk2/results/posetail-finetuning/wandb/run-20260319_102842-khkciay2/files/checkpoints/checkpoint_00327680.pth'
-    outpath = f'/home/ruppk2@hhmi.org/dataset_scripts/predictions_khkciay2/{dataset_name}'
+    # checkpoint_path = '/groups/karashchuk/home/ruppk2/results/posetail-finetuning/wandb/run-20260319_102842-khkciay2/files/checkpoints/checkpoint_00327680.pth'
+    # outpath = f'/home/ruppk2@hhmi.org/dataset_scripts/predictions_khkciay2/{dataset_name}'
+
+    checkpoint_path = '/groups/karashchuk/home/ruppk2/results/posetail-kubric-experiments/wandb/run-20260403_034905-aeoc4c3g/files/checkpoints/checkpoint_00799992.pth'
+    outpath = f'/home/ruppk2@hhmi.org/dataset_scripts/predictions_aeoc4c3g/{dataset_name}'
 
     config_path = os.path.join(os.path.dirname(os.path.dirname(checkpoint_path)), 'config.toml')
 
