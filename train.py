@@ -21,6 +21,7 @@ from posetail.posetail.tracker import Tracker
 from posetail.posetail.tracker_encoder import TrackerEncoder
 from train_utils import *
 
+from schedulefree import AdamWScheduleFree
 
 ''' 
 python train.py --config-path configs/config_default_2d.toml
@@ -151,12 +152,20 @@ def run(config_path, fabric):
     model.print_summary()
 
     # set up optimizer
-    optimizer = torch.optim.AdamW(
-        model.parameters(), 
-        lr = config.training.optimizer.learning_rate, 
-        weight_decay = config.training.optimizer.weight_decay,
-        amsgrad = config.training.optimizer.amsgrad,
-        fused = True)
+    if config.training.scheduler_type == 'schedulefree':
+        optimizer = AdamWScheduleFree(
+            model.parameters(), 
+            lr = config.training.optimizer.learning_rate, 
+            weight_decay = config.training.optimizer.weight_decay,
+            warmup_steps = config.training.optimizer.get('warmup_steps', 0)
+        )
+    else:
+        optimizer = torch.optim.AdamW(
+            model.parameters(), 
+            lr = config.training.optimizer.learning_rate, 
+            weight_decay = config.training.optimizer.weight_decay,
+            amsgrad = config.training.optimizer.amsgrad,
+            fused = True)
 
     optimizer = fabric.setup_optimizers(optimizer)
 
@@ -200,7 +209,7 @@ def run(config_path, fabric):
     # model.query_encoder.compile()
     # model.decoder.compile()
 
-    if model.mode_3d != 'encoder':
+    if hasattr(model, 'get_feature_loss'):
         model.mark_forward_method('get_feature_loss')
     
     # NOTE: memory profiling causes a CPU memory leak
@@ -258,6 +267,9 @@ def run(config_path, fabric):
         result_dict = {'iteration': global_i}
         evaluate = i % eval_metric_freq == 0
 
+        if hasattr(optimizer, 'train'):
+            optimizer.train()
+            
         train_dict = train_iteration(
             config = config,
             model = model,
@@ -272,6 +284,8 @@ def run(config_path, fabric):
 
         # evaluate model on validation dataset
         if val and i % val_freq == 0: 
+            if hasattr(optimizer, 'eval'):
+                optimizer.eval()
 
             val_dict = test_epoch(
                 config = config,

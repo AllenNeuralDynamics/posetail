@@ -356,7 +356,7 @@ def train_epoch(config, model, fabric, dataloader,
 
     device = model.device
     model.train()
-
+    
     start_time = time.time()
     timestamp = get_timestamp()
 
