@@ -89,7 +89,7 @@ cycle_momentum = false
 
 [training.losses]
 gamma = 0.8
-pixel_thresh = 3
+pixel_thresh = 6
 delta = 6
 use_huber_loss = false
 vis_loss_weight = 1
