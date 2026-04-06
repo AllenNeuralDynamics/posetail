@@ -179,7 +179,7 @@ class TotalLoss(nn.Module):
             valid_vis = True
             vis_true_cams = rearrange(vis_true_cams, 'b t n cams 1 -> cams b t n 1')
             
-        if model.R == 3:
+        if R == 3:
             scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
         else:
             scale = 1

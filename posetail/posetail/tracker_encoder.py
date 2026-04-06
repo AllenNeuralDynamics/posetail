@@ -17,64 +17,49 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 class TrackerEncoder(nn.Module): 
 
-    def __init__(self, track_3d = True, stride_length = 8, 
-                 stride_overlap = None, downsample_factor = 4, 
-                 hiera_requires_grad = False, vc_head_requires_grad = True,
-                 cube_dim = 20, cube_extent = None, upsample_factor = 1, 
-                 corr_levels = 4, corr_radius = 3, 
-                 corr_hidden_dim = 384, corr_output_dim = 256, 
-                 max_freq = 10, n_iters = 4, embedding_dim = 256, 
-                 latent_dim = 128, n_virtual = 64, n_heads = 8, 
+    def __init__(self, image_size = 256,
+                 stride_length = 16, stride_overlap = None,
+                 video_encoder_version = 'giant',
+                 video_encoder_requires_grad = False,
+                 corr_radius = 3, 
+                 max_freq = 10, n_iters = 4, embedding_dim = 256,
+                 query_patch_size = 9,
+                 latent_dim = 128, n_heads = 8, 
                  n_time_space_blocks = 6, embedding_factor = 4,
                  mode_3d = 'encoder'): 
         super().__init__()
-
-        if track_3d: 
-            self.R = 3 
-        else: 
-            self.R = 2
 
         self.mode_3d = mode_3d
             
         # video processing
         self.S = stride_length
+        self.n_frames = stride_length
+        self.image_size = 256
+
         
         if stride_overlap is None: 
             self.stride_overlap = self.S // 2
         else:
             self.stride_overlap = stride_overlap 
         
-        # cnn params
-        self.downsample_factor = downsample_factor
-        self.latent_dim = latent_dim 
-        self.hiera_requires_grad = hiera_requires_grad
+        # encoder params
+        self.video_encoder_requires_grad = video_encoder_requires_grad
+        self.video_encoder_version = video_encoder_version
+        
 
-        # cube params
-        self.cube_dim = cube_dim 
-        self.cube_extent = cube_extent
-
-        self.upsample_factor = upsample_factor
-
-        # correlation params
-        self.corr_levels = corr_levels 
+        # query encoder params
         self.corr_radius = corr_radius 
         self.corr_dim = 2 * self.corr_radius + 1
-        self.corr_hidden_dim = corr_hidden_dim
-        self.corr_output_dim = corr_output_dim
-
-        # transformer params
         self.max_freq = max_freq     
-        self.n_iters = n_iters
-        self.n_virtual = n_virtual
         self.embedding_dim = embedding_dim   
+
+        # decoder params
+        self.latent_dim = latent_dim 
+        self.n_iters = n_iters
         self.n_heads = n_heads
         self.n_time_space_blocks = n_time_space_blocks
         self.embedding_factor = embedding_factor
-        self.activation_kwargs = {'approximate': 'tanh'}
-        self.vc_head_requires_grad = vc_head_requires_grad
 
-        self.n_frames = 16
-        self.image_size = 256
         
         # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         self.transform_norm = transforms.Compose([
@@ -84,8 +69,8 @@ class TrackerEncoder(nn.Module):
 
 
         self.scene_encoder = SceneRepresentation(
-            version = 'giant',
-            freeze_encoder = ~hiera_requires_grad,
+            version = self.video_encoder_version,
+            freeze_encoder = ~video_encoder_requires_grad,
             n_frames = self.n_frames,
             image_size = self.image_size
         )
@@ -96,7 +81,7 @@ class TrackerEncoder(nn.Module):
             n_frames=self.n_frames, 
             corr_radius=corr_radius, 
             max_freq=self.max_freq,
-            patch_size=9
+            patch_size=query_patch_size
         )
         self.decoder = Decoder(
             embed_dim=latent_dim,
@@ -137,10 +122,9 @@ class TrackerEncoder(nn.Module):
 
         n_cams = len(views)
 
-        assert R == self.R
-        assert self.n_frames == T
+        # assert self.n_frames == T
 
-        if self.R == 3:
+        if R == 3:
             self.cube_scale = get_camera_scale(camera_group, coords.reshape(-1, 3))
 
         if query_times is None:
@@ -207,7 +191,7 @@ class TrackerEncoder(nn.Module):
         # points_pred = torch.clip(points_pred, -1.5, 1.5)
         # points_pred_scaled = einsum((points_pred + 1) * 0.5, sizes,
         #                             'cams b t n r, cams r -> cams b t n r')
-        # points_pred_scaled = F.sigmoid(points_pred) * 256
+        # points_pred_scaled = F.sigmoid(points_pred) * self.image_size
         # points_pred_scaled = (points_pred + 1) * self.p2d_scale
         
         p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
