@@ -7,7 +7,7 @@ mode = "online"
 batch_size = 1
 num_workers = 24
 prefix = "/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning"
-# datasets_to_exclude = ['anipose-fly', 'allen-mouse']
+datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
 [devices]
 device = "cuda"
