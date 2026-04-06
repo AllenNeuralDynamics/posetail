@@ -286,6 +286,9 @@ def run(config_path, fabric):
         # log losses and eval metrics to wandb and print to console 
         if fabric.is_global_zero:
             result_dict['train/iter_time'] = time.time() - iter_time
+            result_dict['train/loader_time'] = ( result_dict['train/iter_time']
+                                                 - result_dict['train/elapsed_time']
+                                                 - result_dict.get('val/elapsed_time', 0.0) )
             iter_time = time.time()
             wandb.log(result_dict)
             write_json(json_path, result_dict)
