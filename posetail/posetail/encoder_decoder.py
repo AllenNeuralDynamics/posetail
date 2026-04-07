@@ -513,8 +513,8 @@ class Decoder(nn.Module):
         for layer_idx in range(self.num_layers):
             x = rearrange(x, '(cams b) t dim -> (b t) cams dim', b=B, cams=N_cams, t=T_query)
             # Camera cross attention with residual
-            # attn_out = self.camera_attns[layer_idx](x, rays_r)
-            # x = self.norm0s[layer_idx](x + attn_out)
+            attn_out = self.camera_attns[layer_idx](x, rays_r)
+            x = self.norm0s[layer_idx](x + attn_out)
             x = rearrange(x, '(b t) cams dim -> (cams b) t dim', b=B, cams=N_cams, t=T_query)
             
             # Cross-attention with residual

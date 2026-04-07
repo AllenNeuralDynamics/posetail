@@ -631,6 +631,7 @@ class PosetailDataset(Dataset):
         for cam in cgroup:
             cam_rot = dict(cam)
             cam_rot['ext'] = torch.matmul(cam['ext'], rmat)
+            cam_rot['ext_inv'] = torch.linalg.inv(cam_rot['ext'])
             camera_group_rotated.append(cam_rot)
 
         cgroup = camera_group_rotated 

@@ -146,7 +146,7 @@ class TrackerEncoder(nn.Module):
         scene_features = self.scene_encoder(views_norm)
 
         # have coords at 0
-        query_coords = repeat(coords, 'b n r -> b (t n) r', t=T)
+        query_coords = repeat(coords, 'b n r -> b (t n) r', t=T).to(torch.float32)
         # query_time = torch.zeros((B, T * N), dtype=torch.int32, device=device)
         query_times_rep = repeat(query_times, 'b n -> b (t n)', t=T)
         target_time = repeat(torch.arange(T, device='cuda'), 't -> b (t n)', b=B, t=T, n=N)
@@ -162,14 +162,13 @@ class TrackerEncoder(nn.Module):
         p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
         p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T, n=N)
 
-        rays_flat = torch.stack([
-            points_to_rays(camera_group[i],
-                           rearrange(p2d_query[i], 'b t n r -> (b t n) r'))
+        query_rays_flat = torch.stack([
+            points_to_rays(camera_group[i], rearrange(p2d_query[i], 'b t n r -> (b t n) r'))
             for i in range(len(camera_group))
         ])
-        rays = rearrange(rays_flat, 'cams (b t n) d e -> b (t n) cams d e', b=B, t=T, n=N)
+        query_rays = rearrange(query_rays_flat, 'cams (b t n) d e -> b (t n) cams d e', b=B, t=T, n=N)
 
-        outputs = self.decoder(scene_features, query_embeds, rays)
+        outputs = self.decoder(scene_features, query_embeds, query_rays)
         outputs = rearrange(outputs,
                             'b (t n) cams outdim -> cams b t n outdim',
                             t=T, n=N)
