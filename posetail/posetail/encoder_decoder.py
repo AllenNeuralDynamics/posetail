@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from posetail.posetail.networks import EmbedV2V
 from posetail.posetail.cube import is_point_visible, project_points_torch
+from posetail.posetail.cube import CameraSelfAttention
 from posetail.posetail.utils import get_fourier_encoding
 
 from einops import rearrange, repeat
@@ -437,6 +438,13 @@ class Decoder(nn.Module):
         self.encoder_dim = encoder_dim
         self.num_layers = num_layers
         
+        # camera self attention layers
+        self.camera_attns = nn.ModuleList([
+            CameraSelfAttention(embed_dim=embed_dim,
+                                num_heads=num_heads)
+            for _ in range(num_layers)
+        ])
+
         # Cross-attention layers
         self.cross_attns = nn.ModuleList([
             nn.MultiheadAttention(
@@ -462,6 +470,7 @@ class Decoder(nn.Module):
         ])
         
         # Layer norms
+        self.norm0s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.norm1s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.norm2s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         
@@ -475,16 +484,17 @@ class Decoder(nn.Module):
             nn.Linear(embed_dim, 8)
         )
         
-    def forward(self, scene_features, query_embeds, visible):
+    def forward(self, scene_features, query_embeds, rays):
         """
         Args:
             scene_features: list of [B, N_tokens, encoder_dim] from SceneRepresentation
             query_embeds: [B, T_query, N_cams, embed_dim] from QueryEncoder
-            visible: [B, T_query, N_cams] which ones to use
+            rays: [B, T_query, N_cams, 4, 4]
         Returns:
             outputs: [B, T_query, N_cams, 8] predictions (3d, 2d pos, depth, conf, vis)
         """
-        B, T_query, N_cams, _ = query_embeds.shape
+        B, T_query, N_cams, embed_dim = query_embeds.shape
+        assert embed_dim == self.embed_dim
         
         # Stack scene features: [N_cams, B, N_tokens, encoder_dim]
         # kv_stacked = torch.stack(scene_features, dim=0)
@@ -495,10 +505,18 @@ class Decoder(nn.Module):
         
         # Reshape queries: [(N_cams*B), T_query, embed_dim]
         query = rearrange(query_embeds, 'b t cams dim -> (cams b) t dim')
+
+        rays_r = rearrange(rays, 'b t cams d e -> (b t) cams d e')
         
         # Apply cross-attention + MLP layers
         x = query
         for layer_idx in range(self.num_layers):
+            x = rearrange(x, '(cams b) t dim -> (b t) cams dim', b=B, cams=N_cams, t=T_query)
+            # Camera cross attention with residual
+            # attn_out = self.camera_attns[layer_idx](x, rays_r)
+            # x = self.norm0s[layer_idx](x + attn_out)
+            x = rearrange(x, '(b t) cams dim -> (cams b) t dim', b=B, cams=N_cams, t=T_query)
+            
             # Cross-attention with residual
             attn_out, _ = self.cross_attns[layer_idx](
                 query=x,

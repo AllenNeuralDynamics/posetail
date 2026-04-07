@@ -3,6 +3,7 @@ import itertools
 import numpy as np
 
 import torch
+import torch.nn as nn 
 import torch.nn.functional as F
 
 from einops import rearrange, einsum, repeat
@@ -394,3 +395,136 @@ class UnprojectViews:
         volumes = torch.vstack(sampled_points) 
 
         return volumes
+
+def apply_proj(feats, matrix):
+    D = matrix.shape[-1]
+    x = rearrange(feats, 'b heads cams (k d) -> b heads cams k d', d=D)
+    out = einsum(matrix, x, 'b cams i j, b heads cams k j -> b heads cams k i')
+    return rearrange(out, 'b heads cams k d -> b heads cams (k d)')
+
+def prope_projmat_only_attention(
+    q: torch.Tensor,  # (batch, heads, cams, head_dim)
+    k: torch.Tensor,  # (batch, heads, cams, head_dim)
+    v: torch.Tensor,  # (batch, heads, cams, head_dim)
+    viewmats: torch.Tensor,  # (batch, cams, 4, 4)
+    **kwargs,
+) -> torch.Tensor:
+    batch, heads, cams, head_dim = q.shape
+    D = 4
+    assert head_dim % D == 0
+
+    P_T = viewmats.transpose(-1, -2)
+    P_inv = _invert_SE3(viewmats)
+    P = viewmats
+
+    q_rot = apply_proj(q, P_T)
+    k_rot = apply_proj(k, P_inv)
+    v_rot = apply_proj(v, P_inv)
+
+    out = F.scaled_dot_product_attention(q_rot, k_rot, v_rot, **kwargs)
+
+    out = apply_proj(out, P)
+    return out
+
+
+class CameraSelfAttention(nn.Module):
+    def __init__(self, embed_dim: int, num_heads: int):
+        super().__init__()
+        assert embed_dim % num_heads == 0
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim % 4 == 0
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+
+        nn.init.zeros_(self.out_proj.weight)
+        nn.init.zeros_(self.out_proj.bias)
+        
+    def forward(
+        self,
+        vectors: torch.Tensor,   # (batch, cams, embed_dim)
+        viewmats: torch.Tensor,  # (batch, cams, 4, 4)
+    ) -> torch.Tensor:
+        batch, cams, embed_dim = vectors.shape
+        assert embed_dim == self.embed_dim
+
+        q = self.q_proj(vectors)
+        k = self.k_proj(vectors)
+        v = self.v_proj(vectors)
+
+        q = rearrange(q, 'b cams (heads d) -> b heads cams d', heads=self.num_heads)
+        k = rearrange(k, 'b cams (heads d) -> b heads cams d', heads=self.num_heads)
+        v = rearrange(v, 'b cams (heads d) -> b heads cams d', heads=self.num_heads)
+
+        out = prope_projmat_only_attention(q, k, v, viewmats)
+
+        out = rearrange(out, 'b heads cams d -> b cams (heads d)')
+        out = self.out_proj(out)
+        return out
+
+def _invert_SE3(transforms: torch.Tensor) -> torch.Tensor:
+    """Invert a 4x4 SE(3) matrix."""
+    assert transforms.shape[-2:] == (4, 4)
+    Rinv = transforms[..., :3, :3].transpose(-1, -2)
+    out = torch.zeros_like(transforms)
+    out[..., :3, :3] = Rinv
+    out[..., :3, 3] = -torch.einsum("...ij,...j->...i", Rinv, transforms[..., :3, 3])
+    out[..., 3, 3] = 1.0
+    return out
+
+
+
+def points_to_rays(cam, p2d):
+    """Inputs:
+    cam: camera dict
+    p2d: [B, 2]
+
+    Outputs:
+    ray_matrices: [B, 4, 4]
+    """
+    B = p2d.shape[0]
+    device = p2d.device
+    dtype = p2d.dtype
+
+    # Undistort and lift to normalized camera coords
+    p2d_und = undistort_points(cam, p2d)          # [B, 2]
+    d_cam = to_homogeneous(p2d_und)               # [B, 3]
+    d_cam = F.normalize(d_cam, dim=-1, eps=1e-8)
+
+    # Camera-to-world rotation and translation from ext
+    ext = cam['ext'].clone()                              # [4, 4] world-to-camera
+    R_c2w = rearrange(ext[:3, :3], 'i j -> j i') # [3, 3], transpose = invert rotation
+    t_c2w = -einsum(R_c2w, ext[:3, 3], 'i j, j -> i')  # [3]
+
+    # Ray directions in world space
+    d_world = einsum(R_c2w, d_cam, 'i j, b j -> b i')
+    d_world = F.normalize(d_world, dim=-1, eps=1e-8)  # [B, 3]
+
+    # Camera origin broadcast to all rays
+    origin = repeat(t_c2w, 'c -> b c', b=B)      # [B, 3]
+
+    # Camera y-axis (column 1 of R_c2w) broadcast to all rays
+    cam_y = repeat(R_c2w[:, 1], 'c -> b c', b=B) # [B, 3]
+
+    # Orthonormal ray-local frame: z=ray, x=cam_y×z, y=z×x
+    z_ray = d_world
+    x_ray = F.normalize(torch.cross(cam_y, z_ray, dim=-1), dim=-1, eps=1e-8)
+    y_ray = F.normalize(torch.cross(z_ray, x_ray, dim=-1), dim=-1, eps=1e-8)
+
+    # world-to-ray rotation: stack axes as rows
+    R_w2r = torch.stack([x_ray, y_ray, z_ray], dim=1)  # [B, 3, 3]
+
+    # world-to-ray translation
+    t_w2r = -einsum(R_w2r, origin, 'b i j, b j -> b i')  # [B, 3]
+
+    # Assemble 4x4 matrices
+    ray_matrices = torch.zeros(B, 4, 4, device=device, dtype=dtype)
+    ray_matrices[:, :3, :3] = R_w2r
+    ray_matrices[:, :3, 3] = t_w2r
+    ray_matrices[:, 3, 3] = 1.0
+
+    return ray_matrices

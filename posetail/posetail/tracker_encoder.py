@@ -9,6 +9,7 @@ from einops import rearrange, einsum, reduce, repeat
 
 from posetail.posetail.cube import get_camera_scale, from_homogeneous, to_homogeneous
 from posetail.posetail.cube import undistort_points, triangulate_simple_batch, project_points_torch
+from posetail.posetail.cube import points_to_rays
 from posetail.posetail.utils import PadToMultiple, PadToSize, count_parameters
 from posetail.posetail.encoder_decoder import SceneRepresentation, QueryEncoder, Decoder
 
@@ -158,7 +159,17 @@ class TrackerEncoder(nn.Module):
             cube_scale = self.cube_scale
         )
 
-        outputs = self.decoder(scene_features, query_embeds, visible)
+        p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
+        p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T, n=N)
+
+        rays_flat = torch.stack([
+            points_to_rays(camera_group[i],
+                           rearrange(p2d_query[i], 'b t n r -> (b t n) r'))
+            for i in range(len(camera_group))
+        ])
+        rays = rearrange(rays_flat, 'cams (b t n) d e -> b (t n) cams d e', b=B, t=T, n=N)
+
+        outputs = self.decoder(scene_features, query_embeds, rays)
         outputs = rearrange(outputs,
                             'b (t n) cams outdim -> cams b t n outdim',
                             t=T, n=N)
@@ -194,8 +205,6 @@ class TrackerEncoder(nn.Module):
         # points_pred_scaled = F.sigmoid(points_pred) * self.image_size
         # points_pred_scaled = (points_pred + 1) * self.p2d_scale
         
-        p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
-        p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T, n=N)
         # Predict offsets instead of absolute bounded coordinates
         points_pred_scaled = p2d_query + points_pred * self.p2d_scale
 
