@@ -236,6 +236,9 @@ class QueryEncoder(nn.Module):
         # Time embeddings
         self.t_query_embed = nn.Embedding(n_frames, embed_dim)
         self.t_target_embed = nn.Embedding(n_frames, embed_dim)
+
+        # visibility embedding
+        self.vis_embed = nn.Embedding(2, embed_dim)
         
         # # Volume processing
         vdim = 8
@@ -320,6 +323,7 @@ class QueryEncoder(nn.Module):
                                       'b t embed -> b t 1 embed')
         
 
+        # visibility
         qflat = rearrange(query_coords, 'b t r -> (b t) r')
         visible = []
         for cam in camera_group:
@@ -327,6 +331,8 @@ class QueryEncoder(nn.Module):
             visible.append(out)
         visible = torch.stack(visible)
         visible = rearrange(visible, 'ncams (b t) -> b t ncams', b=B)
+
+        embed_vis = self.vis_embed(visible.to(torch.int32))
         
         # Depth encoding
         centers = torch.stack([cam['center'] for cam in camera_group]).to(query_coords.dtype)
@@ -339,7 +345,7 @@ class QueryEncoder(nn.Module):
         # Combine all embeddings
         embed_total = embed_patch + embed_query_time + \
             embed_target_time + embed_pos + embed_depth + \
-            embed_volume
+            embed_volume + embed_vis
         
         
         embed_final = self.final_mlp(embed_total)
