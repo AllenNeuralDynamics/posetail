@@ -294,17 +294,20 @@ def train_iteration(config, model, fabric, batch,
         cgroup = cgroup, 
         device = coords_pred.device)
 
-    if torch.all(torch.isfinite(total_loss)):
-        fabric.backward(total_loss)
+    fabric.backward(total_loss)
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
-                                       error_if_nonfinite = False)
+    # torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
+    #                                error_if_nonfinite = False)
 
-        # fabric.clip_gradients(model, optimizer, 
-        #     max_norm = config.training.max_grad_norm, 
-        #     error_if_nonfinite = False)
+    try:
+        fabric.clip_gradients(model, optimizer, 
+            max_norm = config.training.max_grad_norm, 
+            error_if_nonfinite = True)
 
         optimizer.step()
+    except:
+        print("ERROR BAD GRADIENTS!!!")
+        print(batch.sample_info)
         
     optimizer.zero_grad()
  
