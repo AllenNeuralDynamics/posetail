@@ -257,12 +257,23 @@ class QueryEncoder(nn.Module):
             conv_channels=[32, 64, 128],
         )
 
+        self.depth_norm_scale = nn.Parameter(torch.tensor([500.0]))
+
         self.final_mlp = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim*4),
+            nn.Linear(embed_dim * 7, embed_dim*4),
             nn.GELU(),
             nn.Linear(embed_dim*4, decoder_dim),
         )
         
+        self._init_weights()
+        
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
     def forward(self, preprocessed_views, camera_group,
                 query_coords, query_time, target_time,
                 cube_scale):
@@ -295,12 +306,13 @@ class QueryEncoder(nn.Module):
         fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
         embed_pos = self.linear_pos(fourier_pos)
         
-        # # # Volume feature embeddings
+        # # Volume feature embeddings
         volumes = sample_feature_cubes_time(
             preprocessed_views, camera_group, query_coords, query_time,
             cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
         volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
         embed_volume = self.linear_volume(volumes)
+        embed_volume = repeat(embed_volume, "b t 1 embed -> b t cams embed", cams=n_cams)
 
         # Pixel patch embeddings
         
@@ -317,10 +329,10 @@ class QueryEncoder(nn.Module):
 
         
         # Time embeddings
-        embed_query_time = rearrange(self.t_query_embed(query_time),
-                                     'b t embed -> b t 1 embed')
-        embed_target_time = rearrange(self.t_target_embed(target_time),
-                                      'b t embed -> b t 1 embed')
+        embed_query_time = repeat(self.t_query_embed(query_time),
+                                     'b t embed -> b t cams embed', cams=n_cams)
+        embed_target_time = repeat(self.t_target_embed(target_time),
+                                      'b t embed -> b t cams embed', cams=n_cams)
         
 
         # visibility
@@ -337,15 +349,16 @@ class QueryEncoder(nn.Module):
         # Depth encoding
         centers = torch.stack([cam['center'] for cam in camera_group]).to(query_coords.dtype)
         qc = rearrange(query_coords, 'b t r -> b t 1 r')
-        depths = torch.linalg.norm(qc - centers, dim=-1) / (cube_scale * 500)
+        depths = torch.linalg.norm(qc - centers, dim=-1) / (cube_scale * self.depth_norm_scale)
         dr = rearrange(depths, "b t ncams -> b t ncams 1", b=B)
         fourier_depth = get_fourier_encoding(dr, min_freq=0, max_freq=self.max_freq)
         embed_depth = self.linear_depth(fourier_depth)
         
         # Combine all embeddings
-        embed_total = embed_patch + embed_query_time + \
-            embed_target_time + embed_pos + embed_depth + \
-            embed_volume + embed_vis
+        embed_total = torch.cat([
+            embed_patch, embed_query_time, embed_target_time, 
+            embed_pos, embed_depth, embed_volume, embed_vis
+        ], dim=-1)
         
         
         embed_final = self.final_mlp(embed_total)
@@ -480,16 +493,27 @@ class Decoder(nn.Module):
         self.norm1s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.norm2s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         
-        # Final output head
-        # self.output_head = nn.Linear(embed_dim, 3 + 2 + 1 + 1 + 1)  # 3d, 2d, depth, conf, vis
-        self.output_head = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim),
-            nn.GELU(),
-            nn.Linear(embed_dim, embed_dim),
-            nn.GELU(),
-            nn.Linear(embed_dim, 8)
-        )
+        # Final output heads
+        self.head_3d = nn.Linear(embed_dim, 3)
+        self.head_2d = nn.Linear(embed_dim, 2)
+        self.head_vis = nn.Linear(embed_dim, 1)
+        self.head_conf = nn.Linear(embed_dim, 1)
+        self.head_depth = nn.Linear(embed_dim, 1)
+
+        self._init_weights()
         
+    def _init_weights(self):
+        for name, m in self.named_modules():
+            if isinstance(m, nn.Linear):
+                if any(head in name for head in ['head_3d', 'head_2d', 'head_depth']):
+                    nn.init.constant_(m.weight, 0)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+                else:
+                    nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+
     def forward(self, scene_features, query_embeds, rays):
         """
         Args:
@@ -537,14 +561,15 @@ class Decoder(nn.Module):
             x = self.norm2s[layer_idx](x + mlp_out)
         
         # Project to output: [(N_cams*B), T_query, 8]
-        output = self.output_head(x)
+        out_3d = self.head_3d(x)
+        out_2d = self.head_2d(x)
+        out_vis = self.head_vis(x)
+        out_conf = self.head_conf(x)
+        out_depth = self.head_depth(x)
+        output = torch.cat([out_3d, out_2d, out_vis, out_conf, out_depth], dim=-1)
         
         # Reshape back: [B, T_query, N_cams, 8]
         outputs = rearrange(output, '(cams b) t dim -> b t cams dim', 
                            cams=N_cams, b=B)
         
         return outputs
-    
-
-
-
