@@ -157,7 +157,9 @@ def run(config_path, fabric):
             model.parameters(), 
             lr = config.training.optimizer.learning_rate, 
             weight_decay = config.training.optimizer.weight_decay,
-            warmup_steps = config.training.optimizer.get('warmup_steps', 0)
+            warmup_steps = config.training.optimizer.get('warmup_steps', 0),
+            betas = (config.training.optimizer.get('beta1', 0.9),
+                     config.training.optimizer.get('beta2', 0.999))
         )
     else:
         optimizer = torch.optim.AdamW(

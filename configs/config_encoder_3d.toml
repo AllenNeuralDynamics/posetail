@@ -19,8 +19,8 @@ split_dir = 'train'
 n_frames = 16
 min_res = 256
 max_res = 256
-cams_to_sample = [1, 12] 
-kpts_to_sample = [256, 256]
+cams_to_sample = [1, 8] 
+kpts_to_sample = [320, 320]
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -53,7 +53,7 @@ device = 'cuda'
 mode_3d = "encoder"
 
 video_encoder_version = 'giant'
-video_encoder_requires_grad = false
+video_encoder_requires_grad = true
 
 # processing
 stride_length = 16
@@ -87,9 +87,11 @@ debug_ix = -1 # only works for val
 
 [training.optimizer]
 learning_rate = 1e-4
-weight_decay = 0.05
+weight_decay = 0.01
 # weight_decay = 0
 warmup_steps = 2048
+beta1 = 0.95
+beta2 = 0.999
 
 [training.scheduler]
 # milestones = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550]
