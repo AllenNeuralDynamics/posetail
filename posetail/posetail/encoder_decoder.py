@@ -362,7 +362,8 @@ class QueryEncoder(nn.Module):
     
 
 class SceneRepresentation(nn.Module):
-    def __init__(self, version='large', freeze_encoder=True, n_frames=16, image_size=256):
+    def __init__(self, version='large', freeze_encoder=True, n_frames=16, image_size=256,
+                 hierarchical_features = True):
         super().__init__()
         
         # Initialize encoder
@@ -374,13 +375,20 @@ class SceneRepresentation(nn.Module):
             vjepa_encoder, vjepa_decoder = vjepa2_1_vit_giant_384()
         elif version == 'gigantic':
             vjepa_encoder, vjepa_decoder = vjepa2_1_vit_gigantic_384()
-        
+
         self.encoder = vjepa_encoder
-        self.embed_dim = self.encoder.embed_dim * 4
+            
+        self.encoder.return_hierarchical = hierarchical_features
+        self.encoder.use_activation_checkpointing = not freeze_encoder
+
+        if hierarchical_features:
+            self.embed_dim = self.encoder.embed_dim * 4
+        else:
+            self.embed_dim = self.encoder.embed_dim
+            
         self.patch_size = self.encoder.patch_size
         self.tubelet_size = self.encoder.tubelet_size
 
-        self.encoder.return_hierarchical = True
         
         if freeze_encoder:
             for param in self.encoder.parameters():

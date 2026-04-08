@@ -22,6 +22,7 @@ class TrackerEncoder(nn.Module):
                  stride_length = 16, stride_overlap = None,
                  video_encoder_version = 'giant',
                  video_encoder_requires_grad = False,
+                 video_encoder_hierarchical = True,
                  corr_radius = 3, 
                  max_freq = 10, n_iters = 4, embedding_dim = 256,
                  query_patch_size = 9,
@@ -46,6 +47,7 @@ class TrackerEncoder(nn.Module):
         # encoder params
         self.video_encoder_requires_grad = video_encoder_requires_grad
         self.video_encoder_version = video_encoder_version
+        self.video_encoder_hierarchical = video_encoder_hierarchical
         
 
         # query encoder params
@@ -73,7 +75,8 @@ class TrackerEncoder(nn.Module):
             version = self.video_encoder_version,
             freeze_encoder = not video_encoder_requires_grad,
             n_frames = self.n_frames,
-            image_size = self.image_size
+            image_size = self.image_size,
+            hierarchical_features = self.video_encoder_hierarchical
         )
         
         self.query_encoder = QueryEncoder(
