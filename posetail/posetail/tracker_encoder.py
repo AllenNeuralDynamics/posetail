@@ -35,7 +35,7 @@ class TrackerEncoder(nn.Module):
         # video processing
         self.S = stride_length
         self.n_frames = stride_length
-        self.image_size = 256
+        self.image_size = image_size
 
         
         if stride_overlap is None: 
@@ -71,7 +71,7 @@ class TrackerEncoder(nn.Module):
 
         self.scene_encoder = SceneRepresentation(
             version = self.video_encoder_version,
-            freeze_encoder = ~video_encoder_requires_grad,
+            freeze_encoder = not video_encoder_requires_grad,
             n_frames = self.n_frames,
             image_size = self.image_size
         )
