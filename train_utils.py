@@ -225,6 +225,8 @@ def format_camera(cam, offset_dict, cam_type, device):
     else:
         cam_dict['offset'] = torch.as_tensor([0.0, 0.0], device = device, dtype = torch.float)
 
+    cam_dict['ext_inv'] = torch.linalg.inv(cam_dict['ext'])
+        
     R = cam_dict['ext'][:3,:3]
     t = cam_dict['ext'][:3, 3]
     cam_dict['center'] = -R.T @ t
@@ -284,7 +286,6 @@ def train_iteration(config, model, fabric, batch,
     optimizer.zero_grad()
 
     # with fabric.autocast():
-
     outputs = model(
         views = list(views), 
         coords = query_coords,
@@ -303,17 +304,27 @@ def train_iteration(config, model, fabric, batch,
         cgroup = cgroup, 
         device = coords_pred.device)
 
-    if torch.all(torch.isfinite(total_loss)):
-        fabric.backward(total_loss)
+    fabric.backward(total_loss)
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
-                                       error_if_nonfinite = False)
+    # Calculate gradient norm
+    grad_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            grad_norm += p.grad.detach().data.norm(2).item() ** 2
+    grad_norm = grad_norm ** 0.5
 
-        # fabric.clip_gradients(model, optimizer, 
-        #     max_norm = config.training.max_grad_norm, 
-        #     error_if_nonfinite = False)
+    # torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
+    #                                error_if_nonfinite = False)
+
+    try:
+        fabric.clip_gradients(model, optimizer, 
+            max_norm = config.training.max_grad_norm, 
+            error_if_nonfinite = True)
 
         optimizer.step()
+    except:
+        print("ERROR BAD GRADIENTS!!!")
+        print(batch.sample_info)
         
     optimizer.zero_grad()
  
@@ -340,7 +351,8 @@ def train_iteration(config, model, fabric, batch,
     train_dict = {f'{prefix}timestamp': timestamp,
                   f'{prefix}elapsed_time': elapsed_time,
                   f'{prefix}elapsed_time_hms': elapsed_time_hms,
-                  f'{prefix}learning_rate': learning_rate}
+                  f'{prefix}learning_rate': learning_rate,
+                  f'{prefix}grad_norm': grad_norm}
     train_dict.update(loss_dict)
 
     # average evaluation metrics if we evaluated
@@ -366,7 +378,7 @@ def train_epoch(config, model, fabric, dataloader,
 
     device = model.device
     model.train()
-
+    
     start_time = time.time()
     timestamp = get_timestamp()
 
@@ -375,6 +387,7 @@ def train_epoch(config, model, fabric, dataloader,
     n_batches = 0
     n_frames = 0
     metric_dicts = []
+    grad_norms = []
     
     for j, batch in enumerate(dataloader):
 
@@ -425,6 +438,13 @@ def train_epoch(config, model, fabric, dataloader,
             
         fabric.backward(total_loss)
 
+        # Calculate gradient norm
+        grad_norm = 0.0
+        for p in model.parameters():
+            if p.grad is not None:
+                grad_norm += p.grad.detach().data.norm(2).item() ** 2
+        grad_norms.append(grad_norm ** 0.5)
+
         fabric.clip_gradients(model, optimizer, 
             max_norm = config.training.max_grad_norm, 
             error_if_nonfinite = True)
@@ -464,7 +484,8 @@ def train_epoch(config, model, fabric, dataloader,
                   f'{prefix}elapsed_time_hms': elapsed_time_hms,
                   f'{prefix}batches_per_epoch': n_batches,
                   f'{prefix}frames_per_epoch': n_frames, 
-                  f'{prefix}learning_rate': learning_rate}
+                  f'{prefix}learning_rate': learning_rate,
+                  f'{prefix}grad_norm_avg': float(np.mean(grad_norms))}
     train_dict.update(loss_dict)
 
     # average evaluation metrics if we evaluated

@@ -8,10 +8,10 @@ def get_eval_metrics(vis_pred, vis_true, coords_pred,
     if vis_true is None:
         vis_true = get_vis_true(coords_true) 
     
-    vis_pred = vis_pred.detach().cpu().numpy()
+    vis_pred = vis_pred.detach().cpu().to(torch.float32).numpy()
     vis_true = vis_true.detach().cpu().numpy()
-    coords_pred = coords_pred.detach().cpu().numpy()
-    coords_true = coords_true.detach().cpu().numpy()
+    coords_pred = coords_pred.detach().cpu().to(torch.float32).numpy()
+    coords_true = coords_true.detach().cpu().to(torch.float32).numpy()
 
     if thresholds is None:
         thresholds = [1, 2, 4, 8, 16]

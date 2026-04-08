@@ -355,7 +355,7 @@ class TotalLoss(nn.Module):
         #         total_loss += loss
         losses = torch.stack(losses)
         losses = losses[torch.isfinite(losses)]
-        total_loss = losses.sum()
+        total_loss = losses.sum() / 50.0 # normalize to bring in 0-1 range
 
         self.loss_history['coords_loss'].append(coords_loss.item())
         self.loss_history['occluded_coords_loss'].append(occluded_coords_loss.item())

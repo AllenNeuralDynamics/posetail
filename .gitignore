@@ -184,3 +184,5 @@ _deprecated/
 pixi-py/*
 !.pixi/config.toml
 pixi.lock
+
+.aider*

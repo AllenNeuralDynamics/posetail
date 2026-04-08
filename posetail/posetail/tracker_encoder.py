@@ -9,6 +9,7 @@ from einops import rearrange, einsum, reduce, repeat
 
 from posetail.posetail.cube import get_camera_scale, from_homogeneous, to_homogeneous
 from posetail.posetail.cube import undistort_points, triangulate_simple_batch, project_points_torch
+from posetail.posetail.cube import points_to_rays
 from posetail.posetail.utils import PadToMultiple, PadToSize, count_parameters
 from posetail.posetail.encoder_decoder import SceneRepresentation, QueryEncoder, Decoder
 
@@ -21,6 +22,7 @@ class TrackerEncoder(nn.Module):
                  stride_length = 16, stride_overlap = None,
                  video_encoder_version = 'giant',
                  video_encoder_requires_grad = False,
+                 video_encoder_hierarchical = True,
                  corr_radius = 3, 
                  max_freq = 10, n_iters = 4, embedding_dim = 256,
                  query_patch_size = 9,
@@ -34,7 +36,7 @@ class TrackerEncoder(nn.Module):
         # video processing
         self.S = stride_length
         self.n_frames = stride_length
-        self.image_size = 256
+        self.image_size = image_size
 
         
         if stride_overlap is None: 
@@ -45,6 +47,7 @@ class TrackerEncoder(nn.Module):
         # encoder params
         self.video_encoder_requires_grad = video_encoder_requires_grad
         self.video_encoder_version = video_encoder_version
+        self.video_encoder_hierarchical = video_encoder_hierarchical
         
 
         # query encoder params
@@ -70,9 +73,10 @@ class TrackerEncoder(nn.Module):
 
         self.scene_encoder = SceneRepresentation(
             version = self.video_encoder_version,
-            freeze_encoder = ~video_encoder_requires_grad,
+            freeze_encoder = not video_encoder_requires_grad,
             n_frames = self.n_frames,
-            image_size = self.image_size
+            image_size = self.image_size,
+            hierarchical_features = self.video_encoder_hierarchical
         )
         
         self.query_encoder = QueryEncoder(
@@ -145,10 +149,10 @@ class TrackerEncoder(nn.Module):
         scene_features = self.scene_encoder(views_norm)
 
         # have coords at 0
-        query_coords = repeat(coords, 'b n r -> b (t n) r', t=T)
+        query_coords = repeat(coords, 'b n r -> b (t n) r', t=T).to(torch.float32)
         # query_time = torch.zeros((B, T * N), dtype=torch.int32, device=device)
         query_times_rep = repeat(query_times, 'b n -> b (t n)', t=T)
-        target_time = repeat(torch.arange(T, device='cuda'), 't -> b (t n)', b=B, t=T, n=N)
+        target_time = repeat(torch.arange(T, device=device), 't -> b (t n)', b=B, t=T, n=N)
         
         query_embeds, visible = self.query_encoder(
             views_norm, camera_group,
@@ -158,20 +162,30 @@ class TrackerEncoder(nn.Module):
             cube_scale = self.cube_scale
         )
 
-        outputs = self.decoder(scene_features, query_embeds, visible)
+        p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
+        p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T, n=N)
+
+        query_rays_flat = torch.stack([
+            points_to_rays(camera_group[i], rearrange(p2d_query[i], 'b t n r -> (b t n) r'),
+                           self.cube_scale)
+            for i in range(len(camera_group))
+        ])
+        query_rays = rearrange(query_rays_flat, 'cams (b t n) d e -> b (t n) cams d e', b=B, t=T, n=N)
+
+        outputs = self.decoder(scene_features, query_embeds, query_rays)
         outputs = rearrange(outputs,
                             'b (t n) cams outdim -> cams b t n outdim',
                             t=T, n=N)
 
-        points_3d_offsets, points_pred, vis_pred_2d, conf_pred_2d_raw, depth_pred = torch.split(
-            outputs, [3, 2, 1, 1, 1], dim=-1
+        points_3d_offsets, points_pred, vis_pred_2d_logits, conf_pred_2d_logits, depth_pred, conf_3d_logits = torch.split(
+            outputs, [3, 2, 1, 1, 1, 1], dim=-1
         )
 
 
-        vis_pred_2d = F.sigmoid(vis_pred_2d)
-        conf_pred_2d = F.sigmoid(conf_pred_2d_raw)
+        vis_pred_2d = F.sigmoid(vis_pred_2d_logits)
+        conf_pred_2d = F.sigmoid(conf_pred_2d_logits)
 
-        conf_3d = torch.softmax(conf_pred_2d_raw[..., 0], dim=0)
+        conf_3d = torch.softmax(conf_3d_logits[..., 0], dim=0)
 
 
         qc = rearrange(query_coords, 'b (t n) r -> b t n 1 r', t=T, n=N)
@@ -194,13 +208,12 @@ class TrackerEncoder(nn.Module):
         # points_pred_scaled = F.sigmoid(points_pred) * self.image_size
         # points_pred_scaled = (points_pred + 1) * self.p2d_scale
         
-        p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
-        p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T, n=N)
         # Predict offsets instead of absolute bounded coordinates
         points_pred_scaled = p2d_query + points_pred * self.p2d_scale
 
         exts = torch.stack([cam['ext'] for cam in camera_group])
-        exts_inv = torch.stack([torch.linalg.inv(cam['ext']) for cam in camera_group])
+        exts_inv = torch.stack([cam['ext_inv'] for cam in camera_group])
+        # exts_inv = torch.stack([torch.linalg.inv(cam['ext'].to(torch.float32)).to(cam['ext'].dtype) for cam in camera_group])
         query_coords_cams_flat = from_homogeneous(
             einsum(to_homogeneous(query_coords), exts,
                    'b tn r, cams x r -> cams b tn x')
@@ -241,7 +254,9 @@ class TrackerEncoder(nn.Module):
             camera_mats = torch.stack([cam['ext'] for cam in camera_group])
             weights = rearrange(conf_pred_2d, 'cams b t n 1 -> cams (b t n)')
             points_und_flat = torch.clip(points_und_flat, -2, 2)
-            points_3d_flat = triangulate_simple_batch(points_und_flat, camera_mats, weights)
+            points_3d_flat = triangulate_simple_batch(points_und_flat.to(torch.float32),
+                                                      camera_mats.to(torch.float32),
+                                                      weights.to(torch.float32)).to(points_und_flat.dtype)
             points_3d_tri = rearrange(points_3d_flat, '(b t n) r -> b t n r', b=B, t=T, n=N)
         else:
             points_3d_tri = None
@@ -268,8 +283,8 @@ class TrackerEncoder(nn.Module):
             '2d_pred': points_pred_scaled, # (cams, b, t, n, 2)
             'vis_pred': vis_pred, # (b, t, n, 1)
             'conf_pred': conf_pred, # (b, t, n, 1)
-            'vis_pred_2d': vis_pred_2d[..., 0], # (cams, b, t, n)
-            'conf_pred_2d': conf_pred_2d[..., 0], # (cams, b, t, n)
+            'vis_pred_2d': vis_pred_2d_logits[..., 0], # (cams, b, t, n)
+            'conf_pred_2d': conf_pred_2d_logits[..., 0], # (cams, b, t, n)
             'depth_pred': depth_pred_scaled # (cams, b, t, n)
         }
 

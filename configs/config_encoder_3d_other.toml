@@ -53,7 +53,7 @@ device = 'cuda'
 [model]
 mode_3d = "encoder"
 
-video_encoder_version = 'giant'
+video_encoder_version = 'large'
 video_encoder_requires_grad = true
 video_encoder_hierarchical = false
 
