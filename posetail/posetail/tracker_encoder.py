@@ -149,7 +149,7 @@ class TrackerEncoder(nn.Module):
         query_coords = repeat(coords, 'b n r -> b (t n) r', t=T).to(torch.float32)
         # query_time = torch.zeros((B, T * N), dtype=torch.int32, device=device)
         query_times_rep = repeat(query_times, 'b n -> b (t n)', t=T)
-        target_time = repeat(torch.arange(T, device='cuda'), 't -> b (t n)', b=B, t=T, n=N)
+        target_time = repeat(torch.arange(T, device=device), 't -> b (t n)', b=B, t=T, n=N)
         
         query_embeds, visible = self.query_encoder(
             views_norm, camera_group,
