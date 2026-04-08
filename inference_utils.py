@@ -136,15 +136,35 @@ def predict_on_dataset_3d(model, dataloader, outpath, device,
             coords_subset = coords[:, :, i * max_kpts : i * max_kpts + max_kpts, :]
             vis_subset = vis[:, :, i * max_kpts : i * max_kpts + max_kpts, :]
 
-            # TODO: handle NaNs, don't want to pass in coords that are NaN
+             # mask NaNs, don't want to pass in coords that are NaN in the first frame
+            coords_first = coords_subset[:, 0, :, :]  # B, N, R
+            valid_mask = ~torch.isnan(coords_first).any(dim = -1)  # B, N
+            coords_valid = coords_first[:, valid_mask[0], :]  # B, n, R
 
             # get model predictions given coords in the first frame
             with torch.no_grad():
+
                 outputs = model(
                     views = views, 
-                    coords = coords_subset[:, 0, :, :], 
+                    coords = coords_valid, 
                     camera_group = cgroup
                 )
+
+                # populate valid predictions in side of coords
+                B, S, N, R = coords_subset.shape
+                output_coords_valid = torch.full((B, S, N, R), float('nan'),
+                    device = coords_subset.device, dtype = coords_subset.dtype)
+                output_vis_valid = torch.full((B, S, N, 1), float('nan'), 
+                    device = coords_subset.device, dtype = coords_subset.dtype)
+                output_conf_valid = torch.full((B, S, N, 1), float('nan'),
+                    device = coords_subset.device, dtype = coords_subset.dtype)
+
+                output_coords_valid[:, :, valid_mask[0], :] = outputs['coords_pred']
+                output_vis_valid[:, :, valid_mask[0], :] = outputs['vis_pred']
+                output_conf_valid[:, :, valid_mask[0], :] = outputs['conf_pred']
+
+                print('true', coords_subset[:, :, 0, :])
+                print('pred', outputs['coords_pred'][:, :, 0, :])
 
                 coords_pred.append(torch.squeeze(outputs['coords_pred'], dim = 0).cpu().numpy())
                 vis_pred.append(torch.squeeze(outputs['vis_pred'], dim = 0).cpu().numpy())
