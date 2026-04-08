@@ -421,6 +421,11 @@ def prope_projmat_only_attention(
     k_rot = apply_proj(k, P_inv)
     v_rot = apply_proj(v, P_inv)
 
+    # Add these lines to stabilize the attention inputs:
+    q_rot = F.layer_norm(q_rot, (head_dim,))
+    k_rot = F.layer_norm(k_rot, (head_dim,))
+    # v_rot = F.layer_norm(v_rot, (head_dim,))
+
     out = F.scaled_dot_product_attention(q_rot, k_rot, v_rot, **kwargs)
 
     out = apply_proj(out, P)

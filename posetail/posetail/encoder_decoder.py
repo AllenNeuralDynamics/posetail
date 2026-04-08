@@ -93,16 +93,12 @@ def sample_feature_cubes_time(feature_planes, camera_group,
 
     # volumes: cams b d k total            
     volumes = torch.stack(all_samples)
-    # masks = torch.stack(all_masks)  # ncams b k total
-
-    # masks_expanded = repeat(masks, "ncams b k total -> ncams b d k total",
-    #                         d=volumes.shape[2])
-
-    # apply softmax from learnable triangulation
-    # volumes[~masks_expanded] = -1e3
-    # weights = F.softmax(volumes, dim=0)
-    # mean_volume = torch.sum(volumes * weights, dim=0)
-    mean_volume = torch.mean(volumes, dim=0)
+    masks = torch.stack(all_masks)  # ncams b k total
+    masks_float = masks.float()
+    masks_expanded = repeat(masks_float, "ncams b k total -> ncams b d k total",
+                            d=volumes.shape[2])
+    count = masks_expanded.sum(dim=0).clamp(min=1.0)
+    mean_volume = (volumes * masks_expanded).sum(dim=0) / count
     
     mv_flat = rearrange(mean_volume, 'b d k (x y z) -> (b k) d z y x',
                         x=cube_size, y=cube_size, z=cube_size)
@@ -263,20 +259,15 @@ class QueryEncoder(nn.Module):
             nn.Linear(embed_dim * 7, 7),
             nn.Sigmoid() 
         )
+        # Init gate to output uniform weights initially
+        nn.init.zeros_(self.gate[0].weight)
+        nn.init.zeros_(self.gate[0].bias)
+        
         self.fusion_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
             nn.GELU(),
             nn.Linear(embed_dim * 4, decoder_dim),
         )
-        
-        self._init_weights()
-        
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
 
     def forward(self, preprocessed_views, camera_group,
                 query_coords, query_time, target_time,
@@ -358,24 +349,16 @@ class QueryEncoder(nn.Module):
         fourier_depth = get_fourier_encoding(dr, min_freq=0, max_freq=self.max_freq)
         embed_depth = self.linear_depth(fourier_depth)
         
-        # Combine all embeddings
-        embed_total = torch.cat([
-            embed_patch, embed_query_time, embed_target_time, 
+        # Combine all embeddings with normalized gated fusion
+        embed_stack = torch.stack([
+            embed_patch, embed_query_time, embed_target_time,
             embed_pos, embed_depth, embed_volume, embed_vis
-        ], dim=-1)
-        
-        # Gated fusion
-        weights = self.gate(embed_total) # [B, T_query, N_cams, 7]
-        
-        # Stack embeddings: [7, B, T_query, N_cams, embed_dim]
-        embeddings = torch.stack(torch.split(embed_total, self.embed_dim, dim=-1), dim=0) 
-        
-        # Weighted sum using einsum
-        # weights: [B, T, C, 7]
-        # embeddings: [7, B, T, C, D]
-        # Result: [B, T, C, D]
-        weighted_embed = einsum(weights, embeddings, 'b t c n, n b t c d -> b t c d')
-        
+        ], dim=-2)  # [B, T_query, N_cams, 7, embed_dim]
+        embed_stack = F.layer_norm(embed_stack, [self.embed_dim])
+        embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
+        weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, 7]
+        weighted_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
+
         embed_final = self.fusion_mlp(weighted_embed)
         
         return embed_final, visible
@@ -416,6 +399,7 @@ class SceneRepresentation(nn.Module):
         self.pos_embed = nn.Parameter(
             torch.zeros(1, n_tokens, self.embed_dim)
         )
+        nn.init.trunc_normal_(self.pos_embed, std=0.02)
         
         
     def forward(self, views):
@@ -494,6 +478,8 @@ class Decoder(nn.Module):
         self.norm0s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.norm1s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.norm2s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
+        self.final_norm = nn.LayerNorm(embed_dim)
+        self.kv_norm = nn.LayerNorm(encoder_dim)
         
         # Final output heads
         self.head_3d = nn.Linear(embed_dim, 3)
@@ -503,26 +489,15 @@ class Decoder(nn.Module):
         self.head_depth = nn.Linear(embed_dim, 1)
         self.head_conf_3d = nn.Linear(embed_dim, 1)
 
-        self._init_weights()
-        
-    def _init_weights(self):
-        for name, m in self.named_modules():
-            if isinstance(m, nn.Linear):
-                # Regression heads: zero init
-                if any(head in name for head in ['head_3d', 'head_2d', 'head_depth']):
-                    nn.init.constant_(m.weight, 0)
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0)
-                # Classification heads: small normal init
-                elif any(head in name for head in ['head_vis', 'head_conf', 'head_conf_3d']):
-                    nn.init.normal_(m.weight, std=0.01)
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0)
-                # Everything else: kaiming
-                else:
-                    nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0)
+        # Regression heads: slightly larger init for better gradient flow
+        for head in [self.head_3d, self.head_2d, self.head_depth]:
+            nn.init.normal_(head.weight, mean=0.0, std=0.02)
+            nn.init.zeros_(head.bias)
+
+        # Classification/confidence heads (go through sigmoid/softmax): small init
+        for head in [self.head_vis, self.head_conf, self.head_conf_3d]:
+            nn.init.normal_(head.weight, mean=0.0, std=0.01)
+            nn.init.zeros_(head.bias)
 
     def forward(self, scene_features, query_embeds, rays):
         """
@@ -542,6 +517,7 @@ class Decoder(nn.Module):
         
         # Reshape for batched processing: [(N_cams*B), N_tokens, encoder_dim]
         kv = rearrange(kv_stacked, 'cams b tokens dim -> (cams b) tokens dim')
+        kv = self.kv_norm(kv)
         
         # Reshape queries: [(N_cams*B), T_query, embed_dim]
         query = rearrange(query_embeds, 'b t cams dim -> (cams b) t dim')
@@ -551,25 +527,28 @@ class Decoder(nn.Module):
         # Apply cross-attention + MLP layers
         x = query
         for layer_idx in range(self.num_layers):
+            # Camera self-attention with pre-norm
             x = rearrange(x, '(cams b) t dim -> (b t) cams dim', b=B, cams=N_cams, t=T_query)
-            # Camera cross attention with residual
-            attn_out = self.camera_attns[layer_idx](x, rays_r)
-            x = self.norm0s[layer_idx](x + attn_out)
+            attn_out = self.camera_attns[layer_idx](self.norm0s[layer_idx](x), rays_r)
+            x = x + attn_out
             x = rearrange(x, '(b t) cams dim -> (cams b) t dim', b=B, cams=N_cams, t=T_query)
             
-            # Cross-attention with residual
+            # Cross-attention with pre-norm
+            x_normed = self.norm1s[layer_idx](x)
             attn_out, _ = self.cross_attns[layer_idx](
-                query=x,
+                query=x_normed,
                 key=kv,
                 value=kv,
                 need_weights=False
             )
-            x = self.norm1s[layer_idx](x + attn_out)
+            x = x + attn_out
             
-            # MLP with residual
-            mlp_out = self.mlps[layer_idx](x)
-            x = self.norm2s[layer_idx](x + mlp_out)
+            # MLP with pre-norm
+            mlp_out = self.mlps[layer_idx](self.norm2s[layer_idx](x))
+            x = x + mlp_out
         
+        x = self.final_norm(x)
+
         # Project to output: [(N_cams*B), T_query, 9]
         out_3d = self.head_3d(x)
         out_2d = self.head_2d(x)
