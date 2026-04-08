@@ -20,6 +20,7 @@ from posetail.datasets.utils import safe_make
 from posetail.posetail.eval_metrics import get_eval_metrics
 from posetail.posetail.losses import get_vis_true, unroll_batch
 from posetail.posetail.tracker import Tracker 
+from posetail.posetail.tracker_encoder import TrackerEncoder
 
 from einops import rearrange
 
@@ -124,7 +125,12 @@ def load_checkpoint(config_path, checkpoint_path, model = None,
 
     # load the model 
     if model is None: 
-        model = Tracker(**config.model) 
+
+        if config.model.mode_3d == 'encoder':
+            model = TrackerEncoder(**config.model)
+        else:
+            model = Tracker(**config.model)
+
         model.to(device)
 
     print(f'loading model checkpoint {checkpoint_path}...')
@@ -166,7 +172,11 @@ def load_checkpoint_no_inductor(config_path, checkpoint_path):
     if not torch.cuda.is_available(): 
         device = torch.device('cpu')
 
-    model = Tracker(**config.model) 
+    if config.model.mode_3d == 'encoder':
+        model = TrackerEncoder(**config.model)
+    else:
+        model = Tracker(**config.model) 
+
     model.to(device)
 
     checkpoint = torch.load(checkpoint_path, map_location = device)
