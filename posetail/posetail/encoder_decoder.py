@@ -9,7 +9,7 @@ from posetail.posetail.cube import is_point_visible, project_points_torch
 from posetail.posetail.cube import CameraSelfAttention
 from posetail.posetail.utils import get_fourier_encoding
 
-from einops import rearrange, repeat
+from einops import rearrange, repeat, einsum
 
 from hub.backbones import (
     vjepa2_1_vit_base_384,
@@ -259,10 +259,14 @@ class QueryEncoder(nn.Module):
 
         self.depth_norm_scale = nn.Parameter(torch.tensor([500.0]))
 
-        self.final_mlp = nn.Sequential(
-            nn.Linear(embed_dim * 7, embed_dim*4),
+        self.gate = nn.Sequential(
+            nn.Linear(embed_dim * 7, 7),
+            nn.Sigmoid() 
+        )
+        self.fusion_mlp = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 4),
             nn.GELU(),
-            nn.Linear(embed_dim*4, decoder_dim),
+            nn.Linear(embed_dim * 4, decoder_dim),
         )
         
         self._init_weights()
@@ -360,8 +364,19 @@ class QueryEncoder(nn.Module):
             embed_pos, embed_depth, embed_volume, embed_vis
         ], dim=-1)
         
+        # Gated fusion
+        weights = self.gate(embed_total) # [B, T_query, N_cams, 7]
         
-        embed_final = self.final_mlp(embed_total)
+        # Stack embeddings: [7, B, T_query, N_cams, embed_dim]
+        embeddings = torch.stack(torch.split(embed_total, self.embed_dim, dim=-1), dim=0) 
+        
+        # Weighted sum using einsum
+        # weights: [B, T, C, 7]
+        # embeddings: [7, B, T, C, D]
+        # Result: [B, T, C, D]
+        weighted_embed = einsum(weights, embeddings, 'b t c n, n b t c d -> b t c d')
+        
+        embed_final = self.fusion_mlp(weighted_embed)
         
         return embed_final, visible
     
@@ -431,19 +446,6 @@ class SceneRepresentation(nn.Module):
                             '(cams b) tokens embed -> cams b tokens embed',
                             cams=len(views)) 
             
-        # for imgs in views:
-        #     xr = rearrange(imgs, 'b t c h w -> b c t h w')
-        #     B, C, T, H, W = xr.shape
-            
-        #     # Encode
-        #     with torch.set_grad_enabled(not self.freeze_encoder):
-        #         feat = self.encoder(xr) # [b, n_tokens, embed_dim]
-
-        #     # Add position embeddings
-        #     feat = feat + self.pos_embed
-                
-        #     encoded.append(feat)
-        
         return encoded    
 
 
@@ -499,6 +501,7 @@ class Decoder(nn.Module):
         self.head_vis = nn.Linear(embed_dim, 1)
         self.head_conf = nn.Linear(embed_dim, 1)
         self.head_depth = nn.Linear(embed_dim, 1)
+        self.head_conf_3d = nn.Linear(embed_dim, 1)
 
         self._init_weights()
         
@@ -521,7 +524,7 @@ class Decoder(nn.Module):
             query_embeds: [B, T_query, N_cams, embed_dim] from QueryEncoder
             rays: [B, T_query, N_cams, 4, 4]
         Returns:
-            outputs: [B, T_query, N_cams, 8] predictions (3d, 2d pos, depth, conf, vis)
+            outputs: [B, T_query, N_cams, 9] predictions (3d, 2d pos, depth, conf, vis, conf_3d)
         """
         B, T_query, N_cams, embed_dim = query_embeds.shape
         assert embed_dim == self.embed_dim
@@ -560,15 +563,16 @@ class Decoder(nn.Module):
             mlp_out = self.mlps[layer_idx](x)
             x = self.norm2s[layer_idx](x + mlp_out)
         
-        # Project to output: [(N_cams*B), T_query, 8]
+        # Project to output: [(N_cams*B), T_query, 9]
         out_3d = self.head_3d(x)
         out_2d = self.head_2d(x)
         out_vis = self.head_vis(x)
         out_conf = self.head_conf(x)
         out_depth = self.head_depth(x)
-        output = torch.cat([out_3d, out_2d, out_vis, out_conf, out_depth], dim=-1)
+        out_conf_3d = self.head_conf_3d(x)
+        output = torch.cat([out_3d, out_2d, out_vis, out_conf, out_depth, out_conf_3d], dim=-1)
         
-        # Reshape back: [B, T_query, N_cams, 8]
+        # Reshape back: [B, T_query, N_cams, 9]
         outputs = rearrange(output, '(cams b) t dim -> b t cams dim', 
                            cams=N_cams, b=B)
         

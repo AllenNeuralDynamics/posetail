@@ -173,15 +173,15 @@ class TrackerEncoder(nn.Module):
                             'b (t n) cams outdim -> cams b t n outdim',
                             t=T, n=N)
 
-        points_3d_offsets, points_pred, vis_pred_2d, conf_pred_2d_raw, depth_pred = torch.split(
-            outputs, [3, 2, 1, 1, 1], dim=-1
+        points_3d_offsets, points_pred, vis_pred_2d, conf_pred_2d_raw, depth_pred, conf_3d_raw = torch.split(
+            outputs, [3, 2, 1, 1, 1, 1], dim=-1
         )
 
 
         vis_pred_2d = F.sigmoid(vis_pred_2d)
         conf_pred_2d = F.sigmoid(conf_pred_2d_raw)
 
-        conf_3d = torch.softmax(conf_pred_2d_raw[..., 0], dim=0)
+        conf_3d = torch.softmax(conf_3d_raw[..., 0], dim=0)
 
 
         qc = rearrange(query_coords, 'b (t n) r -> b t n 1 r', t=T, n=N)
