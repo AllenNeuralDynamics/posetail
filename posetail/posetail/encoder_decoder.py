@@ -105,8 +105,6 @@ def sample_feature_cubes_time(feature_planes, camera_group,
     if v2v is not None:
         mv_flat = v2v(mv_flat)
 
-    mv_flat = F.normalize(mv_flat, p=2, dim=1, eps=1e-6)
-    
     mean_volume = rearrange(mv_flat, '(b k) d z y x -> b d k (x y z)',
                             b=B, k=K) 
 
@@ -354,7 +352,6 @@ class QueryEncoder(nn.Module):
             embed_patch, embed_query_time, embed_target_time,
             embed_pos, embed_depth, embed_volume, embed_vis
         ], dim=-2)  # [B, T_query, N_cams, 7, embed_dim]
-        embed_stack = F.layer_norm(embed_stack, [self.embed_dim])
         embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
         weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, 7]
         weighted_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
@@ -399,7 +396,6 @@ class SceneRepresentation(nn.Module):
         self.pos_embed = nn.Parameter(
             torch.zeros(1, n_tokens, self.embed_dim)
         )
-        nn.init.trunc_normal_(self.pos_embed, std=0.02)
         
         
     def forward(self, views):
@@ -479,7 +475,6 @@ class Decoder(nn.Module):
         self.norm1s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.norm2s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.final_norm = nn.LayerNorm(embed_dim)
-        self.kv_norm = nn.LayerNorm(encoder_dim)
         
         # Final output heads
         self.head_3d = nn.Linear(embed_dim, 3)
@@ -491,7 +486,7 @@ class Decoder(nn.Module):
 
         # Regression heads: slightly larger init for better gradient flow
         for head in [self.head_3d, self.head_2d, self.head_depth]:
-            nn.init.normal_(head.weight, mean=0.0, std=0.02)
+            nn.init.zeros_(head.weight)
             nn.init.zeros_(head.bias)
 
         # Classification/confidence heads (go through sigmoid/softmax): small init
@@ -517,7 +512,6 @@ class Decoder(nn.Module):
         
         # Reshape for batched processing: [(N_cams*B), N_tokens, encoder_dim]
         kv = rearrange(kv_stacked, 'cams b tokens dim -> (cams b) tokens dim')
-        kv = self.kv_norm(kv)
         
         # Reshape queries: [(N_cams*B), T_query, embed_dim]
         query = rearrange(query_embeds, 'b t cams dim -> (cams b) t dim')

@@ -163,7 +163,8 @@ class TrackerEncoder(nn.Module):
         p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T, n=N)
 
         query_rays_flat = torch.stack([
-            points_to_rays(camera_group[i], rearrange(p2d_query[i], 'b t n r -> (b t n) r'))
+            points_to_rays(camera_group[i], rearrange(p2d_query[i], 'b t n r -> (b t n) r'),
+                           self.cube_scale)
             for i in range(len(camera_group))
         ])
         query_rays = rearrange(query_rays_flat, 'cams (b t n) d e -> b (t n) cams d e', b=B, t=T, n=N)

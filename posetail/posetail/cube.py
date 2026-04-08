@@ -421,11 +421,6 @@ def prope_projmat_only_attention(
     k_rot = apply_proj(k, P_inv)
     v_rot = apply_proj(v, P_inv)
 
-    # Add these lines to stabilize the attention inputs:
-    q_rot = F.layer_norm(q_rot, (head_dim,))
-    k_rot = F.layer_norm(k_rot, (head_dim,))
-    # v_rot = F.layer_norm(v_rot, (head_dim,))
-
     out = F.scaled_dot_product_attention(q_rot, k_rot, v_rot, **kwargs)
 
     out = apply_proj(out, P)
@@ -483,7 +478,7 @@ def _invert_SE3(transforms: torch.Tensor) -> torch.Tensor:
 
 
 
-def points_to_rays(cam, p2d):
+def points_to_rays(cam, p2d, cube_scale=1):
     """Inputs:
     cam: camera dict
     p2d: [B, 2]
@@ -503,7 +498,7 @@ def points_to_rays(cam, p2d):
     # Camera-to-world rotation and translation from ext
     ext = cam['ext'].clone()                              # [4, 4] world-to-camera
     R_c2w = rearrange(ext[:3, :3], 'i j -> j i') # [3, 3], transpose = invert rotation
-    t_c2w = -einsum(R_c2w, ext[:3, 3], 'i j, j -> i')  # [3]
+    t_c2w = -einsum(R_c2w, ext[:3, 3] / cube_scale / 200.0, 'i j, j -> i')  # [3]
 
     # Ray directions in world space
     d_world = einsum(R_c2w, d_cam, 'i j, b j -> b i')
