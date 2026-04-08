@@ -173,15 +173,15 @@ class TrackerEncoder(nn.Module):
                             'b (t n) cams outdim -> cams b t n outdim',
                             t=T, n=N)
 
-        points_3d_offsets, points_pred, vis_pred_2d, conf_pred_2d_raw, depth_pred, conf_3d_raw = torch.split(
+        points_3d_offsets, points_pred, vis_pred_2d_logits, conf_pred_2d_logits, depth_pred, conf_3d_logits = torch.split(
             outputs, [3, 2, 1, 1, 1, 1], dim=-1
         )
 
 
-        vis_pred_2d = F.sigmoid(vis_pred_2d)
-        conf_pred_2d = F.sigmoid(conf_pred_2d_raw)
+        vis_pred_2d = F.sigmoid(vis_pred_2d_logits)
+        conf_pred_2d = F.sigmoid(conf_pred_2d_logits)
 
-        conf_3d = torch.softmax(conf_3d_raw[..., 0], dim=0)
+        conf_3d = torch.softmax(conf_3d_logits[..., 0], dim=0)
 
 
         qc = rearrange(query_coords, 'b (t n) r -> b t n 1 r', t=T, n=N)
@@ -279,8 +279,8 @@ class TrackerEncoder(nn.Module):
             '2d_pred': points_pred_scaled, # (cams, b, t, n, 2)
             'vis_pred': vis_pred, # (b, t, n, 1)
             'conf_pred': conf_pred, # (b, t, n, 1)
-            'vis_pred_2d': vis_pred_2d[..., 0], # (cams, b, t, n)
-            'conf_pred_2d': conf_pred_2d[..., 0], # (cams, b, t, n)
+            'vis_pred_2d': vis_pred_2d_logits[..., 0], # (cams, b, t, n)
+            'conf_pred_2d': conf_pred_2d_logits[..., 0], # (cams, b, t, n)
             'depth_pred': depth_pred_scaled # (cams, b, t, n)
         }
 

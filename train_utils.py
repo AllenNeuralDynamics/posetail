@@ -296,6 +296,13 @@ def train_iteration(config, model, fabric, batch,
 
     fabric.backward(total_loss)
 
+    # Calculate gradient norm
+    grad_norm = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            grad_norm += p.grad.detach().data.norm(2).item() ** 2
+    grad_norm = grad_norm ** 0.5
+
     # torch.nn.utils.clip_grad_norm_(model.parameters(), config.training.max_grad_norm, 
     #                                error_if_nonfinite = False)
 
@@ -334,7 +341,8 @@ def train_iteration(config, model, fabric, batch,
     train_dict = {f'{prefix}timestamp': timestamp,
                   f'{prefix}elapsed_time': elapsed_time,
                   f'{prefix}elapsed_time_hms': elapsed_time_hms,
-                  f'{prefix}learning_rate': learning_rate}
+                  f'{prefix}learning_rate': learning_rate,
+                  f'{prefix}grad_norm': grad_norm}
     train_dict.update(loss_dict)
 
     # average evaluation metrics if we evaluated
@@ -369,6 +377,7 @@ def train_epoch(config, model, fabric, dataloader,
     n_batches = 0
     n_frames = 0
     metric_dicts = []
+    grad_norms = []
     
     for j, batch in enumerate(dataloader):
 
@@ -419,6 +428,13 @@ def train_epoch(config, model, fabric, dataloader,
             
         fabric.backward(total_loss)
 
+        # Calculate gradient norm
+        grad_norm = 0.0
+        for p in model.parameters():
+            if p.grad is not None:
+                grad_norm += p.grad.detach().data.norm(2).item() ** 2
+        grad_norms.append(grad_norm ** 0.5)
+
         fabric.clip_gradients(model, optimizer, 
             max_norm = config.training.max_grad_norm, 
             error_if_nonfinite = True)
@@ -458,7 +474,8 @@ def train_epoch(config, model, fabric, dataloader,
                   f'{prefix}elapsed_time_hms': elapsed_time_hms,
                   f'{prefix}batches_per_epoch': n_batches,
                   f'{prefix}frames_per_epoch': n_frames, 
-                  f'{prefix}learning_rate': learning_rate}
+                  f'{prefix}learning_rate': learning_rate,
+                  f'{prefix}grad_norm_avg': float(np.mean(grad_norms))}
     train_dict.update(loss_dict)
 
     # average evaluation metrics if we evaluated

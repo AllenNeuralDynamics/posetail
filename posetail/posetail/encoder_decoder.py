@@ -508,10 +508,17 @@ class Decoder(nn.Module):
     def _init_weights(self):
         for name, m in self.named_modules():
             if isinstance(m, nn.Linear):
+                # Regression heads: zero init
                 if any(head in name for head in ['head_3d', 'head_2d', 'head_depth']):
                     nn.init.constant_(m.weight, 0)
                     if m.bias is not None:
                         nn.init.constant_(m.bias, 0)
+                # Classification heads: small normal init
+                elif any(head in name for head in ['head_vis', 'head_conf', 'head_conf_3d']):
+                    nn.init.normal_(m.weight, std=0.01)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+                # Everything else: kaiming
                 else:
                     nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
                     if m.bias is not None:
