@@ -21,7 +21,7 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 class Tracker(nn.Module): 
 
     def __init__(self, track_3d = True, stride_length = 8, 
-                 stride_overlap = None, downsample_factor = 4, 
+                 stride_overlap = None, downsample_factor = 4, cnn_type = 'sam2',
                  hiera_requires_grad = False, vc_head_requires_grad = True,
                  cube_dim = 20, cube_extent = None, upsample_factor = 1, 
                  corr_levels = 4, corr_radius = 3, 
@@ -48,6 +48,7 @@ class Tracker(nn.Module):
             self.stride_overlap = stride_overlap 
         
         # cnn params
+        self.cnn_type = cnn_type
         self.downsample_factor = downsample_factor
         self.latent_dim = latent_dim 
         self.hiera_requires_grad = hiera_requires_grad
@@ -89,27 +90,33 @@ class Tracker(nn.Module):
         # print(f'transformer input dimension: {self.input_dim}') 
 
         # networks
-        # self.cnn = ResidualFeatureExtractor(
-        #     input_dim = 3, # RGB 
-        #     output_dim = self.latent_dim,
-        #     n_blocks = 4,
-        #     kernel_size = 3,
-        #     downsample_factor = self.downsample_factor,
-        #     spatial_res_factor = 2 
-        # )
-        #
-        # self.cnn = HieraFeatureExtractor(output_dim=self.latent_dim)
-        freeze_nonlast_fpn = not (self.R == 3 and self.mode_3d == 'minicubes')
-        # freeze_nonlast_fpn = True
-        self.cnn = SAM2HieraFeatureExtractor(output_dim=self.latent_dim,
-                                             requires_grad=self.hiera_requires_grad,
-                                             freeze_nonlast_fpn=freeze_nonlast_fpn)
+        if self.cnn_type == 'resnet': 
 
-        # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
-        self.transform_norm = transforms.Compose([
-            PadToMultiple(32),
-            transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD),
-        ])
+            self.cnn = ResidualFeatureExtractor(
+                input_dim = 3, # RGB 
+                output_dim = self.latent_dim,
+                n_blocks = 4,
+                kernel_size = 3,
+                downsample_factor = self.downsample_factor,
+                spatial_res_factor = 2 
+            )
+
+            self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
+
+
+        else: # self.cnn_type == 'sam2'
+            # self.cnn = HieraFeatureExtractor(output_dim=self.latent_dim)
+            freeze_nonlast_fpn = not (self.R == 3 and self.mode_3d == 'minicubes')
+            # freeze_nonlast_fpn = True
+            self.cnn = SAM2HieraFeatureExtractor(output_dim = self.latent_dim,
+                                                 requires_grad = self.hiera_requires_grad,
+                                                 freeze_nonlast_fpn = freeze_nonlast_fpn)
+            
+            self.transform_norm = transforms.Compose([
+                PadToMultiple(32),
+                transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD),
+            ])
+
         
         if self.R == 3:
             if self.mode_3d == 'triplane':
