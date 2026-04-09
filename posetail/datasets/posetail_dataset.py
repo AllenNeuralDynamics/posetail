@@ -338,7 +338,7 @@ class PosetailDataset(Dataset):
             sum_good = torch.sum(valid_mask, dim=0) 
 
             # some number visible and not nan 
-            mask = sum_good >= self.n_frames - 4
+            mask = sum_good >= 2
             coords = coords[:, mask]
             if vis is not None: 
                 vis = vis[:, mask]
@@ -608,7 +608,7 @@ class PosetailDataset(Dataset):
 
         weights = 1.0 / (dist_to_edge + 1.0)
         weights[valid_times == 0] *= self.query_edge_bias
-        weights[valid_times == (self.n_frames - 1)] *= self.query_edge_bias
+        # weights[valid_times == (self.n_frames - 1)] *= self.query_edge_bias
 
         probs = weights / weights.sum()
         sample_ix = torch.multinomial(probs, 1)

@@ -29,7 +29,7 @@ n_samples_per_dataset = -1
 crop_to_points = true
 speed_thresh = 1.0
 query_anytime = true
-query_edge_bias = 4.0
+query_edge_bias = 100.0
 
 [dataset.val]
 split_dir = 'val'
