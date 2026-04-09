@@ -207,8 +207,8 @@ class PosetailDataset(Dataset):
         # for sampling cameras, keypoints
         self.cams_to_sample = format_sample_input(config.dataset[split].get('cams_to_sample', None))
         self.kpts_to_sample = format_sample_input(config.dataset[split].get('kpts_to_sample', None))
-        self.speed_thresh = config.dataset['train'].get('speed_thresh', None) 
-        self.prop_dynamic_kpts_to_sample = config.dataset['train'].get('prop_dynamic_kpts_to_sample', 0.7)
+        self.speed_thresh = config.dataset[split].get('speed_thresh', None) 
+        self.prop_dynamic_kpts_to_sample = config.dataset[split].get('prop_dynamic_kpts_to_sample', 0.7)
         self.cam_thresh_for_vis = config.dataset[split].get('cam_thresh_for_vis', 1) 
         self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', False)
         self.query_anytime = config.dataset[split].get('query_anytime', False)
