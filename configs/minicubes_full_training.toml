@@ -5,7 +5,7 @@ mode = "online"
 
 [dataset]
 batch_size = 1
-num_workers = 24
+num_workers = 12
 prefix = "/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning"
 # datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
@@ -51,8 +51,8 @@ split_dir = "train"
 n_frames = 16
 min_res = 256
 max_res = 320
-cams_to_sample = [1, 8]
-kpts_to_sample = [128, 256]
+cams_to_sample = [1, 6]
+kpts_to_sample = [64, 128]
 speed_thresh = 1.0 
 prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.25
@@ -67,8 +67,6 @@ n_frames = 16
 max_res = 288
 cams_to_sample = 5
 kpts_to_sample = 32
-speed_thresh = 1.0 
-prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.0
 
 [dataset.test]
@@ -89,7 +87,7 @@ cycle_momentum = false
 
 [training.losses]
 gamma = 0.8
-pixel_thresh = 6
+pixel_thresh = 9
 delta = 6
 use_huber_loss = false
 vis_loss_weight = 1

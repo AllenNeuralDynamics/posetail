@@ -7,14 +7,14 @@ mode = "online"
 batch_size = 1
 num_workers = 24
 prefix = "/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning"
-# datasets_to_exclude = ['anipose-fly', 'allen-mouse']
+datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
 [devices]
 device = "cuda"
 
 [model]
 mode_3d = "minicubes"
-hiera_requires_grad = false
+hiera_requires_grad = true
 stride_length = 8
 stride_overlap = 4
 downsample_factor = 2
@@ -28,7 +28,7 @@ upsample_factor = 1
 max_freq = 10
 n_iters = 4
 embedding_dim = 384
-latent_dim = 90
+latent_dim = 64
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 6
@@ -51,7 +51,7 @@ split_dir = "train"
 n_frames = 16
 min_res = 256
 max_res = 320
-cams_to_sample = [1, 8]
+cams_to_sample = [1, 6]
 kpts_to_sample = [64, 128]
 speed_thresh = 1.0 
 prop_dynamic_kpts_to_sample = 0.7
@@ -67,8 +67,6 @@ n_frames = 16
 max_res = 288
 cams_to_sample = 5
 kpts_to_sample = 32
-speed_thresh = 1.0 
-prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.0
 
 [dataset.test]

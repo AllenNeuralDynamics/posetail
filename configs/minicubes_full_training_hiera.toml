@@ -1,6 +1,6 @@
 [wandb]
 project_name = "posetail-full-training"
-path = "/groups/karashchuk/home/ruppk2/results/posetail-kubric-experiments"
+path = "/groups/karashchuk/home/ruppk2/results/posetail-full-training"
 mode = "online"
 
 [dataset]
@@ -67,8 +67,6 @@ n_frames = 16
 max_res = 288
 cams_to_sample = 5
 kpts_to_sample = 32
-speed_thresh = 1.0 
-prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.0
 
 [dataset.test]
