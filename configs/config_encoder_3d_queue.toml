@@ -20,7 +20,7 @@ n_frames = 16
 min_res = 256
 max_res = 256
 cams_to_sample = [1, 8] 
-kpts_to_sample = [256, 256]
+kpts_to_sample = [288, 288]
 aug_prob = 0.25
 enable_kpt_filtering = true
 cam_thresh_for_vis = 1
@@ -53,9 +53,9 @@ device = 'cuda'
 [model]
 mode_3d = "encoder"
 
-video_encoder_version = 'giant'
+video_encoder_version = 'large'
 video_encoder_requires_grad = true
-video_encoder_hierarchical = false
+video_encoder_hierarchical = true
 
 # processing
 stride_length = 16
