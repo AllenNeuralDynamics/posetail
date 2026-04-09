@@ -212,6 +212,7 @@ class PosetailDataset(Dataset):
         self.cam_thresh_for_vis = config.dataset[split].get('cam_thresh_for_vis', 1) 
         self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', False)
         self.query_anytime = config.dataset[split].get('query_anytime', False)
+        self.query_edge_bias = config.dataset[split].get('query_edge_bias', 3.0)
         
         # for balancing datasets
         self.balance_datasets = config.dataset[split].get('balance_datasets', True)
@@ -337,7 +338,7 @@ class PosetailDataset(Dataset):
             sum_good = torch.sum(valid_mask, dim=0) 
 
             # some number visible and not nan 
-            mask = sum_good >= 6
+            mask = sum_good >= self.n_frames - 4
             coords = coords[:, mask]
             if vis is not None: 
                 vis = vis[:, mask]
@@ -409,8 +410,8 @@ class PosetailDataset(Dataset):
                 if vis is not None:
                     good = good & vis[:, kpt_idx]
                 valid_times = torch.where(good)[0]
-                sample_ix = torch.randint(0, len(valid_times), (1,))
-                query_times.append(valid_times[sample_ix].item())
+                query_time = self.sample_query_time(valid_times)
+                query_times.append(query_time.item())
             query_times = torch.tensor(query_times, dtype=torch.int32, device='cpu')            
         else:
             query_times = torch.zeros((coords.shape[1],), dtype=torch.int32, device='cpu')
@@ -593,6 +594,26 @@ class PosetailDataset(Dataset):
                 vis_2d = vis_2d[:, ix_p]
 
         return coords, vis, vis_2d
+
+
+    def sample_query_time(self, valid_times):
+        valid_times = valid_times.to(torch.long)
+
+        if len(valid_times) == 1:
+            return valid_times[0].to(torch.int32)
+
+        dist_to_start = valid_times
+        dist_to_end = (self.n_frames - 1) - valid_times
+        dist_to_edge = torch.minimum(dist_to_start, dist_to_end).to(torch.float32)
+
+        weights = 1.0 / (dist_to_edge + 1.0)
+        weights[valid_times == 0] *= self.query_edge_bias
+        weights[valid_times == (self.n_frames - 1)] *= self.query_edge_bias
+
+        probs = weights / weights.sum()
+        sample_ix = torch.multinomial(probs, 1)
+
+        return valid_times[sample_ix].squeeze(0).to(torch.int32)
 
 
     def resize_camera_group(self, cgroup): 
