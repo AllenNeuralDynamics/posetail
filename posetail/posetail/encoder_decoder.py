@@ -440,19 +440,24 @@ class SceneRepresentation(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, embed_dim=256, encoder_dim=1024,
                  num_heads=8, num_layers=8, 
-                 mlp_ratio=4.0, dropout=0.0):
+                 mlp_ratio=4.0, dropout=0.0,
+                 use_camera_self_attention=True):
         super().__init__()
         
         self.embed_dim = embed_dim
         self.encoder_dim = encoder_dim
         self.num_layers = num_layers
+        self.use_camera_self_attention = use_camera_self_attention
         
         # camera self attention layers
-        self.camera_attns = nn.ModuleList([
-            CameraSelfAttention(embed_dim=embed_dim,
-                                num_heads=num_heads)
-            for _ in range(num_layers)
-        ])
+        if self.use_camera_self_attention:
+            self.camera_attns = nn.ModuleList([
+                CameraSelfAttention(embed_dim=embed_dim,
+                                    num_heads=num_heads)
+                for _ in range(num_layers)
+            ])
+        else:
+            self.camera_attns = None
 
         # Cross-attention layers
         self.cross_attns = nn.ModuleList([
@@ -530,10 +535,11 @@ class Decoder(nn.Module):
         x = query
         for layer_idx in range(self.num_layers):
             # Camera self-attention with pre-norm
-            x = rearrange(x, '(cams b) t dim -> (b t) cams dim', b=B, cams=N_cams, t=T_query)
-            attn_out = self.camera_attns[layer_idx](self.norm0s[layer_idx](x), rays_r)
-            x = x + attn_out
-            x = rearrange(x, '(b t) cams dim -> (cams b) t dim', b=B, cams=N_cams, t=T_query)
+            if self.use_camera_self_attention:
+                x_cam = rearrange(x, '(cams b) t dim -> (b t) cams dim', b=B, cams=N_cams, t=T_query)
+                attn_out = self.camera_attns[layer_idx](self.norm0s[layer_idx](x_cam), rays_r)
+                x_cam = x_cam + attn_out
+                x = rearrange(x_cam, '(b t) cams dim -> (cams b) t dim', b=B, cams=N_cams, t=T_query)
             
             # Cross-attention with pre-norm
             x_normed = self.norm1s[layer_idx](x)

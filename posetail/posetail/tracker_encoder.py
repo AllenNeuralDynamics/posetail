@@ -28,6 +28,7 @@ class TrackerEncoder(nn.Module):
                  query_patch_size = 9,
                  latent_dim = 128, n_heads = 8, 
                  n_time_space_blocks = 6, embedding_factor = 4,
+                 use_camera_self_attention = True,
                  mode_3d = 'encoder'): 
         super().__init__()
 
@@ -62,6 +63,7 @@ class TrackerEncoder(nn.Module):
         self.n_heads = n_heads
         self.n_time_space_blocks = n_time_space_blocks
         self.embedding_factor = embedding_factor
+        self.use_camera_self_attention = use_camera_self_attention
 
         
         # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
@@ -92,7 +94,8 @@ class TrackerEncoder(nn.Module):
             encoder_dim=self.scene_encoder.embed_dim,
             num_heads=n_heads,
             num_layers=n_time_space_blocks,
-            mlp_ratio=embedding_factor
+            mlp_ratio=embedding_factor,
+            use_camera_self_attention=self.use_camera_self_attention,
         )
 
         self.p2d_scale = nn.Parameter(torch.tensor([32.0]))

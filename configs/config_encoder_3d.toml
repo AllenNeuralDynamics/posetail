@@ -72,6 +72,7 @@ latent_dim = 1024
 n_heads = 8
 n_time_space_blocks = 8
 embedding_factor = 4
+use_camera_self_attention = true
 
 
 [training]
