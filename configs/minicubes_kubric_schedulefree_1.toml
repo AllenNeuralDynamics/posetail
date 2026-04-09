@@ -69,6 +69,8 @@ max_res = 288
 cams_to_sample = 5
 kpts_to_sample = 32
 aug_prob = 0.0
+speed_thresh = 1.0 
+prop_dynamic_kpts_to_sample = 0.7
 
 [dataset.test]
 split_dir = "test"
