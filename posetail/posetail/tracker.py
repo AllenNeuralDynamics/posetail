@@ -156,7 +156,7 @@ class Tracker(nn.Module):
 
         self.register_buffer(
             'time_encoding', 
-            get_pos_encoding(t, self.input_dim)
+            get_pos_encoding(t, self.input_dim).float()
         )
 
         # transformer
@@ -806,10 +806,12 @@ class Tracker(nn.Module):
         for i, frames in enumerate(views):
 
             frames = rearrange(frames, 'b t c h w -> (b t) c h w')
-            if self.R == 3 and self.mode_3d == 'minicubes':
-                feature_map_levels_flat = self.cnn(frames, return_all=True)
-                ff = [ rearrange(f, '(b t) d h2 w2 -> b t d h2 w2 1', b = B, t = T + n_pad)
-                       for f in feature_map_levels_flat ]
+
+            if self.R == 3 and self.mode_3d == 'minicubes' and self.cnn_type == 'sam2':
+                feature_map_levels_flat = self.cnn(frames, return_all = True)
+                ff = [rearrange(f, '(b t) d h2 w2 -> b t d h2 w2 1', b = B, t = T + n_pad)
+                    for f in feature_map_levels_flat]
+                
             else:
                 feature_map = self.cnn(frames)
                 _, D, H2, W2 = feature_map.shape
@@ -873,6 +875,7 @@ class Tracker(nn.Module):
         # initialize feature planes and track features for each correlation level
         
         if self.R == 3 and self.mode_3d == 'minicubes':
+
             feature_planes_levels = feature_planes
             # feature_planes_levels = [
             #     self.get_feature_planes_levels(rearrange(f, 'b s d h w -> b s d h w 1'))

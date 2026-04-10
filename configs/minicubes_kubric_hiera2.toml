@@ -14,7 +14,7 @@ device = "cuda"
 
 [model]
 mode_3d = "minicubes"
-hiera_requires_grad = false
+hiera_requires_grad = true
 stride_length = 8
 stride_overlap = 4
 downsample_factor = 2
@@ -29,7 +29,7 @@ upsample_factor = 1
 max_freq = 10
 n_iters = 4
 embedding_dim = 384
-latent_dim = 115
+latent_dim = 64
 n_virtual = 64
 n_heads = 8
 n_time_space_blocks = 6
@@ -52,8 +52,8 @@ split_dir = "train"
 n_frames = 16
 min_res = 256
 max_res = 320
-cams_to_sample = [1, 5]
-kpts_to_sample = [32, 80]
+cams_to_sample = [1, 6]
+kpts_to_sample = [256, 386]
 speed_thresh = 1.0 
 prop_dynamic_kpts_to_sample = 0.7
 aug_prob = 0.25
@@ -80,7 +80,7 @@ project_2d = false
 aug_prob = 0.0
 
 [training.optimizer]
-learning_rate = 1e-4
+learning_rate = 1e-5
 weight_decay = 1e-5
 warmup_steps = 2048
 beta1 = 0.95
