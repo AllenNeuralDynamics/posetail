@@ -218,7 +218,7 @@ class PatchProcessor(nn.Module):
 class QueryEncoder(nn.Module):
     def __init__(self, embed_dim=256, decoder_dim=256,
                  n_frames=16, corr_radius=2, max_freq=10,
-                 patch_size=9):
+                 patch_size=9, use_volume_embedding=True):
         super().__init__()
         self.embed_dim = embed_dim
         self.decoder_dim = decoder_dim
@@ -226,7 +226,8 @@ class QueryEncoder(nn.Module):
         self.max_freq = max_freq
         self.patch_size = patch_size
         self.n_frames = n_frames
-        
+        self.use_volume_embedding = use_volume_embedding
+
         # Time embeddings
         self.t_query_embed = nn.Embedding(n_frames, embed_dim)
         self.t_target_embed = nn.Embedding(n_frames, embed_dim)
@@ -235,10 +236,11 @@ class QueryEncoder(nn.Module):
         self.vis_embed = nn.Embedding(2, embed_dim)
         
         # # Volume processing
-        vdim = 8
-        self.v2v = EmbedV2V(3, vdim)
-        in_dim_vol = (corr_radius * 2 + 1) ** 3 * vdim
-        self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
+        if self.use_volume_embedding:
+            vdim = 8
+            self.v2v = EmbedV2V(3, vdim)
+            in_dim_vol = (corr_radius * 2 + 1) ** 3 * vdim
+            self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
         
         # Positional encodings
         self.linear_pos = nn.Linear(4 * max_freq, embed_dim)
@@ -253,9 +255,10 @@ class QueryEncoder(nn.Module):
 
         self.depth_norm_scale = nn.Parameter(torch.tensor([500.0]))
 
+        self.n_fusion_terms = 7 if self.use_volume_embedding else 6
         self.gate = nn.Sequential(
-            nn.Linear(embed_dim * 7, 7),
-            nn.Sigmoid() 
+            nn.Linear(embed_dim * self.n_fusion_terms, self.n_fusion_terms),
+            nn.Sigmoid()
         )
         # Init gate to output uniform weights initially
         nn.init.normal_(self.gate[0].weight, std=0.01)
@@ -299,16 +302,16 @@ class QueryEncoder(nn.Module):
         fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
         embed_pos = self.linear_pos(fourier_pos)
         
-        # # Volume feature embeddings
-        volumes = sample_feature_cubes_time(
-            preprocessed_views, camera_group, query_coords, query_time,
-            cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
-        volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
-        embed_volume = self.linear_volume(volumes)
-        embed_volume = repeat(embed_volume, "b t 1 embed -> b t cams embed", cams=n_cams)
+        embed_volume = None
+        if self.use_volume_embedding:
+            volumes = sample_feature_cubes_time(
+                preprocessed_views, camera_group, query_coords, query_time,
+                cube_scale * 2, corr_radius=self.corr_radius, v2v=self.v2v)
+            volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
+            embed_volume = self.linear_volume(volumes)
+            embed_volume = repeat(embed_volume, "b t 1 embed -> b t cams embed", cams=n_cams)
 
         # Pixel patch embeddings
-        
         patches = torch.stack([
             sample_patches(preprocessed_views[i], p2d_full[i],
                            query_time, self.patch_size)
@@ -348,12 +351,20 @@ class QueryEncoder(nn.Module):
         embed_depth = self.linear_depth(fourier_depth)
         
         # Combine all embeddings with normalized gated fusion
-        embed_stack = torch.stack([
-            embed_patch, embed_query_time, embed_target_time,
-            embed_pos, embed_depth, embed_volume, embed_vis
-        ], dim=-2)  # [B, T_query, N_cams, 7, embed_dim]
+        embed_terms = [
+            embed_patch,
+            embed_query_time,
+            embed_target_time,
+            embed_pos,
+            embed_depth,
+        ]
+        if self.use_volume_embedding:
+            embed_terms.append(embed_volume)
+        embed_terms.append(embed_vis)
+
+        embed_stack = torch.stack(embed_terms, dim=-2)
         embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
-        weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, 7]
+        weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, n_fusion_terms]
         weighted_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
 
         embed_final = self.fusion_mlp(weighted_embed)

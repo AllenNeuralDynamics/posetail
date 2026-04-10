@@ -26,6 +26,7 @@ class TrackerEncoder(nn.Module):
                  corr_radius = 3, 
                  max_freq = 10, n_iters = 4, embedding_dim = 256,
                  query_patch_size = 9,
+                 use_volume_embedding = True,
                  latent_dim = 128, n_heads = 8, 
                  n_time_space_blocks = 6, embedding_factor = 4,
                  use_camera_self_attention = True,
@@ -55,7 +56,8 @@ class TrackerEncoder(nn.Module):
         self.corr_radius = corr_radius 
         self.corr_dim = 2 * self.corr_radius + 1
         self.max_freq = max_freq     
-        self.embedding_dim = embedding_dim   
+        self.embedding_dim = embedding_dim
+        self.use_volume_embedding = use_volume_embedding
 
         # decoder params
         self.latent_dim = latent_dim 
@@ -87,7 +89,8 @@ class TrackerEncoder(nn.Module):
             n_frames=self.n_frames, 
             corr_radius=corr_radius, 
             max_freq=self.max_freq,
-            patch_size=query_patch_size
+            patch_size=query_patch_size,
+            use_volume_embedding=use_volume_embedding,
         )
         self.decoder = Decoder(
             embed_dim=latent_dim,

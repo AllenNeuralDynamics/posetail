@@ -263,10 +263,10 @@ class TotalLoss(nn.Module):
             )
         
         if '3d_pred_rays' in outputs:
-            coords_loss_rays += self.mae_loss_coords_direct(
+            coords_loss_rays += self.mae_loss_coords_rays(
                 coords_pred = outputs['3d_pred_rays'],
                 coords_true = coords_true,
-                vis_true = vis_true, 
+                vis_true = vis_true,
                 device = device
             )
         
