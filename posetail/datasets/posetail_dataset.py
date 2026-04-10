@@ -213,6 +213,7 @@ class PosetailDataset(Dataset):
         self.enable_kpt_filtering = config.dataset[split].get('enable_kpt_filtering', False)
         self.query_anytime = config.dataset[split].get('query_anytime', False)
         self.query_edge_bias = config.dataset[split].get('query_edge_bias', 3.0)
+        self.no_nan_coords = config.dataset[split].get('no_nan_coords', True)
         
         # for balancing datasets
         self.balance_datasets = config.dataset[split].get('balance_datasets', True)
@@ -351,7 +352,8 @@ class PosetailDataset(Dataset):
                 vis = vis[:, mask]
                 vis_2d = vis_2d[:, mask]
 
-            # filter coords that are not nan throughout
+        # filter coords that are not nan throughout
+        if self.no_nan_coords:
             mask = torch.all(torch.isfinite(coords), dim=(0, 2))
             coords = coords[:, mask]
             if vis is not None: 
