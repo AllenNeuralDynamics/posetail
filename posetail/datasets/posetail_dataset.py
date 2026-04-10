@@ -350,8 +350,9 @@ class PosetailDataset(Dataset):
             if vis is not None:
                 mask = mask & vis[0].bool()
             coords = coords[:, mask, :]
-            vis = vis[:, mask]
-            vis_2d = vis_2d[:, mask]
+            if vis is not None:
+                vis = vis[:, mask]
+                vis_2d = vis_2d[:, mask]
 
         # filter coords that are not nan throughout
         if self.no_nan_coords:
