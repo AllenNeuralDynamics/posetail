@@ -346,11 +346,12 @@ class PosetailDataset(Dataset):
                 vis_2d = vis_2d[:, mask]
         else:
             # filter in the first frame (will sample from these)
+            mask = torch.isfinite(coords[0, :, 0])  # (n_kpts)
             if vis is not None:
-                mask = vis[0].bool()
-                coords = coords[:, mask, :]
-                vis = vis[:, mask]
-                vis_2d = vis_2d[:, mask]
+                mask = mask & vis[0].bool()
+            coords = coords[:, mask, :]
+            vis = vis[:, mask]
+            vis_2d = vis_2d[:, mask]
 
         # filter coords that are not nan throughout
         if self.no_nan_coords:
