@@ -158,7 +158,7 @@ def load_checkpoint(config_path, checkpoint_path, model = None,
         iteration = checkpoint.get('iteration', 0)
 
         # update the return dict
-        checkpoint_dict['optimzier'] = optimizer
+        checkpoint_dict['optimizer'] = optimizer
         checkpoint_dict['iteration'] = iteration + 1
 
     return checkpoint_dict
