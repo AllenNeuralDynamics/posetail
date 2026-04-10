@@ -258,8 +258,8 @@ class QueryEncoder(nn.Module):
             nn.Sigmoid() 
         )
         # Init gate to output uniform weights initially
-        nn.init.zeros_(self.gate[0].weight)
-        nn.init.zeros_(self.gate[0].bias)
+        nn.init.normal_(self.gate[0].weight, std=0.01)
+        nn.init.constant_(self.gate[0].bias, 0.0)
         
         self.fusion_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
@@ -497,9 +497,9 @@ class Decoder(nn.Module):
         self.head_depth = nn.Linear(embed_dim, 1)
         self.head_conf_3d = nn.Linear(embed_dim, 1)
 
-        # Regression heads: slightly larger init for better gradient flow
+        # Regression heads: small but nonzero init for gradient flow
         for head in [self.head_3d, self.head_2d, self.head_depth]:
-            nn.init.zeros_(head.weight)
+            nn.init.normal_(head.weight, std=0.001)
             nn.init.zeros_(head.bias)
 
         # Classification/confidence heads (go through sigmoid/softmax): small init
