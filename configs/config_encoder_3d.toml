@@ -30,6 +30,7 @@ crop_to_points = true
 speed_thresh = 1.0
 query_anytime = true
 query_edge_bias = 100.0
+prop_dynamic_kpts_to_sample = 0.95
 
 [dataset.val]
 split_dir = 'val'
@@ -39,6 +40,7 @@ cams_to_sample = 5
 kpts_to_sample = 32
 aug_prob = 0.0
 crop_to_points = true
+speed_thresh = 1.0
 
 [dataset.test]
 split_dir = 'test'
