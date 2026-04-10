@@ -610,7 +610,7 @@ class PosetailDataset(Dataset):
 
         weights = 1.0 / (dist_to_edge + 1.0)
         weights[valid_times == 0] *= self.query_edge_bias
-        # weights[valid_times == (self.n_frames - 1)] *= self.query_edge_bias
+        weights[valid_times == (self.n_frames - 1)] *= self.query_edge_bias
 
         probs = weights / weights.sum()
         sample_ix = torch.multinomial(probs, 1)
