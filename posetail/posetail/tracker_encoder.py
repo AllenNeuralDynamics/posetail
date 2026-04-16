@@ -9,7 +9,7 @@ from einops import rearrange, einsum, reduce, repeat
 
 from posetail.posetail.cube import get_camera_scale, from_homogeneous, to_homogeneous
 from posetail.posetail.cube import undistort_points, triangulate_simple_batch, project_points_torch
-from posetail.posetail.cube import points_to_rays
+from posetail.posetail.cube import points_to_rays, _invert_SE3
 from posetail.posetail.utils import PadToMultiple, PadToSize, count_parameters
 from posetail.posetail.encoder_decoder import SceneRepresentation, QueryEncoder, Decoder
 
@@ -219,11 +219,16 @@ class TrackerEncoder(nn.Module):
         # query_coords_cams = rearrange(query_coords_cams_flat, 'cams b (t n) r -> cams b t n r', t=T, n=N)
 
         # p3d_cams = query_coords_cams + points_3d_offsets * self.cube_scale * self.p3d_scale
+
+        center = torch.tensor([self.image_size // 2, self.image_size//2],
+                              device=device, dtype=torch.float32).reshape(1, 2)
+        rays_c = torch.stack([points_to_rays(cam, center, normalize_t=False)[0] for cam in camera_group])
+        rays_c_inv = _invert_SE3(rays_c)  # [cams, 4, 4], ray-local → world
         
         p3d_cams = points_3d_raw * self.cube_scale * self.p3d_scale
         points_3d_all_direct = from_homogeneous(
-            einsum(to_homogeneous(p3d_cams), exts_inv,
-                   'cams b t n r, cams x r -> cams b t n x')
+            einsum(rays_c_inv, to_homogeneous(p3d_cams),
+                   'cams x r, cams b t n r -> cams b t n x')
         )
         points_3d_direct = einsum(points_3d_all_direct, conf_3d,
                                   'cams b t n r, cams b t n -> b t n r')

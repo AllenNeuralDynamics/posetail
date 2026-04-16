@@ -478,7 +478,7 @@ def _invert_SE3(transforms: torch.Tensor) -> torch.Tensor:
 
 
 
-def points_to_rays(cam, p2d, cube_scale=1):
+def points_to_rays(cam, p2d, cube_scale=1, normalize_t=True):
     """Inputs:
     cam: camera dict
     p2d: [B, 2]
@@ -497,8 +497,12 @@ def points_to_rays(cam, p2d, cube_scale=1):
 
     # Camera-to-world rotation and translation from ext
     ext = cam['ext'].clone()                              # [4, 4] world-to-camera
-    R_c2w = rearrange(ext[:3, :3], 'i j -> j i') # [3, 3], transpose = invert rotation
-    t_c2w = -einsum(R_c2w, ext[:3, 3] / cube_scale / 200.0, 'i j, j -> i')  # [3]
+    R_c2w = ext[:3, :3].T # [3, 3], transpose = invert rotation
+    if normalize_t:
+        t_c2w = -einsum(R_c2w, ext[:3, 3] / cube_scale / 200.0, 'i j, j -> i')
+    else:
+        t_c2w = -einsum(R_c2w, ext[:3, 3], 'i j, j -> i')
+        
 
     # Ray directions in world space
     d_world = einsum(R_c2w, d_cam, 'i j, b j -> b i')
