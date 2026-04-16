@@ -357,10 +357,10 @@ class QueryEncoder(nn.Module):
             embed_target_time,
             embed_pos,
             embed_depth,
+            embed_vis
         ]
         if self.use_volume_embedding:
             embed_terms.append(embed_volume)
-        embed_terms.append(embed_vis)
 
         embed_stack = torch.stack(embed_terms, dim=-2)
         embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
@@ -501,12 +501,13 @@ class Decoder(nn.Module):
         self.final_norm = nn.LayerNorm(embed_dim)
         
         # Final output heads
-        self.head_3d = nn.Linear(embed_dim, 3)
-        self.head_2d = nn.Linear(embed_dim, 2)
-        self.head_vis = nn.Linear(embed_dim, 1)
-        self.head_conf = nn.Linear(embed_dim, 1)
-        self.head_depth = nn.Linear(embed_dim, 1)
-        self.head_conf_3d = nn.Linear(embed_dim, 1)
+        head_dim = embed_dim
+        self.head_3d = nn.Linear(head_dim, 3)
+        self.head_2d = nn.Linear(head_dim, 2)
+        self.head_vis = nn.Linear(head_dim, 1)
+        self.head_conf = nn.Linear(head_dim, 1)
+        self.head_depth = nn.Linear(head_dim, 1)
+        self.head_conf_3d = nn.Linear(head_dim, 1)
 
         # Regression heads: small but nonzero init for gradient flow
         for head in [self.head_3d, self.head_2d, self.head_depth]:

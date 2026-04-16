@@ -101,11 +101,11 @@ class TrackerEncoder(nn.Module):
             use_camera_self_attention=self.use_camera_self_attention,
         )
 
-        self.p2d_scale = nn.Parameter(torch.tensor([32.0]))
+        self.p2d_scale = nn.Parameter(torch.tensor([128.0]))
 
-        self.depth_scale = nn.Parameter(torch.tensor([50.0]))
+        self.depth_scale = nn.Parameter(torch.tensor([500.0]))
 
-        self.p3d_scale = nn.Parameter(torch.tensor([50.0]))
+        self.p3d_scale = nn.Parameter(torch.tensor([500.0]))
 
 
     def print_summary(self):
@@ -183,7 +183,7 @@ class TrackerEncoder(nn.Module):
                             'b (t n) cams outdim -> cams b t n outdim',
                             t=T, n=N)
 
-        points_3d_offsets, points_pred, vis_pred_2d_logits, conf_pred_2d_logits, depth_pred, conf_3d_logits = torch.split(
+        points_3d_raw, points_pred, vis_pred_2d_logits, conf_pred_2d_logits, depth_pred, conf_3d_logits = torch.split(
             outputs, [3, 2, 1, 1, 1, 1], dim=-1
         )
 
@@ -194,39 +194,33 @@ class TrackerEncoder(nn.Module):
         conf_3d = torch.softmax(conf_3d_logits[..., 0], dim=0)
 
 
-        qc = rearrange(query_coords, 'b (t n) r -> b t n 1 r', t=T, n=N)
-        centers = torch.stack([cam['center'] for cam in camera_group])
-        depths_query = torch.linalg.norm(qc - centers, dim=-1)
-        depths_query_shaped = rearrange(depths_query, 'b t n cams -> cams b t n')
-        depth_pred_scaled = depths_query_shaped + depth_pred[..., 0] * self.cube_scale * self.depth_scale
-        
+        # qc = rearrange(query_coords, 'b (t n) r -> b t n 1 r', t=T, n=N)
+        # centers = torch.stack([cam['center'] for cam in camera_group])
+        # depths_query = torch.linalg.norm(qc - centers, dim=-1)
+        # depths_query_shaped = rearrange(depths_query, 'b t n cams -> cams b t n')
+        # depth_pred_scaled = depths_query_shaped + depth_pred[..., 0] * self.cube_scale * self.depth_scale
 
-        # zero out confidences for points outside of range
-        # bad = ( (points_pred[..., 0] < -1.5) | (points_pred[..., 0] > 1.5) |
-        #         (points_pred[..., 1] < -1.5) | (points_pred[..., 1] > 1.5) ) 
-        # conf_pred_2d = einsum(conf_pred_2d, ~bad, 'cams b t n r, cams b t n -> cams b t n r')
-
-        # clip points and get scales
-        # sizes = torch.stack([cam['size'] for cam in camera_group])
-        # points_pred = torch.clip(points_pred, -1.5, 1.5)
-        # points_pred_scaled = einsum((points_pred + 1) * 0.5, sizes,
-        #                             'cams b t n r, cams r -> cams b t n r')
-        # points_pred_scaled = F.sigmoid(points_pred) * self.image_size
-        # points_pred_scaled = (points_pred + 1) * self.p2d_scale
+        depth_pred_scaled = depth_pred[..., 0] * self.cube_scale * self.depth_scale
         
         # Predict offsets instead of absolute bounded coordinates
-        points_pred_scaled = p2d_query + points_pred * self.p2d_scale
+        # points_pred_scaled = p2d_query + points_pred * self.p2d_scale
+
+        # Predict absolute coordinates
+        points_pred_scaled = points_pred * self.p2d_scale + self.image_size // 2
 
         exts = torch.stack([cam['ext'] for cam in camera_group])
         exts_inv = torch.stack([cam['ext_inv'] for cam in camera_group])
         # exts_inv = torch.stack([torch.linalg.inv(cam['ext'].to(torch.float32)).to(cam['ext'].dtype) for cam in camera_group])
-        query_coords_cams_flat = from_homogeneous(
-            einsum(to_homogeneous(query_coords), exts,
-                   'b tn r, cams x r -> cams b tn x')
-        )
-        query_coords_cams = rearrange(query_coords_cams_flat, 'cams b (t n) r -> cams b t n r', t=T, n=N)
 
-        p3d_cams = query_coords_cams + points_3d_offsets * self.cube_scale * self.p3d_scale
+        # query_coords_cams_flat = from_homogeneous(
+        #     einsum(to_homogeneous(query_coords), exts,
+        #            'b tn r, cams x r -> cams b tn x')
+        # )
+        # query_coords_cams = rearrange(query_coords_cams_flat, 'cams b (t n) r -> cams b t n r', t=T, n=N)
+
+        # p3d_cams = query_coords_cams + points_3d_offsets * self.cube_scale * self.p3d_scale
+        
+        p3d_cams = points_3d_raw * self.cube_scale * self.p3d_scale
         points_3d_all_direct = from_homogeneous(
             einsum(to_homogeneous(p3d_cams), exts_inv,
                    'cams b t n r, cams x r -> cams b t n x')

@@ -1,7 +1,7 @@
 [wandb]
-project_name = 'posetail-test-vjepa'
+project_name = 'posetail-vjepa-new'
 # path = '/data/results/lili/posetail'
-path = '/groups/karashchuk/home/karashchukl/results/posetail-test-vjepa'
+path = '/groups/karashchuk/home/karashchukl/results/posetail-vjepa-new'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
@@ -87,7 +87,7 @@ seed = 3
 n_iterations = 600000
 # scheduler_type = 'multisteplr'
 scheduler_type = 'schedulefree'
-max_grad_norm = 10.0
+max_grad_norm = 30.0
 checkpoint_freq = 10240 # in iterations
 eval_metric_freq = 4 # in iterations
 val_freq = 64 # in iterations
