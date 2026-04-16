@@ -152,25 +152,42 @@ def run(config_path, fabric):
     model.print_summary()
 
     # set up optimizer
+    encoder_params = list(model.scene_encoder.encoder.parameters())
+    encoder_param_ids = set(id(p) for p in encoder_params)
+    other_params = [p for p in model.parameters()
+                    if id(p) not in encoder_param_ids]
+
     if config.training.scheduler_type == 'schedulefree':
         warmup_steps = total_to_per_gpu(
-            config.training.optimizer.get('warmup_steps', 0), 
+            config.training.optimizer.get('warmup_steps', 0),
             fabric.world_size)
+        lr = config.training.optimizer.learning_rate
+        encoder_factor = config.training.optimizer.get('encoder_factor', 1.0)
         optimizer = AdamWScheduleFree(
-            model.parameters(), 
-            lr = config.training.optimizer.learning_rate, 
-            weight_decay = config.training.optimizer.weight_decay,
-            warmup_steps = warmup_steps,
-            betas = (config.training.optimizer.get('beta1', 0.9),
-                     config.training.optimizer.get('beta2', 0.999))
+            [
+                {'params': other_params,
+                 'lr': lr},
+                {'params': encoder_params,
+                 'lr': lr * encoder_factor},
+            ],
+            weight_decay=config.training.optimizer.weight_decay,
+            warmup_steps=warmup_steps,
+            betas=(config.training.optimizer.get('beta1', 0.9),
+                   config.training.optimizer.get('beta2', 0.999))
         )
     else:
+        lr = config.training.optimizer.learning_rate
+        encoder_factor = config.training.optimizer.get('encoder_factor', 1.0)
         optimizer = torch.optim.AdamW(
-            model.parameters(), 
-            lr = config.training.optimizer.learning_rate, 
-            weight_decay = config.training.optimizer.weight_decay,
-            amsgrad = config.training.optimizer.amsgrad,
-            fused = True)
+            [
+                {'params': other_params,
+                 'lr': config.training.optimizer.learning_rate},
+                {'params': encoder_params,
+                 'lr': config.training.optimizer.learning_rate * encoder_factor},
+            ],
+            weight_decay=config.training.optimizer.weight_decay,
+            amsgrad=config.training.optimizer.amsgrad,
+            fused=True)
 
     optimizer = fabric.setup_optimizers(optimizer)
 
@@ -344,5 +361,3 @@ if __name__ == '__main__':
 
     fabric.launch()
     run(config_path = args.config_path, fabric = fabric)
-
-
