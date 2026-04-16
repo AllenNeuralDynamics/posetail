@@ -532,12 +532,10 @@ class Decoder(nn.Module):
         
         # Stack scene features: [N_cams, B, N_tokens, encoder_dim]
         # kv_stacked = torch.stack(scene_features, dim=0)
-        kv_stacked = scene_features
+        kv_stacked = scene_features # new code stacks them already
         
-        # Reshape for batched processing: [(N_cams*B), N_tokens, encoder_dim]
         kv = rearrange(kv_stacked, 'cams b tokens dim -> (cams b) tokens dim')
         
-        # Reshape queries: [(N_cams*B), T_query, embed_dim]
         query = rearrange(query_embeds, 'b t cams dim -> (cams b) t dim')
 
         rays_r = rearrange(rays, 'b t cams d e -> (b t) cams d e')
