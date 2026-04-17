@@ -692,10 +692,16 @@ class Decoder(nn.Module):
         self.head_depth = nn.Linear(head_dim, 1)
         self.head_conf_3d = nn.Linear(head_dim, 1)
 
-        # Regression heads: small but nonzero init for gradient flow
-        for head in [self.head_3d, self.head_2d, self.head_depth]:
-            nn.init.normal_(head.weight, std=0.001)
-            nn.init.zeros_(head.bias)
+        # Regression heads: scale the initialization to match the expected output range
+        # 3D and Depth expected range ~500, 2D expected range ~128
+        nn.init.normal_(self.head_3d.weight, std=500.0 / embed_dim)
+        nn.init.zeros_(self.head_3d.bias)
+
+        nn.init.normal_(self.head_depth.weight, std=500.0 / embed_dim)
+        nn.init.zeros_(self.head_depth.bias)
+
+        nn.init.normal_(self.head_2d.weight, std=128.0 / embed_dim)
+        nn.init.zeros_(self.head_2d.bias)
 
         # Classification/confidence heads (go through sigmoid/softmax): small init
         for head in [self.head_vis, self.head_conf, self.head_conf_3d]:

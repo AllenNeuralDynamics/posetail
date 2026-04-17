@@ -88,7 +88,7 @@ class TrackerEncoder(nn.Module):
             decoder_dim=latent_dim,
             n_frames=self.n_frames, 
             corr_radius=corr_radius, 
-            max_freq=self.max_freq,
+            max_freq=max_freq,
             patch_size=query_patch_size,
             use_volume_embedding=use_volume_embedding,
         )
@@ -101,11 +101,9 @@ class TrackerEncoder(nn.Module):
             use_camera_self_attention=self.use_camera_self_attention,
         )
 
-        self.p2d_scale = nn.Parameter(torch.tensor([128.0]))
-
-        self.depth_scale = nn.Parameter(torch.tensor([500.0]))
-
-        self.p3d_scale = nn.Parameter(torch.tensor([500.0]))
+        self.p2d_scale = nn.Parameter(torch.tensor([1.0]))
+        self.depth_scale = nn.Parameter(torch.tensor([1.0]))
+        self.p3d_scale = nn.Parameter(torch.tensor([1.0]))
 
 
     def print_summary(self):
