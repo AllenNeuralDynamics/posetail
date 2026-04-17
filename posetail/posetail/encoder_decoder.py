@@ -679,11 +679,15 @@ class Decoder(nn.Module):
         self.head_depth = nn.Linear(head_dim, 1)
         self.head_conf_3d = nn.Linear(head_dim, 1)
 
-        # Small default init for all regression heads
-        for head in [self.head_3d, self.head_2d, self.head_depth]:
-            nn.init.normal_(head.weight, std=0.01)
-            nn.init.zeros_(head.bias)
-        nn.init.constant_(self.head_depth.bias, 0.5)
+        # Regression heads init
+        nn.init.normal_(self.head_3d.weight, std=0.01)
+        nn.init.zeros_(self.head_3d.bias)
+
+        nn.init.normal_(self.head_2d.weight, std=0.01)
+        nn.init.zeros_(self.head_2d.bias)
+
+        nn.init.normal_(self.head_depth.weight, std=0.01)
+        nn.init.constant_(self.head_depth.bias, 6.0)  # Start guessing ~400 depth instead of 1
 
         # Classification/confidence heads: small init
         for head in [self.head_vis, self.head_conf, self.head_conf_3d]:
@@ -691,7 +695,7 @@ class Decoder(nn.Module):
             nn.init.zeros_(head.bias)
 
         # Learnable output scales (log-space for stable gradients)
-        self.log_scale_3d = nn.Parameter(torch.tensor([500.0]).log())
+        self.log_scale_3d = nn.Parameter(torch.tensor([500.0]).log()) 
         self.log_scale_2d = nn.Parameter(torch.tensor([128.0]).log())
         self.log_scale_depth = nn.Parameter(torch.tensor([1.0]).log())
 
