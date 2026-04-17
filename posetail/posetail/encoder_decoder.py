@@ -185,10 +185,10 @@ class PatchProcessor(nn.Module):
         self.convs = nn.Sequential(*layers)
         
         # Reduce channels to save parameters while keeping spatial structure
-        self.bottleneck = nn.Conv2d(conv_channels[-1], 16, kernel_size=1)
+        self.bottleneck = nn.Conv2d(conv_channels[-1], 32, kernel_size=1)
         
         # MLP to process flattened features
-        mlp_in_dim = 16 * patch_size * patch_size
+        mlp_in_dim = 32 * patch_size * patch_size
         self.mlp = nn.Sequential(
             nn.Linear(mlp_in_dim, embed_dim * 2),
             nn.GELU(),
@@ -260,6 +260,7 @@ class QueryEncoder3D(nn.Module):
         self.fusion_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
             nn.GELU(),
+            nn.Dropout(0.05),
             nn.Linear(embed_dim * 4, decoder_dim),
         )
 
@@ -394,6 +395,7 @@ class QueryEncoder2D(nn.Module):
         self.fusion_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
             nn.GELU(),
+            nn.Dropout(0.05),
             nn.Linear(embed_dim * 4, decoder_dim),
         )
 
@@ -619,7 +621,7 @@ class SceneRepresentation(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, embed_dim=256, encoder_dim=1024,
                  num_heads=8, num_layers=8, 
-                 mlp_ratio=4.0, dropout=0.0,
+                 mlp_ratio=4.0, dropout=0.05,
                  use_camera_self_attention=True):
         super().__init__()
         
@@ -681,6 +683,7 @@ class Decoder(nn.Module):
         for head in [self.head_3d, self.head_2d, self.head_depth]:
             nn.init.normal_(head.weight, std=0.01)
             nn.init.zeros_(head.bias)
+        nn.init.constant_(self.head_depth.bias, 0.5)
 
         # Classification/confidence heads: small init
         for head in [self.head_vis, self.head_conf, self.head_conf_3d]:
