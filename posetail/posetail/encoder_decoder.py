@@ -215,7 +215,7 @@ class PatchProcessor(nn.Module):
         return embed
 
 
-class QueryEncoder(nn.Module):
+class QueryEncoder3D(nn.Module):
     def __init__(self, embed_dim=256, decoder_dim=256,
                  n_frames=16, corr_radius=2, max_freq=10,
                  patch_size=9, use_volume_embedding=True):
@@ -284,7 +284,6 @@ class QueryEncoder(nn.Module):
             
         Returns:
             embed_total: [B, T_query, N_cams, embed_dim] embeddings per camera
-            visible: [B, T_query, N_cams] which points are visible
         """
         B, T_query, _ = query_coords.shape
 
@@ -369,8 +368,192 @@ class QueryEncoder(nn.Module):
 
         embed_final = self.fusion_mlp(weighted_embed)
         
-        return embed_final, visible
+        return embed_final
     
+
+class QueryEncoder2D(nn.Module):
+    def __init__(self, embed_dim=256, decoder_dim=256,
+                 n_frames=16, max_freq=10,
+                 patch_size=9):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.decoder_dim = decoder_dim
+        self.max_freq = max_freq
+        self.patch_size = patch_size
+        self.n_frames = n_frames
+
+        # Time embeddings
+        self.t_query_embed = nn.Embedding(n_frames, embed_dim)
+        self.t_target_embed = nn.Embedding(n_frames, embed_dim)
+
+        # Positional encodings for 2D coordinates
+        self.linear_pos = nn.Linear(4 * max_freq, embed_dim)
+
+        self.patch_processor = PatchProcessor(
+            in_channels=3,
+            patch_size=patch_size,
+            embed_dim=embed_dim,
+            conv_channels=[32, 64, 128],
+        )
+
+        self.n_fusion_terms = 4  # patch, query_time, target_time, pos
+        self.gate = nn.Sequential(
+            nn.Linear(embed_dim * self.n_fusion_terms, self.n_fusion_terms),
+            nn.Sigmoid()
+        )
+        # Init gate to output uniform weights initially
+        nn.init.normal_(self.gate[0].weight, std=0.01)
+        nn.init.constant_(self.gate[0].bias, 0.0)
+        
+        self.fusion_mlp = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 4),
+            nn.GELU(),
+            nn.Linear(embed_dim * 4, decoder_dim),
+        )
+
+    def forward(self, preprocessed_views, query_coords_2d, query_time, target_time):
+        """
+        Args:
+            preprocessed_views: list of [B, T, C, H, W] tensors (normalized features)
+            query_coords_2d: [B, T_query, 2] 2D pixel coordinates (x, y)
+            query_time: [B, T_query] time indices
+            target_time: [B, T_query] time indices  
+            
+        Returns:
+            embed_total: [B, T_query, N_cams, embed_dim] embeddings per camera
+        """
+        B, T_query, _ = query_coords_2d.shape
+        n_cams = len(preprocessed_views)
+        
+        # 2D position encoding (normalize coordinates to [0, 1])
+        sizes = torch.stack([
+            torch.tensor([view.shape[-1], view.shape[-2]], #[W, H] 
+                         dtype=query_coords_2d.dtype, device=query_coords_2d.device)
+            for view in preprocessed_views
+        ])
+        
+        # Normalize 2D coordinates to [0, 1] range
+        pp = rearrange(query_coords_2d, 'b t r -> b t 1 r')
+        pp = pp / sizes  # [B, T_query, N_cams, 2]
+        
+        fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
+        embed_pos = self.linear_pos(fourier_pos)
+        
+        # Pixel patch embeddings
+        patches = torch.stack([
+            sample_patches(preprocessed_views[i], query_coords_2d,
+                           query_time, self.patch_size)
+            for i in range(n_cams)
+        ]) # [N_cams, B, T_query, C, P, P]
+        
+        patches_flat = rearrange(patches, 'cams b t c p q -> (cams b t) c p q')
+        embed_flat = self.patch_processor(patches_flat)  # [(N_cams*B*T_query), embed_dim]
+        embed_patch = rearrange(embed_flat, '(cams b t) d -> b t cams d', 
+                                cams=n_cams, b=B, t=T_query)  # [B, T_query, N_cams, embed_dim]
+        
+        # Time embeddings
+        embed_query_time = repeat(self.t_query_embed(query_time),
+                                     'b t embed -> b t cams embed', cams=n_cams)
+        embed_target_time = repeat(self.t_target_embed(target_time),
+                                      'b t embed -> b t cams embed', cams=n_cams)
+        
+        # Combine all embeddings with normalized gated fusion
+        embed_terms = [
+            embed_patch,
+            embed_query_time,
+            embed_target_time,
+            embed_pos,
+        ]
+        
+        embed_stack = torch.stack(embed_terms, dim=-2)
+        embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
+        weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, n_fusion_terms]
+        weighted_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
+
+        embed_final = self.fusion_mlp(weighted_embed)
+        
+        return embed_final
+    
+
+class QueryEncoder(nn.Module):
+    def __init__(self, embed_dim=256, decoder_dim=256,
+                 n_frames=16, corr_radius=2, max_freq=10,
+                 patch_size=9, use_volume_embedding=True):
+        super().__init__()
+        
+        # Create both 3D and 2D encoders
+        self.encoder_3d = QueryEncoder3D(
+            embed_dim=embed_dim,
+            decoder_dim=decoder_dim,
+            n_frames=n_frames,
+            corr_radius=corr_radius,
+            max_freq=max_freq,
+            patch_size=patch_size,
+            use_volume_embedding=use_volume_embedding
+        )
+        
+        self.encoder_2d = QueryEncoder2D(
+            embed_dim=embed_dim,
+            decoder_dim=decoder_dim,
+            n_frames=n_frames,
+            max_freq=max_freq,
+            patch_size=patch_size
+        )
+        
+        # Add mode embedding: 0 for 2D, 1 for 3D
+        self.mode_embed = nn.Embedding(2, decoder_dim)
+        
+    def forward(self, preprocessed_views, camera_group,
+                query_coords, query_time, target_time,
+                cube_scale):
+        """
+        Args:
+            preprocessed_views: list of [B, T, C, H, W] tensors (normalized features)
+            camera_group: list of camera dicts (can be None for 2D mode)
+            query_coords: [B, T_query, R] where R=2 for 2D or R=3 for 3D
+            query_time: [B, T_query] time indices
+            target_time: [B, T_query] time indices  
+            cube_scale: float for cube sampling (ignored in 2D mode)
+            
+        Returns:
+            embed_total: [B, T_query, N_cams, embed_dim] embeddings per camera
+        """
+        # Determine dimensionality from query_coords shape
+        coord_dim = query_coords.shape[-1]
+        
+        if coord_dim == 3:
+            # Use 3D encoder
+            embed = self.encoder_3d(
+                preprocessed_views=preprocessed_views,
+                camera_group=camera_group,
+                query_coords=query_coords,
+                query_time=query_time,
+                target_time=target_time,
+                cube_scale=cube_scale
+            )
+            # Add 3D mode embedding (index 1)
+            mode_idx = torch.ones(1, dtype=torch.long, device=embed.device)
+            mode_emb = self.mode_embed(mode_idx)  # [1, decoder_dim]
+            embed = embed + mode_emb
+            
+        elif coord_dim == 2:
+            # Use 2D encoder
+            embed = self.encoder_2d(
+                preprocessed_views=preprocessed_views,
+                query_coords_2d=query_coords,
+                query_time=query_time,
+                target_time=target_time
+            )
+            # Add 2D mode embedding (index 0)
+            mode_idx = torch.zeros(1, dtype=torch.long, device=embed.device)
+            mode_emb = self.mode_embed(mode_idx)  # [1, decoder_dim]
+            embed = embed + mode_emb
+            
+        else:
+            raise ValueError(f"query_coords must have 2 or 3 dimensions, got {coord_dim}")
+        
+        return embed
+
 
 class SceneRepresentation(nn.Module):
     def __init__(self, version='large', freeze_encoder=True, n_frames=16, image_size=256,

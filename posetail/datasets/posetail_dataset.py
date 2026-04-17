@@ -152,9 +152,13 @@ def custom_collate(batch):
     cgroup = batch[4][0]
 
     # # mask nan coordinates in the first frame
-    coords = torch.stack(batch[1], axis = 0)
+    coords = torch.stack(batch[1], axis = 0) # (b, t, n_kpts, 3)
     # mask = torch.isfinite(coords).all(dim = -1).all(dim = 1).all(dim = 0)
     # coords_masked = coords[:, :, mask, :]
+    #
+    p2d = None
+    if batch[8][0] is not None:
+        p2d = torch.stack(batch[8], axis=0) # (b, cams, t, n_kpts, 2)
 
     # # get corresponding visibilities if present
     # vis_masked = None
@@ -176,6 +180,7 @@ def custom_collate(batch):
     
     batch = edict({'views': views, 
                    'coords': coords,
+                   'p2d': p2d,
                    'query_times': query_times,
                    'vis': vis,
                    'vis_2d': vis_2d,
@@ -375,7 +380,7 @@ class PosetailDataset(Dataset):
             return None
                 
         # compute total movement and speed in pixels, averaged across cameras
-        p2d = project_points_torch(cgroup, coords)
+        p2d = project_points_torch(cgroup, coords) # (cams, t, n_kpts, 2)
         movement = torch.linalg.norm(torch.diff(p2d, dim = 1), dim = -1)
         movement = torch.nan_to_num(movement, 0.0)
         total_movement = torch.mean(torch.sum(movement, dim = 1), dim = 0)
@@ -459,7 +464,11 @@ class PosetailDataset(Dataset):
                 imgs = imgs / 255.0
                 views.append(imgs)
 
-        return views, coords, vis, fnums, cgroup, row, query_times, vis_2d
+
+        # p2d = project_points_torch(cgroup, coords) # (cams, t, n_kpts, 2)
+        p2d = None
+        
+        return views, coords, vis, fnums, cgroup, row, query_times, vis_2d, p2d
 
 
     def crop_cgroup_to_points(self, cgroup, coords): 

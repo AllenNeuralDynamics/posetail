@@ -115,7 +115,7 @@ class TrackerEncoder(nn.Module):
         print("  scene representation params: {:,d}".format(count_parameters(self.scene_encoder)))
         print("  decoder params: {:,d}".format(count_parameters(self.decoder)))
         
-    def forward(self, views, coords, query_times=None, camera_group = None):
+    def forward(self, views, coords, camera_group, query_times=None):
         '''
         B: batch size
         T: number of frames in video
@@ -132,10 +132,17 @@ class TrackerEncoder(nn.Module):
 
         n_cams = len(views)
 
+        assert len(views) == len(camera_group), "views should match number of cameras"
+        
+        if R == 2:
+            assert len(views) == 1, "should only have 1 view for 2d input"
+        
         # assert self.n_frames == T
 
         if R == 3:
-            self.cube_scale = get_camera_scale(camera_group, coords.reshape(-1, 3))
+            cube_scale = get_camera_scale(camera_group, coords.reshape(-1, 3))
+        else:
+            cube_scale = 1.0
 
         if query_times is None:
             query_times = torch.zeros((B, N), dtype=torch.int32, device=device)
@@ -160,20 +167,23 @@ class TrackerEncoder(nn.Module):
         query_times_rep = repeat(query_times, 'b n -> b (t n)', t=T)
         target_time = repeat(torch.arange(T, device=device), 't -> b (t n)', b=B, t=T, n=N)
         
-        query_embeds, visible = self.query_encoder(
+        query_embeds = self.query_encoder(
             views_norm, camera_group,
             query_coords = query_coords,
             query_time = query_times_rep,
             target_time = target_time,
-            cube_scale = self.cube_scale
+            cube_scale = cube_scale
         )
 
-        p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
-        p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T, n=N)
+        if R == 3:
+            p2d_query = project_points_torch(camera_group, query_coords) # [cams, b, (t n), 2]
+            p2d_query = rearrange(p2d_query, 'cams b (t n) r -> cams b t n r', t=T, n=N)
+        else:
+            p2d_query = rearrange(query_coords, 'b (t n) r -> 1 b t n r', t=T, n=N)
 
         query_rays_flat = torch.stack([
             points_to_rays(camera_group[i], rearrange(p2d_query[i], 'b t n r -> (b t n) r'),
-                           self.cube_scale)
+                           cube_scale)
             for i in range(len(camera_group))
         ])
         query_rays = rearrange(query_rays_flat, 'cams (b t n) d e -> b (t n) cams d e', b=B, t=T, n=N)
@@ -198,9 +208,9 @@ class TrackerEncoder(nn.Module):
         # centers = torch.stack([cam['center'] for cam in camera_group])
         # depths_query = torch.linalg.norm(qc - centers, dim=-1)
         # depths_query_shaped = rearrange(depths_query, 'b t n cams -> cams b t n')
-        # depth_pred_scaled = depths_query_shaped + depth_pred[..., 0] * self.cube_scale * self.depth_scale
+        # depth_pred_scaled = depths_query_shaped + depth_pred[..., 0] * cube_scale * self.depth_scale
 
-        depth_pred_scaled = depth_pred[..., 0] * self.cube_scale * self.depth_scale
+        depth_pred_scaled = depth_pred[..., 0] * cube_scale * self.depth_scale
         
         # Predict offsets instead of absolute bounded coordinates
         # points_pred_scaled = p2d_query + points_pred * self.p2d_scale
@@ -208,8 +218,8 @@ class TrackerEncoder(nn.Module):
         # Predict absolute coordinates
         points_pred_scaled = points_pred * self.p2d_scale + self.image_size // 2
 
-        exts = torch.stack([cam['ext'] for cam in camera_group])
-        exts_inv = torch.stack([cam['ext_inv'] for cam in camera_group])
+        # exts = torch.stack([cam['ext'] for cam in camera_group])
+        # exts_inv = torch.stack([cam['ext_inv'] for cam in camera_group])
         # exts_inv = torch.stack([torch.linalg.inv(cam['ext'].to(torch.float32)).to(cam['ext'].dtype) for cam in camera_group])
 
         # query_coords_cams_flat = from_homogeneous(
@@ -218,14 +228,14 @@ class TrackerEncoder(nn.Module):
         # )
         # query_coords_cams = rearrange(query_coords_cams_flat, 'cams b (t n) r -> cams b t n r', t=T, n=N)
 
-        # p3d_cams = query_coords_cams + points_3d_offsets * self.cube_scale * self.p3d_scale
+        # p3d_cams = query_coords_cams + points_3d_offsets * cube_scale * self.p3d_scale
 
         center = torch.tensor([self.image_size // 2, self.image_size//2],
                               device=device, dtype=torch.float32).reshape(1, 2)
         rays_c = torch.stack([points_to_rays(cam, center, normalize_t=False)[0] for cam in camera_group])
         rays_c_inv = _invert_SE3(rays_c)  # [cams, 4, 4], ray-local → world
         
-        p3d_cams = points_3d_raw * self.cube_scale * self.p3d_scale
+        p3d_cams = points_3d_raw * self.p3d_scale * cube_scale
         points_3d_all_direct = from_homogeneous(
             einsum(rays_c_inv, to_homogeneous(p3d_cams),
                    'cams x r, cams b t n r -> cams b t n x')

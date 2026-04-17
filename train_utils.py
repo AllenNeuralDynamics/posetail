@@ -267,18 +267,21 @@ def train_iteration(config, model, fabric, batch,
     metric_dicts = []
     
     views = [view.to(device) for view in batch.views]
-    coords = batch.coords.to(device)
+    coords = batch.coords.to(device) # (b, t, n_kpts, 2)
     vis = batch.vis
-    cgroup = batch.cgroup 
+    cgroup = batch.cgroup  
     vis_2d = batch.vis_2d
     query_times = batch.query_times
+    p2d = batch.p2d # (b, cams, t, n_kpts, 2)
 
-    query_coords = coords[:, query_times[0],
+    if p2d is None: # 3d mode
+        query_coords = coords[:, query_times[0],
+                              torch.arange(len(query_times[0]))]
+    else:
+        assert p2d.shape[1] == 1
+        query_coords = p2d[:, 0, query_times[0],
                           torch.arange(len(query_times[0]))]
-    
-    # fallback if visibilities are not provided
-    # if vis is None: 
-    #     vis = get_vis_true(coords)
+
 
     if cgroup: 
         cgroup = [dict_to_device(cam_dict, device) for cam_dict in cgroup]
