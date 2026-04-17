@@ -276,8 +276,8 @@ class TrackerEncoder(nn.Module):
         # bad_pred = torch.amax(conf_pred_2d[..., 0], dim=0) <= 1e-5
         # points_3d = einsum(points_3d, ~bad_pred, 'b t n r, b t n -> b t n r') 
         
-        vis_pred = torch.amax(vis_pred_2d, dim=0)
-        conf_pred = torch.amax(conf_pred_2d, dim=0)
+        vis_pred = torch.amax(vis_pred_2d_logits, dim=0)
+        conf_pred = torch.amax(conf_pred_2d_logits, dim=0)
         
         # assemble outputs 
         result_dict = {
