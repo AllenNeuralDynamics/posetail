@@ -184,11 +184,11 @@ class PatchProcessor(nn.Module):
             prev_c = c
         self.convs = nn.Sequential(*layers)
         
-        # Calculate output spatial size (assuming no pooling/stride)
-        conv_out_size = patch_size  
+        # Reduce channels to save parameters while keeping spatial structure
+        self.bottleneck = nn.Conv2d(conv_channels[-1], 16, kernel_size=1)
         
-        # MLP to process flattened conv features
-        mlp_in_dim = conv_channels[-1] * conv_out_size * conv_out_size
+        # MLP to process flattened features
+        mlp_in_dim = 16 * patch_size * patch_size
         self.mlp = nn.Sequential(
             nn.Linear(mlp_in_dim, embed_dim * 2),
             nn.GELU(),
@@ -205,6 +205,7 @@ class PatchProcessor(nn.Module):
         """
         # Apply convs
         x = self.convs(patches)  # [B, C_out, P, P]
+        x = self.bottleneck(x)   # [B, 16, P, P]
         
         # Flatten spatial dimensions
         x = rearrange(x, 'b c p q -> b (c p q)')
@@ -255,6 +256,7 @@ class QueryEncoder3D(nn.Module):
 
         self.depth_norm_scale = nn.Parameter(torch.tensor([1.0]))
 
+        self.fusion_norm = nn.LayerNorm(embed_dim)
         self.fusion_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
             nn.GELU(),
@@ -357,6 +359,7 @@ class QueryEncoder3D(nn.Module):
             embed_terms.append(embed_volume)
 
         combined_embed = sum(embed_terms)
+        combined_embed = self.fusion_norm(combined_embed)
         embed_final = self.fusion_mlp(combined_embed)
         
         return embed_final
@@ -387,6 +390,7 @@ class QueryEncoder2D(nn.Module):
             conv_channels=[32, 64, 128],
         )
 
+        self.fusion_norm = nn.LayerNorm(embed_dim)
         self.fusion_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
             nn.GELU(),
@@ -450,6 +454,7 @@ class QueryEncoder2D(nn.Module):
         ]
         
         combined_embed = sum(embed_terms)
+        combined_embed = self.fusion_norm(combined_embed)
         embed_final = self.fusion_mlp(combined_embed)
         
         return embed_final
