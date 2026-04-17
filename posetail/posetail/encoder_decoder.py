@@ -677,21 +677,20 @@ class Decoder(nn.Module):
         self.head_depth = nn.Linear(head_dim, 1)
         self.head_conf_3d = nn.Linear(head_dim, 1)
 
-        # Regression heads: scale the initialization to match the expected output range
-        # 3D expected range ~500, 2D expected range ~128, log-depth expected range ~1
-        nn.init.normal_(self.head_3d.weight, std=500.0 / embed_dim)
-        nn.init.zeros_(self.head_3d.bias)
+        # Small default init for all regression heads
+        for head in [self.head_3d, self.head_2d, self.head_depth]:
+            nn.init.normal_(head.weight, std=0.01)
+            nn.init.zeros_(head.bias)
 
-        nn.init.normal_(self.head_depth.weight, std=1.0 / embed_dim)
-        nn.init.zeros_(self.head_depth.bias)
-
-        nn.init.normal_(self.head_2d.weight, std=128.0 / embed_dim)
-        nn.init.zeros_(self.head_2d.bias)
-
-        # Classification/confidence heads (go through sigmoid/softmax): small init
+        # Classification/confidence heads: small init
         for head in [self.head_vis, self.head_conf, self.head_conf_3d]:
             nn.init.normal_(head.weight, mean=0.0, std=0.01)
             nn.init.zeros_(head.bias)
+
+        # Learnable output scales (log-space for stable gradients)
+        self.log_scale_3d = nn.Parameter(torch.tensor([500.0]).log())
+        self.log_scale_2d = nn.Parameter(torch.tensor([128.0]).log())
+        self.log_scale_depth = nn.Parameter(torch.tensor([1.0]).log())
 
     def forward(self, scene_features, query_embeds, rays):
         """
@@ -742,11 +741,11 @@ class Decoder(nn.Module):
         x = self.final_norm(x)
 
         # Project to output: [(N_cams*B), T_query, 9]
-        out_3d = self.head_3d(x)
-        out_2d = self.head_2d(x)
+        out_3d = self.head_3d(x) * self.log_scale_3d.exp()
+        out_2d = self.head_2d(x) * self.log_scale_2d.exp()
         out_vis = self.head_vis(x)
         out_conf = self.head_conf(x)
-        out_depth = self.head_depth(x)
+        out_depth = self.head_depth(x) * self.log_scale_depth.exp()
         out_conf_3d = self.head_conf_3d(x)
         output = torch.cat([out_3d, out_2d, out_vis, out_conf, out_depth, out_conf_3d], dim=-1)
         

@@ -101,9 +101,6 @@ class TrackerEncoder(nn.Module):
             use_camera_self_attention=self.use_camera_self_attention,
         )
 
-        self.p2d_scale = nn.Parameter(torch.tensor([1.0]))
-        self.depth_scale = nn.Parameter(torch.tensor([1.0]))
-        self.p3d_scale = nn.Parameter(torch.tensor([1.0]))
 
 
     def print_summary(self):
@@ -209,13 +206,13 @@ class TrackerEncoder(nn.Module):
         # depth_pred_scaled = depths_query_shaped + depth_pred[..., 0] * cube_scale * self.depth_scale
 
         # Exponentiate the log-depth prediction
-        depth_pred_scaled = torch.exp(depth_pred[..., 0] * self.depth_scale) * cube_scale
+        depth_pred_scaled = torch.exp(depth_pred[..., 0]) * cube_scale
         
         # Predict offsets instead of absolute bounded coordinates
         # points_pred_scaled = p2d_query + points_pred * self.p2d_scale
 
         # Predict absolute coordinates
-        points_pred_scaled = points_pred * self.p2d_scale + self.image_size // 2
+        points_pred_scaled = points_pred + self.image_size // 2
 
         # exts = torch.stack([cam['ext'] for cam in camera_group])
         # exts_inv = torch.stack([cam['ext_inv'] for cam in camera_group])
@@ -234,7 +231,7 @@ class TrackerEncoder(nn.Module):
         rays_c = torch.stack([points_to_rays(cam, center, normalize_t=False)[0] for cam in camera_group])
         rays_c_inv = _invert_SE3(rays_c)  # [cams, 4, 4], ray-local → world
         
-        p3d_cams = points_3d_raw * self.p3d_scale * cube_scale
+        p3d_cams = points_3d_raw * cube_scale
         points_3d_all_direct = from_homogeneous(
             einsum(rays_c_inv, to_homogeneous(p3d_cams),
                    'cams x r, cams b t n r -> cams b t n x')
