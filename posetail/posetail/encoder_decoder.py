@@ -255,15 +255,6 @@ class QueryEncoder3D(nn.Module):
 
         self.depth_norm_scale = nn.Parameter(torch.tensor([1.0]))
 
-        self.n_fusion_terms = 7 if self.use_volume_embedding else 6
-        self.gate = nn.Sequential(
-            nn.Linear(embed_dim * self.n_fusion_terms, self.n_fusion_terms),
-            nn.Sigmoid()
-        )
-        # Init gate to output uniform weights initially
-        nn.init.normal_(self.gate[0].weight, std=0.01)
-        nn.init.constant_(self.gate[0].bias, 0.0)
-        
         self.fusion_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
             nn.GELU(),
@@ -365,12 +356,8 @@ class QueryEncoder3D(nn.Module):
         if self.use_volume_embedding:
             embed_terms.append(embed_volume)
 
-        embed_stack = torch.stack(embed_terms, dim=-2)
-        embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
-        weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, n_fusion_terms]
-        weighted_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
-
-        embed_final = self.fusion_mlp(weighted_embed)
+        combined_embed = sum(embed_terms)
+        embed_final = self.fusion_mlp(combined_embed)
         
         return embed_final
     
@@ -400,15 +387,6 @@ class QueryEncoder2D(nn.Module):
             conv_channels=[32, 64, 128],
         )
 
-        self.n_fusion_terms = 4  # patch, query_time, target_time, pos
-        self.gate = nn.Sequential(
-            nn.Linear(embed_dim * self.n_fusion_terms, self.n_fusion_terms),
-            nn.Sigmoid()
-        )
-        # Init gate to output uniform weights initially
-        nn.init.normal_(self.gate[0].weight, std=0.01)
-        nn.init.constant_(self.gate[0].bias, 0.0)
-        
         self.fusion_mlp = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
             nn.GELU(),
@@ -471,12 +449,8 @@ class QueryEncoder2D(nn.Module):
             embed_pos,
         ]
         
-        embed_stack = torch.stack(embed_terms, dim=-2)
-        embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
-        weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, n_fusion_terms]
-        weighted_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
-
-        embed_final = self.fusion_mlp(weighted_embed)
+        combined_embed = sum(embed_terms)
+        embed_final = self.fusion_mlp(combined_embed)
         
         return embed_final
     
