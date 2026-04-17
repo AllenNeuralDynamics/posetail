@@ -305,6 +305,7 @@ def train_iteration(config, model, fabric, batch,
         vis_true = vis,
         vis_true_cams = vis_2d,
         cgroup = cgroup, 
+        p2d = p2d, 
         device = coords_pred.device)
 
     fabric.backward(total_loss)
@@ -403,8 +404,13 @@ def train_epoch(config, model, fabric, dataloader,
         cgroup = batch.cgroup 
         vis_2d = batch.vis_2d
         query_times = batch.query_times
+        p2d = batch.p2d.to(device) if batch.p2d is not None else None
 
-        query_coords = coords[:, query_times[0], torch.arange(len(query_times[0]))]
+        if p2d is None:
+            query_coords = coords[:, query_times[0], torch.arange(len(query_times[0]))]
+        else:
+            assert p2d.shape[1] == 1
+            query_coords = p2d[:, 0, query_times[0], torch.arange(len(query_times[0]))]
         
         # fallback if visibilities are not provided
         # if vis is None: 
@@ -431,6 +437,7 @@ def train_epoch(config, model, fabric, dataloader,
             vis_true = vis,
             vis_true_cams = vis_2d,
             cgroup = cgroup, 
+            p2d = p2d, 
             device = coords_pred.device)
 
         # if not torch.any(torch.isnan(total_loss)):
@@ -531,8 +538,13 @@ def test_epoch(config, model, dataloader, loss = None,
         cgroup = batch.cgroup
         vis_2d = batch.vis_2d
         query_times = batch.query_times
+        p2d = batch.p2d.to(device) if batch.p2d is not None else None
 
-        query_coords = coords[:, query_times[0], torch.arange(len(query_times[0]))]
+        if p2d is None:
+            query_coords = coords[:, query_times[0], torch.arange(len(query_times[0]))]
+        else:
+            assert p2d.shape[1] == 1
+            query_coords = p2d[:, 0, query_times[0], torch.arange(len(query_times[0]))]
         
         # fallback if visibilities are not provided
         # if vis is None: 
@@ -560,6 +572,7 @@ def test_epoch(config, model, dataloader, loss = None,
                 vis_true = vis,
                 vis_true_cams = vis_2d,
                 cgroup = cgroup, 
+                p2d = p2d, 
                 device = coords_pred.device)
 
         if evaluate:

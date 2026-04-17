@@ -205,6 +205,7 @@ class PosetailDataset(Dataset):
         self.max_res = config.dataset[split].get('max_res', -1) # -1 means no resizing
         self.min_res = config.dataset[split].get('min_res', self.max_res) # only used when max_res != -1
         self.aug_prob = config.dataset[split].get('aug_prob', 0.25)
+        self.prob_2d_only = config.dataset[split].get('prob_2d_only', 0.0)
 
         self.crop_to_points = config.dataset[split].get('crop_to_points', True)
         self.min_crop_dim = config.dataset[split].get('min_crop_dim', 64)
@@ -329,8 +330,16 @@ class PosetailDataset(Dataset):
         cam_names = get_dirs(img_path)
         img_fnames = sorted(os.listdir(os.path.join(img_path, cam_names[0])))[start_ix:end_ix:interval]
 
-        # sample a number of camera views from a set of calibrated cameras
-        if self.cams_to_sample: 
+        is_2d_mode = self.prob_2d_only > 0 and np.random.random() < self.prob_2d_only
+
+        if is_2d_mode:
+            # Force sample 1 camera
+            ix_cams = [np.random.randint(len(cam_names))]
+            cam_names = [cam_names[i] for i in ix_cams]
+            if vis is not None: 
+                vis = vis[:, :, ix_cams]
+                vis_2d = vis_2d[:, :, ix_cams]
+        elif self.cams_to_sample: 
             coords, vis, vis_2d, cam_names = self.sample_cameras(coords, vis, vis_2d, cam_names)
 
         if vis is not None:
@@ -425,6 +434,11 @@ class PosetailDataset(Dataset):
         else:
             query_times = torch.zeros((coords.shape[1],), dtype=torch.int32, device='cpu')
         
+        if is_2d_mode:
+            p2d = project_points_torch(cgroup, coords) # (1, t, n_kpts, 2)
+        else:
+            p2d = None
+
         # apply augmentation
         with ThreadPoolExecutor(max_workers=24) as executor:
             views_unloaded = []
@@ -466,7 +480,6 @@ class PosetailDataset(Dataset):
 
 
         # p2d = project_points_torch(cgroup, coords) # (cams, t, n_kpts, 2)
-        p2d = None
         
         return views, coords, vis, fnums, cgroup, row, query_times, vis_2d, p2d
 

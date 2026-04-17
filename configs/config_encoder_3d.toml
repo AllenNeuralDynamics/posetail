@@ -31,6 +31,7 @@ speed_thresh = 1.0
 query_anytime = true
 query_edge_bias = 100.0
 prop_dynamic_kpts_to_sample = 0.95
+prob_2d_only = 0.4
 
 [dataset.val]
 split_dir = 'val'

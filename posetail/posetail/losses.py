@@ -134,7 +134,7 @@ class TotalLoss(nn.Module):
 
 
     def forward(self, model, outputs, coords_true, 
-                vis_true, vis_true_cams, cgroup = None, device = None):
+                vis_true, vis_true_cams, cgroup = None, p2d = None, device = None):
 
         B, T, N, R = coords_true.shape
         
@@ -154,7 +154,11 @@ class TotalLoss(nn.Module):
         else:
             depth_pred = None
 
-        coords_true_2d = project_points_torch(cgroup, coords_true)
+        if p2d is not None:
+            coords_true_2d = p2d
+        else:
+            coords_true_2d = project_points_torch(cgroup, coords_true)
+            
         coords_true_cams = repeat(coords_true, 'b t n r -> cams b t n r',
                                   cams=len(cgroup)) 
 
@@ -179,11 +183,19 @@ class TotalLoss(nn.Module):
             valid_vis = True
             vis_true_cams = rearrange(vis_true_cams, 'b t n cams 1 -> cams b t n 1')
             
-        if R == 3:
-            scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
-        else:
-            scale = 1
 
+        scale = get_camera_scale(cgroup, coords_true.reshape(-1, 3))
+
+        if p2d is not None:
+            # for 2d prediction, the cube_scale is 1 
+            depths_true = depths_true / scale
+            
+            # Scale 3D targets down relative to the camera center
+            # Since R=2 implies len(cgroup) == 1, we use the single camera center
+            C = centers[0]
+            coords_true_cams = C + (coords_true_cams - C) / scale
+            coords_true = C + (coords_true - C) / scale
+            
         occluded_true = ~vis_true
 
         training_iters = model.training and 'coords_pred_iters' in outputs
@@ -331,13 +343,14 @@ class TotalLoss(nn.Module):
             feature_loss = torch.tensor(0.0, device=device)
             bad_feature_loss = torch.tensor(0.0, device=device)
 
-        coords_loss = coords_loss / scale
-        occluded_coords_loss = occluded_coords_loss / scale
-        coords_loss_depth = coords_loss_depth / scale
-
-        coords_loss_direct = coords_loss_direct / scale
-        coords_loss_rays = coords_loss_rays / scale
-        coords_loss_triangulate = coords_loss_triangulate / scale
+        if p2d is None:
+            # Only divide by scale if we are in 3D mode (where targets are absolute)
+            coords_loss = coords_loss / scale
+            occluded_coords_loss = occluded_coords_loss / scale
+            coords_loss_depth = coords_loss_depth / scale
+            coords_loss_direct = coords_loss_direct / scale
+            coords_loss_rays = coords_loss_rays / scale
+            coords_loss_triangulate = coords_loss_triangulate / scale
         
         losses = [
             coords_loss, occluded_coords_loss,
@@ -604,4 +617,3 @@ def unroll_batch(coords, vis, stride = 8, stride_overlap = 4):
         occluded_unrolled.append(~vis_subset)
 
     return coords_unrolled, vis_unrolled, occluded_unrolled
-
