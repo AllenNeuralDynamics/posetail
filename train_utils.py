@@ -17,6 +17,7 @@ from easydict import EasyDict
 
 # from posetail.datasets.datasets import Rat7mIterableDataset
 from posetail.datasets.utils import safe_make
+from posetail.posetail.cube import get_camera_scale
 from posetail.posetail.eval_metrics import get_eval_metrics
 from posetail.posetail.losses import get_vis_true, unroll_batch
 from posetail.posetail.tracker import Tracker 
@@ -333,6 +334,11 @@ def train_iteration(config, model, fabric, batch,
     optimizer.zero_grad()
  
     if evaluate:
+        if p2d is not None:
+            scale = get_camera_scale(cgroup, coords.reshape(-1, 3))
+            C = cgroup[0]['center']
+            coords_pred = C + (coords_pred - C) * scale
+
         metrics_dict = get_eval_metrics(
             vis_pred = vis_pred, 
             vis_true = vis, 
@@ -465,6 +471,11 @@ def train_epoch(config, model, fabric, dataloader,
         #     print('WARNING: nan loss')
         
         if evaluate:
+            if p2d is not None:
+                scale = get_camera_scale(cgroup, coords.reshape(-1, 3))
+                C = cgroup[0]['center']
+                coords_pred = C + (coords_pred - C) * scale
+
             metrics_dict = get_eval_metrics(
                 vis_pred = vis_pred, 
                 vis_true = vis, 
@@ -576,6 +587,11 @@ def test_epoch(config, model, dataloader, loss = None,
                 device = coords_pred.device)
 
         if evaluate:
+            if p2d is not None:
+                scale = get_camera_scale(cgroup, coords.reshape(-1, 3))
+                C = cgroup[0]['center']
+                coords_pred = C + (coords_pred - C) * scale
+
             metrics_dict = get_eval_metrics(
                 vis_pred = vis_pred, 
                 vis_true = vis, 
