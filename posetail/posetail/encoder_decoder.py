@@ -184,11 +184,8 @@ class PatchProcessor(nn.Module):
             prev_c = c
         self.convs = nn.Sequential(*layers)
         
-        # Reduce channels to save parameters while keeping spatial structure
-        self.bottleneck = nn.Conv2d(conv_channels[-1], 32, kernel_size=1)
-        
         # MLP to process flattened features
-        mlp_in_dim = 32 * patch_size * patch_size
+        mlp_in_dim = conv_channels[-1] * patch_size * patch_size
         self.mlp = nn.Sequential(
             nn.Linear(mlp_in_dim, embed_dim * 2),
             nn.GELU(),
@@ -205,7 +202,6 @@ class PatchProcessor(nn.Module):
         """
         # Apply convs
         x = self.convs(patches)  # [B, C_out, P, P]
-        x = self.bottleneck(x)   # [B, 16, P, P]
         
         # Flatten spatial dimensions
         x = rearrange(x, 'b c p q -> b (c p q)')
@@ -255,6 +251,14 @@ class QueryEncoder3D(nn.Module):
         )
 
         self.depth_norm_scale = nn.Parameter(torch.tensor([1.0]))
+
+        self.n_fusion_terms = 7 if self.use_volume_embedding else 6
+        self.gate = nn.Sequential(
+            nn.Linear(embed_dim * self.n_fusion_terms, self.n_fusion_terms),
+            nn.Sigmoid()
+        )
+        nn.init.normal_(self.gate[0].weight, std=0.01)
+        nn.init.constant_(self.gate[0].bias, 0.0)
 
         self.fusion_norm = nn.LayerNorm(embed_dim)
         self.fusion_mlp = nn.Sequential(
@@ -359,7 +363,11 @@ class QueryEncoder3D(nn.Module):
         if self.use_volume_embedding:
             embed_terms.append(embed_volume)
 
-        combined_embed = sum(embed_terms)
+        embed_stack = torch.stack(embed_terms, dim=-2)
+        embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
+        weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, n_fusion_terms]
+        combined_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
+
         combined_embed = self.fusion_norm(combined_embed)
         embed_final = self.fusion_mlp(combined_embed)
         
@@ -390,6 +398,14 @@ class QueryEncoder2D(nn.Module):
             embed_dim=embed_dim,
             conv_channels=[32, 64, 128],
         )
+
+        self.n_fusion_terms = 4
+        self.gate = nn.Sequential(
+            nn.Linear(embed_dim * self.n_fusion_terms, self.n_fusion_terms),
+            nn.Sigmoid()
+        )
+        nn.init.normal_(self.gate[0].weight, std=0.01)
+        nn.init.constant_(self.gate[0].bias, 0.0)
 
         self.fusion_norm = nn.LayerNorm(embed_dim)
         self.fusion_mlp = nn.Sequential(
@@ -455,7 +471,11 @@ class QueryEncoder2D(nn.Module):
             embed_pos,
         ]
         
-        combined_embed = sum(embed_terms)
+        embed_stack = torch.stack(embed_terms, dim=-2)
+        embed_for_gate = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
+        weights = self.gate(embed_for_gate)  # [B, T_query, N_cams, n_fusion_terms]
+        combined_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
+
         combined_embed = self.fusion_norm(combined_embed)
         embed_final = self.fusion_mlp(combined_embed)
         
@@ -679,25 +699,20 @@ class Decoder(nn.Module):
         self.head_depth = nn.Linear(head_dim, 1)
         self.head_conf_3d = nn.Linear(head_dim, 1)
 
-        # Regression heads init
-        nn.init.normal_(self.head_3d.weight, std=0.01)
-        nn.init.zeros_(self.head_3d.bias)
-
-        nn.init.normal_(self.head_2d.weight, std=0.01)
-        nn.init.zeros_(self.head_2d.bias)
-
-        nn.init.normal_(self.head_depth.weight, std=0.01)
-        nn.init.constant_(self.head_depth.bias, 1.0)  # Start guessing ~650 depth
+        # Regression heads: small but nonzero init for gradient flow
+        for head in [self.head_3d, self.head_2d, self.head_depth]:
+            nn.init.normal_(head.weight, std=0.001)
+            nn.init.zeros_(head.bias)
 
         # Classification/confidence heads: small init
         for head in [self.head_vis, self.head_conf, self.head_conf_3d]:
             nn.init.normal_(head.weight, mean=0.0, std=0.01)
             nn.init.zeros_(head.bias)
 
-        # Learnable output scales (log-space for stable gradients)
-        self.log_scale_3d = nn.Parameter(torch.tensor([500.0]).log()) 
-        self.log_scale_2d = nn.Parameter(torch.tensor([128.0]).log())
-        self.log_scale_depth = nn.Parameter(torch.tensor([500.0]).log())
+        # Learnable output scales
+        self.scale_3d = nn.Parameter(torch.tensor([500.0])) 
+        self.scale_2d = nn.Parameter(torch.tensor([128.0]))
+        self.scale_depth = nn.Parameter(torch.tensor([500.0]))
 
     def forward(self, scene_features, query_embeds, rays):
         """
@@ -748,11 +763,11 @@ class Decoder(nn.Module):
         x = self.final_norm(x)
 
         # Project to output: [(N_cams*B), T_query, 9]
-        out_3d = self.head_3d(x) * self.log_scale_3d.exp()
-        out_2d = self.head_2d(x) * self.log_scale_2d.exp()
+        out_3d = self.head_3d(x) * self.scale_3d
+        out_2d = self.head_2d(x) * self.scale_2d
         out_vis = self.head_vis(x)
         out_conf = self.head_conf(x)
-        out_depth = self.head_depth(x) * self.log_scale_depth.exp()
+        out_depth = self.head_depth(x) * self.scale_depth
         out_conf_3d = self.head_conf_3d(x)
         output = torch.cat([out_3d, out_2d, out_vis, out_conf, out_depth, out_conf_3d], dim=-1)
         
