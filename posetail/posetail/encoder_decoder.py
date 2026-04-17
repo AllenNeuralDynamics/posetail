@@ -243,8 +243,8 @@ class QueryEncoder3D(nn.Module):
             self.linear_volume = nn.Linear(in_dim_vol, embed_dim)
         
         # Positional encodings
-        self.linear_pos = nn.Linear(4 * max_freq, embed_dim)
-        self.linear_depth = nn.Linear(2 * max_freq, embed_dim)
+        self.linear_pos = nn.Linear(4 * max_freq + 2, embed_dim)
+        self.linear_depth = nn.Linear(2 * max_freq + 1, embed_dim)
 
         self.patch_processor = PatchProcessor(
             in_channels=3,
@@ -253,7 +253,7 @@ class QueryEncoder3D(nn.Module):
             conv_channels=[32, 64, 128],
         )
 
-        self.depth_norm_scale = nn.Parameter(torch.tensor([500.0]))
+        self.depth_norm_scale = nn.Parameter(torch.tensor([1.0]))
 
         self.n_fusion_terms = 7 if self.use_volume_embedding else 6
         self.gate = nn.Sequential(
@@ -298,7 +298,9 @@ class QueryEncoder3D(nn.Module):
         ])
         p2d_full = project_points_torch(camera_group, query_coords)
         pp = rearrange(p2d_full, 'ncams b t r -> b t ncams r', b=B) / sizes
+        pp = pp * 2.0 - 1.0  # Normalize to [-1, 1]
         fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
+        fourier_pos = torch.cat([pp, fourier_pos], dim=-1)  # Concatenate raw coords
         embed_pos = self.linear_pos(fourier_pos)
         
         embed_volume = None
@@ -344,9 +346,11 @@ class QueryEncoder3D(nn.Module):
         # Depth encoding
         centers = torch.stack([cam['center'] for cam in camera_group]).to(query_coords.dtype)
         qc = rearrange(query_coords, 'b t r -> b t 1 r')
-        depths = torch.linalg.norm(qc - centers, dim=-1) / (cube_scale * self.depth_norm_scale)
+        raw_depths = torch.linalg.norm(qc - centers, dim=-1) / cube_scale
+        depths = torch.log(raw_depths + 1e-6) * self.depth_norm_scale
         dr = rearrange(depths, "b t ncams -> b t ncams 1", b=B)
         fourier_depth = get_fourier_encoding(dr, min_freq=0, max_freq=self.max_freq)
+        fourier_depth = torch.cat([dr, fourier_depth], dim=-1)  # Concatenate raw depth
         embed_depth = self.linear_depth(fourier_depth)
         
         # Combine all embeddings with normalized gated fusion
@@ -387,7 +391,7 @@ class QueryEncoder2D(nn.Module):
         self.t_target_embed = nn.Embedding(n_frames, embed_dim)
 
         # Positional encodings for 2D coordinates
-        self.linear_pos = nn.Linear(4 * max_freq, embed_dim)
+        self.linear_pos = nn.Linear(4 * max_freq + 2, embed_dim)
 
         self.patch_processor = PatchProcessor(
             in_channels=3,
@@ -432,11 +436,13 @@ class QueryEncoder2D(nn.Module):
             for view in preprocessed_views
         ])
         
-        # Normalize 2D coordinates to [0, 1] range
+        # Normalize 2D coordinates to [-1, 1] range
         pp = rearrange(query_coords_2d, 'b t r -> b t 1 r')
         pp = pp / sizes  # [B, T_query, N_cams, 2]
+        pp = pp * 2.0 - 1.0  # Normalize to [-1, 1]
         
         fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
+        fourier_pos = torch.cat([pp, fourier_pos], dim=-1)  # Concatenate raw coords
         embed_pos = self.linear_pos(fourier_pos)
         
         # Pixel patch embeddings
@@ -693,11 +699,11 @@ class Decoder(nn.Module):
         self.head_conf_3d = nn.Linear(head_dim, 1)
 
         # Regression heads: scale the initialization to match the expected output range
-        # 3D and Depth expected range ~500, 2D expected range ~128
+        # 3D expected range ~500, 2D expected range ~128, log-depth expected range ~1
         nn.init.normal_(self.head_3d.weight, std=500.0 / embed_dim)
         nn.init.zeros_(self.head_3d.bias)
 
-        nn.init.normal_(self.head_depth.weight, std=500.0 / embed_dim)
+        nn.init.normal_(self.head_depth.weight, std=1.0 / embed_dim)
         nn.init.zeros_(self.head_depth.bias)
 
         nn.init.normal_(self.head_2d.weight, std=128.0 / embed_dim)

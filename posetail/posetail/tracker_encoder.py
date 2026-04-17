@@ -208,7 +208,8 @@ class TrackerEncoder(nn.Module):
         # depths_query_shaped = rearrange(depths_query, 'b t n cams -> cams b t n')
         # depth_pred_scaled = depths_query_shaped + depth_pred[..., 0] * cube_scale * self.depth_scale
 
-        depth_pred_scaled = depth_pred[..., 0] * cube_scale * self.depth_scale
+        # Exponentiate the log-depth prediction
+        depth_pred_scaled = torch.exp(depth_pred[..., 0] * self.depth_scale) * cube_scale
         
         # Predict offsets instead of absolute bounded coordinates
         # points_pred_scaled = p2d_query + points_pred * self.p2d_scale
