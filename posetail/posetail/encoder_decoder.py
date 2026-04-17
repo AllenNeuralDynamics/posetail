@@ -581,10 +581,10 @@ class SceneRepresentation(nn.Module):
         self.n_frames = n_frames
         self.image_size = image_size
         
-        # n_tokens = (n_frames // self.tubelet_size) * (image_size // self.patch_size) * (image_size // self.patch_size)
-        # self.pos_embed = nn.Parameter(
-        #     torch.zeros(1, n_tokens, self.embed_dim)
-        # )
+        n_tokens = (n_frames // self.tubelet_size) * (image_size // self.patch_size) * (image_size // self.patch_size)
+        self.pos_embed = nn.Parameter(
+            torch.zeros(1, n_tokens, self.embed_dim)
+        )
         
         
     def forward(self, views):
@@ -609,7 +609,7 @@ class SceneRepresentation(nn.Module):
             feat = self.encoder(xr) # [b, n_tokens, embed_dim]
             
         # Add position embeddings
-        # feat = feat + self.pos_embed
+        feat = feat + self.pos_embed
 
         encoded = rearrange(feat,
                             '(cams b) tokens embed -> cams b tokens embed',

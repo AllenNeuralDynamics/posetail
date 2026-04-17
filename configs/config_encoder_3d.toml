@@ -31,7 +31,7 @@ speed_thresh = 1.0
 query_anytime = true
 query_edge_bias = 100.0
 prop_dynamic_kpts_to_sample = 0.95
-prob_2d_only = 0.25
+prob_2d_only = 0.0
 
 [dataset.val]
 split_dir = 'val'
@@ -88,7 +88,7 @@ seed = 3
 n_iterations = 600000
 # scheduler_type = 'multisteplr'
 scheduler_type = 'schedulefree'
-max_grad_norm = 100.0
+max_grad_norm = 40.0
 checkpoint_freq = 10240 # in iterations
 eval_metric_freq = 4 # in iterations
 val_freq = 64 # in iterations
