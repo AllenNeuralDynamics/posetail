@@ -282,7 +282,7 @@ class QueryEncoder3D(nn.Module):
         B, T_query, _ = query_coords.shape
 
         assert len(preprocessed_views) == len(camera_group), "number of views and cameras should match"
-        n_cams = len(camera_group)
+        n_cams = len(preprocessed_views)
         
         # 2D position encoding
         sizes = torch.stack([
@@ -687,7 +687,7 @@ class Decoder(nn.Module):
         nn.init.zeros_(self.head_2d.bias)
 
         nn.init.normal_(self.head_depth.weight, std=0.01)
-        nn.init.constant_(self.head_depth.bias, 6.0)  # Start guessing ~400 depth instead of 1
+        nn.init.constant_(self.head_depth.bias, 1.0)  # Start guessing ~650 depth
 
         # Classification/confidence heads: small init
         for head in [self.head_vis, self.head_conf, self.head_conf_3d]:
@@ -697,7 +697,7 @@ class Decoder(nn.Module):
         # Learnable output scales (log-space for stable gradients)
         self.log_scale_3d = nn.Parameter(torch.tensor([500.0]).log()) 
         self.log_scale_2d = nn.Parameter(torch.tensor([128.0]).log())
-        self.log_scale_depth = nn.Parameter(torch.tensor([1.0]).log())
+        self.log_scale_depth = nn.Parameter(torch.tensor([500.0]).log())
 
     def forward(self, scene_features, query_embeds, rays):
         """
