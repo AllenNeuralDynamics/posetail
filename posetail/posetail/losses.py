@@ -354,11 +354,14 @@ class TotalLoss(nn.Module):
         
         losses = [
             coords_loss, occluded_coords_loss,
-            coords_loss_direct, coords_loss_rays, coords_loss_triangulate,
-            vis_loss, vis_loss_cams,
+            coords_loss_direct,
+            # coords_loss_rays, # gets too crazy
+            coords_loss_triangulate,
+            # vis_loss, # replaced by vis_loss_cams
+            vis_loss_cams,
             conf_loss,
             coords_loss_2d, coords_loss_depth,
-            # occluded_coords_loss_2d,
+            # occluded_coords_loss_2d, # too crazy
             feature_loss, bad_feature_loss
         ]
         
