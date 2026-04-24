@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 
 import torch
-import torch.nn as nn 
+import torch.nn as nn
 import torch.nn.functional as F
 
 from posetail.posetail.networks import EmbedV2V
 from posetail.posetail.cube import is_point_visible, project_points_torch
 from posetail.posetail.cube import CameraSelfAttention
 from posetail.posetail.utils import get_fourier_encoding
+from posetail.posetail.cube_batched import (
+    project_cam_batched, undistort_points_batched,
+    is_point_visible_batched, points_to_rays_batched,
+)
 
 from einops import rearrange, repeat, einsum
 
@@ -106,9 +110,120 @@ def sample_feature_cubes_time(feature_planes, camera_group,
         mv_flat = v2v(mv_flat)
 
     mean_volume = rearrange(mv_flat, '(b k) d z y x -> b d k (x y z)',
-                            b=B, k=K) 
+                            b=B, k=K)
 
     return mean_volume
+
+
+def sample_feature_cubes_time_batched(feature_planes_stacked, cam_ext, cam_mat, cam_dist, cam_offset,
+                                      cube_centers, query_time, cube_interval,
+                                      corr_radius=1, downsample_ratio=1, v2v=None):
+    """Batched version of sample_feature_cubes_time — no Python loop over cameras.
+
+    Args:
+        feature_planes_stacked: [cams, B, T, C, H, W]
+        cam_ext/mat/dist/offset: [cams, ...]
+        cube_centers: [B, K, 3]
+        query_time: [B, K]
+        cube_interval: float scalar
+
+    Returns:
+        mean_volume: [B, D, K, total]
+    """
+    cube_size = corr_radius * 2 + 1
+    cams = feature_planes_stacked.shape[0]
+    B  = feature_planes_stacked.shape[1]
+    D  = feature_planes_stacked.shape[3]
+    H  = feature_planes_stacked.shape[4]
+    W  = feature_planes_stacked.shape[5]
+    K  = cube_centers.shape[1]
+
+    row = (torch.arange(cube_size, device=cube_centers.device) - corr_radius) * cube_interval
+    xyz_s = torch.stack(torch.meshgrid(row, row, row, indexing='ij'))
+    xyz = rearrange(xyz_s, 'r x y z -> (x y z) r').contiguous().to(dtype=cube_centers.dtype)
+    total = xyz.shape[0]
+
+    cube_coords = cube_centers[..., None, :] + xyz               # [B, K, total, 3]
+    cube_coords_flat = rearrange(cube_coords, 'b k total r -> (b k total) r')
+
+    p2d_flat = project_cam_batched(cam_ext, cam_mat, cam_dist, cam_offset, cube_coords_flat)
+    # [cams, B*K*total, 2]
+    p2d = rearrange(p2d_flat, 'c (b k total) r -> c b k total r', b=B, k=K, total=total)
+
+    scale = torch.tensor([W, H], device=p2d.device, dtype=p2d.dtype)
+    p2d_scaled = 2 * p2d / scale - 1   # [cams, B, K, total, 2]
+
+    valid_mask = ((p2d_scaled[..., 0] >= -1) & (p2d_scaled[..., 0] <= 1) &
+                  (p2d_scaled[..., 1] >= -1) & (p2d_scaled[..., 1] <= 1))  # [cams, B, K, total]
+
+    # Gather frames at query times: feature_planes_stacked[cam, b, query_time[b,k], ...]
+    cam_idx = rearrange(torch.arange(cams, device=feature_planes_stacked.device), 'c -> c 1 1')
+    b_idx   = rearrange(torch.arange(B,    device=feature_planes_stacked.device), 'b -> 1 b 1')
+    qt      = rearrange(query_time, 'b k -> 1 b k')
+    feats_gathered = feature_planes_stacked[cam_idx, b_idx, qt]  # [cams, B, K, D, H, W]
+
+    feats_flat = rearrange(feats_gathered, 'c b k d h w -> (c b k) d h w')
+    grid_flat  = rearrange(p2d_scaled,     'c b k total r -> (c b k) total 1 r')
+
+    samples_flat = F.grid_sample(feats_flat, grid_flat, align_corners=False,
+                                  padding_mode='zeros')  # [cams*B*K, D, total, 1]
+    samples = rearrange(samples_flat, '(c b k) d total 1 -> c b d k total', c=cams, b=B, k=K)
+
+    masks_exp = rearrange(valid_mask.float(), 'c b k total -> c b 1 k total').expand_as(samples)
+    count = masks_exp.sum(dim=0).clamp(min=1.0)          # [B, D, K, total]
+    mean_volume = (samples * masks_exp).sum(dim=0) / count
+
+    mv_flat = rearrange(mean_volume, 'b d k (x y z) -> (b k) d z y x',
+                        x=cube_size, y=cube_size, z=cube_size)
+    if v2v is not None:
+        mv_flat = v2v(mv_flat)
+
+    return rearrange(mv_flat, '(b k) d z y x -> b d k (x y z)', b=B, k=K)
+
+
+def sample_patches_batched(images, centers, query_times, patch_size):
+    """Batched version of sample_patches — vectorised over cameras.
+
+    Args:
+        images:      [cams, B, T, C, H, W]
+        centers:     [cams, B, Z, 2]   pixel coords of patch centres
+        query_times: [B, Z]
+        patch_size:  P
+
+    Returns:
+        patches: [cams, B, Z, C, P, P]
+    """
+    cams = images.shape[0]
+    B    = images.shape[1]
+    C    = images.shape[3]
+    H    = images.shape[4]
+    W    = images.shape[5]
+    Z    = centers.shape[2]
+    P    = patch_size
+
+    lin = torch.arange(P, dtype=centers.dtype, device=centers.device)
+    grid_y, grid_x = torch.meshgrid(lin, lin, indexing='ij')
+    offsets = torch.stack([grid_x - (P - 1) / 2.0,
+                            grid_y - (P - 1) / 2.0], dim=-1)  # [P, P, 2]
+
+    # px: [cams, B, Z, P, P, 2]
+    offsets_b = rearrange(offsets, 'p q r -> 1 1 1 p q r')
+    centers_b = rearrange(centers, 'c b z r -> c b z 1 1 r')
+    px = centers_b + offsets_b
+
+    scales = torch.tensor([W, H], dtype=images.dtype, device=images.device)
+    grid = (2.0 * px + 1.0) / scales - 1.0  # [cams, B, Z, P, P, 2]
+
+    # Gather frames at query_times: [cams, B, Z, C, H, W]
+    qt_exp = rearrange(query_times, 'b z -> 1 b z 1 1 1').expand(cams, -1, -1, C, H, W)
+    frames = torch.gather(images, dim=2, index=qt_exp)  # [cams, B, Z, C, H, W]
+
+    frames_flat = rearrange(frames, 'c b z ch h w -> (c b z) ch h w')
+    grid_flat   = rearrange(grid,   'c b z p q r -> (c b z) p q r')
+
+    patches_flat = F.grid_sample(frames_flat, grid_flat, mode='bilinear',
+                                  padding_mode='zeros', align_corners=False)
+    return rearrange(patches_flat, '(c b z) ch p q -> c b z ch p q', c=cams, b=B, z=Z)
 
 
 def sample_patches(images: torch.Tensor, centers: torch.Tensor,
@@ -368,9 +483,94 @@ class QueryEncoder(nn.Module):
         weighted_embed = einsum(weights, embed_stack, 'b t c n, b t c n d -> b t c d')
 
         embed_final = self.fusion_mlp(weighted_embed)
-        
+
         return embed_final, visible
-    
+
+    def forward_batched(self, preprocessed_views_stacked,
+                        cam_ext, cam_mat, cam_dist, cam_offset, cam_size, cam_center,
+                        query_coords, query_time, target_time, cube_scale):
+        """ONNX-export-friendly forward using stacked tensor camera params.
+
+        Args:
+            preprocessed_views_stacked: [cams, B, T, C, H, W]  (normalised float)
+            cam_ext/mat/dist/offset:    [cams, ...]
+            cam_size:                   [cams, 2]  (W, H)
+            cam_center:                 [cams, 3]
+            query_coords:               [B, T_q, 3]
+            query_time:                 [B, T_q]
+            target_time:                [B, T_q]
+            cube_scale:                 scalar tensor
+
+        Returns:
+            embed_final: [B, T_q, cams, decoder_dim]
+            visible:     [B, T_q, cams]  bool
+        """
+        n_cams = preprocessed_views_stacked.shape[0]
+        B, T_q, _ = query_coords.shape
+
+        # 2D projection + positional encoding
+        p2d_full = project_cam_batched(cam_ext, cam_mat, cam_dist, cam_offset, query_coords)
+        # [cams, B, T_q, 2]
+        sizes = rearrange(cam_size.to(query_coords.dtype), 'c r -> c 1 1 r')
+        pp = rearrange(p2d_full / sizes, 'c b t r -> b t c r')  # [B, T_q, cams, 2]
+        fourier_pos = get_fourier_encoding(pp, min_freq=0, max_freq=self.max_freq)
+        embed_pos = self.linear_pos(fourier_pos)
+
+        # Volume embedding
+        embed_volume = None
+        if self.use_volume_embedding:
+            volumes = sample_feature_cubes_time_batched(
+                preprocessed_views_stacked, cam_ext, cam_mat, cam_dist, cam_offset,
+                query_coords, query_time, cube_scale * 2,
+                corr_radius=self.corr_radius, v2v=self.v2v)
+            volumes = rearrange(volumes, 'b d t total -> b t 1 (d total)')
+            embed_volume = self.linear_volume(volumes).expand(-1, -1, n_cams, -1)
+
+        # Patch embeddings
+        patches = sample_patches_batched(
+            preprocessed_views_stacked, p2d_full,
+            query_time, self.patch_size)  # [cams, B, T_q, C, P, P]
+        patches_flat = rearrange(patches, 'c b t ch p q -> (c b t) ch p q')
+        embed_flat = self.patch_processor(patches_flat)  # [cams*B*T_q, embed_dim]
+        embed_patch = rearrange(embed_flat, '(c b t) d -> b t c d', c=n_cams, b=B, t=T_q)
+
+        # Time embeddings
+        embed_query_time  = rearrange(self.t_query_embed(query_time),
+                                      'b t d -> b t 1 d').expand(-1, -1, n_cams, -1)
+        embed_target_time = rearrange(self.t_target_embed(target_time),
+                                      'b t d -> b t 1 d').expand(-1, -1, n_cams, -1)
+
+        # Visibility
+        qflat   = rearrange(query_coords, 'b t r -> (b t) r')
+        vis_flat = is_point_visible_batched(cam_size, cam_ext, cam_mat, cam_dist, cam_offset,
+                                            qflat, margin=2)  # [cams, B*T_q]
+        visible = rearrange(vis_flat, 'c (b t) -> b t c', b=B, t=T_q)
+        embed_vis = self.vis_embed(visible.to(torch.int32))
+
+        # Depth encoding
+        qc      = rearrange(query_coords, 'b t r -> b t 1 r')
+        centers = cam_center.to(query_coords.dtype)  # [cams, 3]
+        depths  = torch.linalg.norm(qc - centers, dim=-1) / (cube_scale * self.depth_norm_scale)
+        dr      = rearrange(depths, 'b t c -> b t c 1')
+        fourier_depth = get_fourier_encoding(dr, min_freq=0, max_freq=self.max_freq)
+        embed_depth = self.linear_depth(fourier_depth)
+
+        # Gated fusion
+        embed_terms = [embed_patch, embed_query_time, embed_target_time,
+                       embed_pos, embed_depth]
+        if self.use_volume_embedding:
+            embed_terms.append(embed_volume)
+        embed_terms.append(embed_vis)
+
+        embed_stack     = torch.stack(embed_terms, dim=-2)      # [B, T_q, cams, n, embed_dim]
+        embed_for_gate  = rearrange(embed_stack, 'b t c n d -> b t c (n d)')
+        weights         = self.gate(embed_for_gate)             # [B, T_q, cams, n]
+        weighted_embed  = rearrange(
+            rearrange(weights, 'b t c n -> b t c n 1') * embed_stack,
+            'b t c n d -> b t c n d').sum(dim=-2)
+
+        return self.fusion_mlp(weighted_embed), visible
+
 
 class SceneRepresentation(nn.Module):
     def __init__(self, version='large', freeze_encoder=True, n_frames=16, image_size=256,
@@ -443,7 +643,7 @@ class SceneRepresentation(nn.Module):
 
         encoded = rearrange(feat,
                             '(cams b) tokens embed -> cams b tokens embed',
-                            cams=len(views)) 
+                            cams=views_stacked.shape[0])
             
         return encoded    
 

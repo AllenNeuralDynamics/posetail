@@ -58,7 +58,10 @@ posetail = { path = ".", editable = true }
 torch = { version = "<3", index="https://download.pytorch.org/whl/cu128"}
 torchvision = {version ="*", index="https://download.pytorch.org/whl/cu128"}
 torchaudio = {version ="*", index="https://download.pytorch.org/whl/cu128"}
-vjepa2 = { path = "/groups/karashchuk/home/karashchukl/builds/vjepa2", editable = true }   
+vjepa2 = { path = "/groups/karashchuk/home/karashchukl/builds/vjepa2", editable = true }
+onnx = "*"
+onnxscript = "*"
+onnxruntime-gpu = "*"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
@@ -70,6 +73,7 @@ dev = {features = ["dev"], solve-group = "default"}
 [tool.pixi.dependencies]
 python = "3.11.*"
 cuda-toolkit = "12.8.*"
+cudnn = ">=9,<10"
 numpy = "==1.26"
 setuptools = "<81"
 pip = "*"
