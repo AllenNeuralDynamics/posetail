@@ -85,7 +85,7 @@ output_mode = "direct" # direct, residual
 [training]
 seed = 3
 # checkpoint_path = ''
-n_iterations = 600000
+n_iterations = 500000
 # scheduler_type = 'multisteplr'
 scheduler_type = 'schedulefree'
 max_grad_norm = 5.0
