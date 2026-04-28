@@ -30,7 +30,8 @@ class TrackerEncoder(nn.Module):
                  latent_dim = 128, n_heads = 8, 
                  n_time_space_blocks = 6, embedding_factor = 4,
                  use_camera_self_attention = True,
-                 mode_3d = 'encoder'): 
+                 mode_3d = 'encoder',
+                 output_mode = 'residual'): 
         super().__init__()
 
         self.mode_3d = mode_3d
@@ -66,7 +67,9 @@ class TrackerEncoder(nn.Module):
         self.n_time_space_blocks = n_time_space_blocks
         self.embedding_factor = embedding_factor
         self.use_camera_self_attention = use_camera_self_attention
+        self.output_mode = output_mode
 
+        assert output_mode in ['direct', 'residual'], 'output_mode should be "direct" or "residual"'
         
         # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         self.transform_norm = transforms.Compose([
@@ -99,12 +102,13 @@ class TrackerEncoder(nn.Module):
             num_layers=n_time_space_blocks,
             mlp_ratio=embedding_factor,
             use_camera_self_attention=self.use_camera_self_attention,
+            output_mode=self.output_mode
         )
 
 
 
     def print_summary(self):
-        print("PARAMETERS")
+        print("Hey! PARAMETERS")
         print("  total parameters: {:,d}".format(count_parameters(self)))
         print("  query encoder params: {:,d}".format(count_parameters(self.query_encoder)))
         print("  scene representation params: {:,d}".format(count_parameters(self.scene_encoder)))
@@ -156,7 +160,7 @@ class TrackerEncoder(nn.Module):
 
         scene_features = self.scene_encoder(views_norm)
 
-        # have coords at 0
+        # Hey, coords start at 0
         query_coords = repeat(coords, 'b n r -> b (t n) r', t=T).to(torch.float32)
         # query_time = torch.zeros((B, T * N), dtype=torch.int32, device=device)
         query_times_rep = repeat(query_times, 'b n -> b (t n)', t=T)
@@ -207,38 +211,17 @@ class TrackerEncoder(nn.Module):
 
         # Softplus for depth prediction
         depth_pred_scaled = F.softplus(depth_pred[..., 0]) * cube_scale
-        
-        # Predict offsets instead of absolute bounded coordinates
-        # points_pred_scaled = p2d_query + points_pred * self.p2d_scale
 
-        # Predict absolute coordinates
-        points_pred_scaled = points_pred + self.image_size // 2
 
-        # exts = torch.stack([cam['ext'] for cam in camera_group])
-        # exts_inv = torch.stack([cam['ext_inv'] for cam in camera_group])
-        # exts_inv = torch.stack([torch.linalg.inv(cam['ext'].to(torch.float32)).to(cam['ext'].dtype) for cam in camera_group])
+        if self.output_mode == 'residual':
+            # Predict offsets instead of absolute bounded coordinates
+            points_pred_scaled = p2d_query + points_pred
+        elif self.output_mode == 'direct':
+            # Predict absolute coordinates
+            points_pred_scaled = points_pred + self.image_size // 2
 
-        # query_coords_cams_flat = from_homogeneous(
-        #     einsum(to_homogeneous(query_coords), exts,
-        #            'b tn r, cams x r -> cams b tn x')
-        # )
-        # query_coords_cams = rearrange(query_coords_cams_flat, 'cams b (t n) r -> cams b t n r', t=T, n=N)
-
-        # p3d_cams = query_coords_cams + points_3d_offsets * cube_scale * self.p3d_scale
-
-        center = torch.tensor([self.image_size // 2, self.image_size//2],
-                              device=device, dtype=torch.float32).reshape(1, 2)
-        rays_c = torch.stack([points_to_rays(cam, center, normalize_t=False)[0] for cam in camera_group])
-        rays_c_inv = _invert_SE3(rays_c)  # [cams, 4, 4], ray-local → world
-        
-        p3d_cams = points_3d_raw * cube_scale
-        points_3d_all_direct = from_homogeneous(
-            einsum(rays_c_inv, to_homogeneous(p3d_cams),
-                   'cams x r, cams b t n r -> cams b t n x')
-        )
-        points_3d_direct = einsum(points_3d_all_direct, conf_3d,
-                                  'cams b t n r, cams b t n -> b t n r')
-
+  
+      
         
         points_und = torch.stack([
             undistort_points(camera_group[i], points_pred_scaled[i])
@@ -271,6 +254,32 @@ class TrackerEncoder(nn.Module):
             points_3d_tri = rearrange(points_3d_flat, '(b t n) r -> b t n r', b=B, t=T, n=N)
         else:
             points_3d_tri = None
+
+
+        # direct residual predictions
+        center = torch.tensor([self.image_size // 2, self.image_size//2],
+                              device=device, dtype=torch.float32).reshape(1, 2)
+        rays_c = torch.stack([points_to_rays(cam, center, normalize_t=False)[0] for cam in camera_group])
+        rays_c_inv = _invert_SE3(rays_c)  # [cams, 4, 4], ray-local → world
+        
+        p3d_cams = points_3d_raw * cube_scale            
+        points_3d_all_direct = from_homogeneous(
+            einsum(rays_c_inv, to_homogeneous(p3d_cams),
+                   'cams x r, cams b t n r -> cams b t n x')
+        )
+        if self.output_mode== 'residual':
+            if R == 3:
+                query_3d_cams = repeat(query_coords, 'b (t n) r -> cams b t n r', t=T, n=N, cams=n_cams)
+            elif R == 2:
+                # index points_3d_rays using query_times to get predicted 3d query points
+                t_idx = repeat(query_times, 'b n -> b 1 n r', r=3)
+                query_3d = torch.gather(points_3d_rays, dim=1, index=t_idx)  # (b, 1, n, 3)
+                query_3d_cams = repeat(query_3d, 'b 1 n r -> cams b t n r', t=T, cams=n_cams)
+
+            points_3d_all_direct = points_3d_all_direct + query_3d_cams
+        
+        points_3d_direct = einsum(points_3d_all_direct, conf_3d,
+                                  'cams b t n r, cams b t n -> b t n r')
             
         # # zero out 3d points with no confidence
         # bad_pred = torch.amax(conf_pred_2d[..., 0], dim=0) <= 1e-5

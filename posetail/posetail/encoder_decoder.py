@@ -642,13 +642,15 @@ class Decoder(nn.Module):
     def __init__(self, embed_dim=256, encoder_dim=1024,
                  num_heads=8, num_layers=8, 
                  mlp_ratio=4.0, dropout=0.05,
-                 use_camera_self_attention=True):
+                 use_camera_self_attention=True,
+                 output_mode="direct"):
         super().__init__()
         
         self.embed_dim = embed_dim
         self.encoder_dim = encoder_dim
         self.num_layers = num_layers
         self.use_camera_self_attention = use_camera_self_attention
+        self.output_mode = output_mode
         
         # camera self attention layers
         if self.use_camera_self_attention:
@@ -710,8 +712,13 @@ class Decoder(nn.Module):
             nn.init.zeros_(head.bias)
 
         # Learnable output scales
-        self.scale_3d = nn.Parameter(torch.tensor([500.0])) 
-        self.scale_2d = nn.Parameter(torch.tensor([128.0]))
+        if self.output_mode == 'direct':
+            self.scale_3d = nn.Parameter(torch.tensor([500.0])) 
+            self.scale_2d = nn.Parameter(torch.tensor([128.0]))
+        else:
+            self.scale_3d = nn.Parameter(torch.tensor([50.0])) 
+            self.scale_2d = nn.Parameter(torch.tensor([32.0]))
+            
         self.scale_depth = nn.Parameter(torch.tensor([500.0]))
 
     def forward(self, scene_features, query_embeds, rays):
