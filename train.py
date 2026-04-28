@@ -55,7 +55,7 @@ def parse_args():
         help = 'number of gpus to train the model on')
 
     parser.add_argument('--strategy', 
-        default = 'ddp', 
+        default = 'ddp_find_unused_parameters_true', 
         help = 'training strategy, e.g. dp, ddp, ddp_spawn, ddp_find_unused_parameters_true, xla, deepspeed, fsdp')
 
     parser.add_argument('--num-nodes', 
