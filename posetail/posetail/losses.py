@@ -37,6 +37,8 @@ class TotalLoss(nn.Module):
         self.occluded_coords_loss_weight = occluded_coords_loss_weight
         self.feature_loss_weight = feature_loss_weight
 
+        self.conf_2d_loss_weight = conf_2d_loss_weight
+        
         self.coords_loss_direct_weight = coords_loss_direct_weight
         self.coords_loss_rays_weight = coords_loss_rays_weight
         self.coords_loss_triangulate_weight = coords_loss_triangulate_weight
