@@ -286,7 +286,7 @@ class TrackerEncoder(nn.Module):
         # points_3d = einsum(points_3d, ~bad_pred, 'b t n r, b t n -> b t n r') 
         
         vis_pred = torch.amax(vis_pred_2d_logits, dim=0)
-        conf_pred = torch.amax(conf_pred_2d_logits, dim=0)
+        conf_pred = torch.amax(conf_3d_logits[..., 0], dim=0)
         
         # assemble outputs 
         result_dict = {
@@ -294,7 +294,7 @@ class TrackerEncoder(nn.Module):
             # 
             '3d_pred_cams_direct': points_3d_all_direct, # (cams, b, t, n, 3)
             '3d_pred_cams_rays': points_3d_all_rays, # (cams, b, t, n, 3)
-            'conf_3d': conf_3d, # (cams, b, t, n)
+            'conf_3d': conf_3d_logits[..., 0], # (cams, b, t, n)
             # 
             '3d_pred_direct': points_3d_direct, # (b, t, n, 3)
             '3d_pred_rays': points_3d_rays, # (b, t, n, 3)

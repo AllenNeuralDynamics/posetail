@@ -88,7 +88,7 @@ seed = 3
 n_iterations = 600000
 # scheduler_type = 'multisteplr'
 scheduler_type = 'schedulefree'
-max_grad_norm = 40.0
+max_grad_norm = 5.0
 checkpoint_freq = 10240 # in iterations
 eval_metric_freq = 4 # in iterations
 val_freq = 64 # in iterations
@@ -96,10 +96,10 @@ print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 1e-4
+learning_rate = 3e-4
 weight_decay = 0.01
 # weight_decay = 0
-warmup_steps = 2048
+warmup_steps = 200
 beta1 = 0.95
 beta2 = 0.999
 
@@ -124,12 +124,13 @@ use_huber_loss = false
 # weights for calculating total loss (use 0 to not compute a specific loss)
 vis_loss_weight = 4
 conf_loss_weight = 0.0
+conf_2d_loss_weight = 1.0
 occluded_coords_loss_weight = 0.01
 feature_loss_weight = 0.0
 
 coords_loss_weight = 1.0
-coords_loss_direct_weight = 0.1
+coords_loss_direct_weight = 1.0
 coords_loss_rays_weight = 0.1
-coords_loss_triangulate_weight = 0.1
+coords_loss_triangulate_weight = 0.0
 coords_loss_2d_weight = 1.0
 coords_loss_depth_weight = 1.0

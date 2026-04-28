@@ -11,16 +11,17 @@ from collections import defaultdict
 
 class TotalLoss(nn.Module): 
 
-    def __init__(self, gamma = 0.8, pixel_thresh = 12, delta = 6, 
-                 use_huber_loss = False, vis_loss_weight = 1, 
-                 conf_loss_weight = 1, coords_loss_weight = 1, 
-                 occluded_coords_loss_weight = 1, 
+    def __init__(self, gamma = 0.8, pixel_thresh = 12, delta = 6,
+                 use_huber_loss = False, vis_loss_weight = 1,
+                 conf_loss_weight = 1, coords_loss_weight = 1,
+                 occluded_coords_loss_weight = 1,
                  feature_loss_weight = 0.5,
                  coords_loss_direct_weight = 0.1,
                  coords_loss_rays_weight = 0.001,
                  coords_loss_triangulate_weight = 0.1,
                  coords_loss_2d_weight = 1,
-                 coords_loss_depth_weight = 1):
+                 coords_loss_depth_weight = 1,
+                 conf_2d_loss_weight = 0):
         super().__init__()
 
         self.gamma = gamma
@@ -109,6 +110,12 @@ class TotalLoss(nn.Module):
         #     weight = self.occluded_coords_loss_weight * 10 / 16.0
         # )
         
+        self.bce_loss_conf_2d = BCELossConf(
+            gamma = self.gamma,
+            pixel_thresh = self.pixel_thresh,
+            weight = self.conf_2d_loss_weight
+        )
+
         self.feature_loss = FeatureLoss(
             weight = self.feature_loss_weight)
 
@@ -230,14 +237,35 @@ class TotalLoss(nn.Module):
             vis_loss = torch.tensor(0.0, device=device)
             vis_loss_cams = torch.tensor(0.0, device=device)
 
-        conf_loss = self.bce_loss_conf(
-            conf_pred = conf_pred_iters if training_iters else conf_pred, 
-            coords_pred = coords_pred_iters if training_iters else coords_pred,  
-            coords_true = coords_true_unrolled if training_iters else coords_true, 
-            vis_true = vis_true_unrolled if training_iters else vis_true,
-            scale = scale, 
-            device = device
-        )
+        if 'conf_3d' in outputs:
+            conf_loss = self.bce_loss_conf(
+                conf_pred = outputs['conf_3d'][..., None],
+                coords_pred = outputs['3d_pred_cams_direct'],
+                coords_true = coords_true_cams,
+                vis_true = vis_true_cams,
+                scale = scale,
+                device = device
+            )
+        else:
+            conf_loss = self.bce_loss_conf(
+                conf_pred = conf_pred_iters if training_iters else conf_pred,
+                coords_pred = coords_pred_iters if training_iters else coords_pred,
+                coords_true = coords_true_unrolled if training_iters else coords_true,
+                vis_true = vis_true_unrolled if training_iters else vis_true,
+                scale = scale,
+                device = device
+            )
+
+        conf_loss_2d = torch.tensor(0.0, device=device)
+        if 'conf_pred_2d' in outputs and coords_pred_2d is not None:
+            conf_loss_2d = self.bce_loss_conf_2d(
+                conf_pred = outputs['conf_pred_2d'][..., None],
+                coords_pred = coords_pred_2d,
+                coords_true = coords_true_2d,
+                vis_true = vis_true_cams,
+                scale = 1.0,
+                device = device
+            )
 
         coords_loss = self.mae_loss_coords(
             coords_pred = coords_pred_iters if training_iters else coords_pred, 
@@ -360,6 +388,7 @@ class TotalLoss(nn.Module):
             # vis_loss, # replaced by vis_loss_cams
             vis_loss_cams,
             conf_loss,
+            conf_loss_2d,
             coords_loss_2d, coords_loss_depth,
             # occluded_coords_loss_2d, # too crazy
             feature_loss, bad_feature_loss
@@ -383,6 +412,7 @@ class TotalLoss(nn.Module):
         self.loss_history['vis_loss'].append(vis_loss.item())
         self.loss_history['vis_2d_loss'].append(vis_loss_cams.item())
         self.loss_history['conf_loss'].append(conf_loss.item())
+        self.loss_history['conf_2d_loss'].append(conf_loss_2d.item())
         self.loss_history['total_loss'].append(total_loss.item())
 
         # Record 2D and depth losses if they were computed
