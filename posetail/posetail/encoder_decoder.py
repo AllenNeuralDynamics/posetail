@@ -716,8 +716,8 @@ class Decoder(nn.Module):
             self.scale_3d = nn.Parameter(torch.tensor([500.0])) 
             self.scale_2d = nn.Parameter(torch.tensor([128.0]))
         else:
-            self.scale_3d = nn.Parameter(torch.tensor([50.0])) 
-            self.scale_2d = nn.Parameter(torch.tensor([32.0]))
+            self.scale_3d = nn.Parameter(torch.tensor([1.0])) 
+            self.scale_2d = nn.Parameter(torch.tensor([1.0]))
             
         self.scale_depth = nn.Parameter(torch.tensor([500.0]))
 
