@@ -690,7 +690,6 @@ class Decoder(nn.Module):
         self.norm0s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.norm1s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
         self.norm2s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
-        self.final_norm = nn.LayerNorm(embed_dim)
         
         # Final output heads
         head_dim = embed_dim
@@ -700,6 +699,14 @@ class Decoder(nn.Module):
         self.head_conf = nn.Linear(head_dim, 1)
         self.head_depth = nn.Linear(head_dim, 1)
         self.head_conf_3d = nn.Linear(head_dim, 1)
+
+        # Per-head layer norms
+        self.norm_3d = nn.LayerNorm(embed_dim)
+        self.norm_2d = nn.LayerNorm(embed_dim)
+        self.norm_vis = nn.LayerNorm(embed_dim)
+        self.norm_conf = nn.LayerNorm(embed_dim)
+        self.norm_depth = nn.LayerNorm(embed_dim)
+        self.norm_conf_3d = nn.LayerNorm(embed_dim)
 
         # Regression heads: small but nonzero init for gradient flow
         for head in [self.head_3d, self.head_2d, self.head_depth]:
@@ -767,15 +774,13 @@ class Decoder(nn.Module):
             mlp_out = self.mlps[layer_idx](self.norm2s[layer_idx](x))
             x = x + mlp_out
         
-        x = self.final_norm(x)
-
-        # Project to output: [(N_cams*B), T_query, 9]
-        out_3d = self.head_3d(x) * self.scale_3d
-        out_2d = self.head_2d(x) * self.scale_2d
-        out_vis = self.head_vis(x)
-        out_conf = self.head_conf(x)
-        out_depth = self.head_depth(x) * self.scale_depth
-        out_conf_3d = self.head_conf_3d(x)
+        # Apply per-head norms and project to output
+        out_3d = self.head_3d(self.norm_3d(x)) * self.scale_3d
+        out_2d = self.head_2d(self.norm_2d(x)) * self.scale_2d
+        out_vis = self.head_vis(self.norm_vis(x))
+        out_conf = self.head_conf(self.norm_conf(x))
+        out_depth = self.head_depth(self.norm_depth(x)) * self.scale_depth
+        out_conf_3d = self.head_conf_3d(self.norm_conf_3d(x))
         output = torch.cat([out_3d, out_2d, out_vis, out_conf, out_depth, out_conf_3d], dim=-1)
         
         # Reshape back: [B, T_query, N_cams, 9]
