@@ -31,7 +31,8 @@ class TrackerEncoder(nn.Module):
                  n_time_space_blocks = 6, embedding_factor = 4,
                  use_camera_self_attention = True,
                  mode_3d = 'encoder',
-                 output_mode = 'residual'): 
+                 output_mode = 'residual',
+                 scene_encoder_proj = True):
         super().__init__()
 
         self.mode_3d = mode_3d
@@ -68,6 +69,7 @@ class TrackerEncoder(nn.Module):
         self.embedding_factor = embedding_factor
         self.use_camera_self_attention = use_camera_self_attention
         self.output_mode = output_mode
+        self.scene_encoder_proj = scene_encoder_proj
 
         assert output_mode in ['direct', 'residual'], 'output_mode should be "direct" or "residual"'
         
@@ -84,7 +86,7 @@ class TrackerEncoder(nn.Module):
             n_frames = self.n_frames,
             image_size = self.image_size,
             hierarchical_features = self.video_encoder_hierarchical,
-            decoder_dim = latent_dim,
+            decoder_dim = latent_dim if scene_encoder_proj else None,
         )
         
         self.query_encoder = QueryEncoder(
@@ -263,21 +265,30 @@ class TrackerEncoder(nn.Module):
         rays_c = torch.stack([points_to_rays(cam, center, normalize_t=False)[0] for cam in camera_group])
         rays_c_inv = _invert_SE3(rays_c)  # [cams, 4, 4], ray-local → world
         
-        p3d_cams = points_3d_raw * cube_scale            
-        points_3d_all_direct = from_homogeneous(
-            einsum(rays_c_inv, to_homogeneous(p3d_cams),
-                   'cams x r, cams b t n r -> cams b t n x')
-        )
-        if self.output_mode== 'residual':
+        p3d_cams = points_3d_raw * cube_scale
+
+        if self.output_mode == 'residual':
             if R == 3:
-                query_3d_cams = repeat(query_coords, 'b (t n) r -> cams b t n r', t=T, n=N, cams=n_cams)
+                query_world = repeat(
+                    rearrange(query_coords, 'b (t n) r -> b t n r', t=T, n=N),
+                    'b t n r -> cams b t n r', cams=n_cams)
             elif R == 2:
                 # index points_3d_rays using query_times to get predicted 3d query points
                 t_idx = repeat(query_times, 'b n -> b 1 n r', r=3)
                 query_3d = torch.gather(points_3d_rays, dim=1, index=t_idx)  # (b, 1, n, 3)
-                query_3d_cams = repeat(query_3d, 'b 1 n r -> cams b t n r', t=T, cams=n_cams)
+                query_world = repeat(query_3d, 'b 1 n r -> cams b t n r', t=T, cams=n_cams)
 
-            points_3d_all_direct = points_3d_all_direct + query_3d_cams
+            # convert query from world → ray-local space, then add as residual before world transform
+            query_local = from_homogeneous(
+                einsum(rays_c, to_homogeneous(query_world),
+                       'cams x r, cams b t n r -> cams b t n x')
+            )
+            p3d_cams = p3d_cams + query_local
+
+        points_3d_all_direct = from_homogeneous(
+            einsum(rays_c_inv, to_homogeneous(p3d_cams),
+                   'cams x r, cams b t n r -> cams b t n x')
+        )
         
         points_3d_direct = einsum(points_3d_all_direct, conf_3d,
                                   'cams b t n r, cams b t n -> b t n r')
