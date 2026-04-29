@@ -564,9 +564,9 @@ class QueryEncoder(nn.Module):
 
 class SceneRepresentation(nn.Module):
     def __init__(self, version='large', freeze_encoder=True, n_frames=16, image_size=256,
-                 hierarchical_features = True):
+                 hierarchical_features=True, decoder_dim=None):
         super().__init__()
-        
+
         # Initialize encoder
         if version == 'base':
             vjepa_encoder, vjepa_decoder = vjepa2_1_vit_base_384()
@@ -578,7 +578,7 @@ class SceneRepresentation(nn.Module):
             vjepa_encoder, vjepa_decoder = vjepa2_1_vit_gigantic_384()
 
         self.encoder = vjepa_encoder
-            
+
         self.encoder.return_hierarchical = hierarchical_features
         self.encoder.use_activation_checkpointing = not freeze_encoder
 
@@ -586,56 +586,64 @@ class SceneRepresentation(nn.Module):
             self.embed_dim = self.encoder.embed_dim * 4
         else:
             self.embed_dim = self.encoder.embed_dim
-            
+
         self.patch_size = self.encoder.patch_size
         self.tubelet_size = self.encoder.tubelet_size
 
-        
         if freeze_encoder:
             for param in self.encoder.parameters():
                 param.requires_grad = False
             self.encoder.eval()
-        
+
         self.freeze_encoder = freeze_encoder
 
         self.n_frames = n_frames
         self.image_size = image_size
-        
+
         n_tokens = (n_frames // self.tubelet_size) * (image_size // self.patch_size) * (image_size // self.patch_size)
         self.pos_embed = nn.Parameter(
             torch.zeros(1, n_tokens, self.embed_dim)
         )
-        
-        
+
+        if decoder_dim is not None:
+            self.kv_proj = nn.Linear(self.embed_dim, decoder_dim)
+            nn.init.xavier_uniform_(self.kv_proj.weight)
+            nn.init.zeros_(self.kv_proj.bias)
+            self.kv_norm = nn.LayerNorm(decoder_dim)
+            self.embed_dim = decoder_dim
+        else:
+            self.kv_proj = None
+            self.kv_norm = None
+
     def forward(self, views):
         """
         Args:
             views: list of [B, T, C, H, W] tensors (preprocessed images, one list per camera)
-            
+
         Returns:
-            encoded_views: list of [B, N_tokens, encoder_dim] tensors (one per camera)
+            encoded_views: [C, B, N_tokens, embed_dim] tensor
         """
-        encoded = []
-        
         if self.freeze_encoder:
             self.encoder.eval()
 
         views_stacked = torch.stack(views)
 
         xr = rearrange(views_stacked, 'cams b t c h w -> (cams b) c t h w')
-        
-        # Encode
+
         with torch.set_grad_enabled(not self.freeze_encoder):
-            feat = self.encoder(xr) # [b, n_tokens, embed_dim]
-            
-        # Add position embeddings
+            feat = self.encoder(xr) # [(cams b), n_tokens, embed_dim]
+
         feat = feat + self.pos_embed
+
+        if self.kv_proj is not None:
+            feat = self.kv_proj(feat)
+            feat = self.kv_norm(feat)
 
         encoded = rearrange(feat,
                             '(cams b) tokens embed -> cams b tokens embed',
-                            cams=len(views)) 
-            
-        return encoded    
+                            cams=len(views))
+
+        return encoded
 
 
 class Decoder(nn.Module):

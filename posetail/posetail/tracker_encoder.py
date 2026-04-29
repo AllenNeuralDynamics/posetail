@@ -83,7 +83,8 @@ class TrackerEncoder(nn.Module):
             freeze_encoder = not video_encoder_requires_grad,
             n_frames = self.n_frames,
             image_size = self.image_size,
-            hierarchical_features = self.video_encoder_hierarchical
+            hierarchical_features = self.video_encoder_hierarchical,
+            decoder_dim = latent_dim,
         )
         
         self.query_encoder = QueryEncoder(
