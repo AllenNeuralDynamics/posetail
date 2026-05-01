@@ -26,13 +26,13 @@ class TrackerEncoder(nn.Module):
                  corr_radius = 3, 
                  max_freq = 10, n_iters = 4, embedding_dim = 256,
                  query_patch_size = 9,
-                 use_volume_embedding = True,
-                 latent_dim = 128, n_heads = 8, 
+                 use_volume_embedding = False,
+                 latent_dim = 1024, n_heads = 8, 
                  n_time_space_blocks = 6, embedding_factor = 4,
-                 use_camera_self_attention = True,
+                 use_camera_self_attention = False,
                  mode_3d = 'encoder',
-                 output_mode = 'residual',
-                 scene_encoder_proj = True,
+                 output_mode = 'direct',
+                 scene_encoder_proj = False,
                  head_3d_grid_size = 8,
                  head_3d_grid_radius = 1.0):
         super().__init__()
