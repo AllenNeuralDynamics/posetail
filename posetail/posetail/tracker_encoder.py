@@ -223,7 +223,7 @@ class TrackerEncoder(nn.Module):
         if self.output_mode == 'residual':
             # Predict offsets instead of absolute bounded coordinates
             points_pred_scaled = p2d_query + points_pred
-        elif self.output_mode == 'direct':
+        elif self.output_mode == 'direct' or self.output_mode == 'grid':
             # Predict absolute coordinates
             points_pred_scaled = points_pred + self.image_size // 2
 
