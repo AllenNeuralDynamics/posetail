@@ -32,7 +32,9 @@ class TrackerEncoder(nn.Module):
                  use_camera_self_attention = True,
                  mode_3d = 'encoder',
                  output_mode = 'residual',
-                 scene_encoder_proj = True):
+                 scene_encoder_proj = True,
+                 head_3d_grid_size = 8,
+                 head_3d_grid_radius = 1.0):
         super().__init__()
 
         self.mode_3d = mode_3d
@@ -71,7 +73,7 @@ class TrackerEncoder(nn.Module):
         self.output_mode = output_mode
         self.scene_encoder_proj = scene_encoder_proj
 
-        assert output_mode in ['direct', 'residual'], 'output_mode should be "direct" or "residual"'
+        assert output_mode in ['direct', 'residual', 'grid'], 'output_mode should be "direct", "residual", or "grid"'
         
         # self.transform_norm = transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         self.transform_norm = transforms.Compose([
@@ -105,7 +107,9 @@ class TrackerEncoder(nn.Module):
             num_layers=n_time_space_blocks,
             mlp_ratio=embedding_factor,
             use_camera_self_attention=self.use_camera_self_attention,
-            output_mode=self.output_mode
+            output_mode=self.output_mode,
+            head_3d_grid_size=head_3d_grid_size,
+            head_3d_grid_radius=head_3d_grid_radius,
         )
 
 

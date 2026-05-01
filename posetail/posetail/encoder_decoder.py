@@ -652,15 +652,24 @@ class Decoder(nn.Module):
                  num_heads=8, num_layers=8, 
                  mlp_ratio=4.0, dropout=0.05,
                  use_camera_self_attention=True,
-                 output_mode="direct"):
+                 output_mode="direct",
+                 head_3d_grid_size=8,
+                 head_3d_grid_radius=1.0):
         super().__init__()
-        
+
         self.embed_dim = embed_dim
         self.encoder_dim = encoder_dim
         self.num_layers = num_layers
         self.use_camera_self_attention = use_camera_self_attention
         self.output_mode = output_mode
-        
+        self.head_3d_grid_size = head_3d_grid_size
+        self.head_3d_grid_radius = head_3d_grid_radius
+
+        if output_mode == 'grid':
+            grid_1d = torch.linspace(-head_3d_grid_radius, head_3d_grid_radius, head_3d_grid_size)
+            grid_offsets = torch.cartesian_prod(grid_1d, grid_1d, grid_1d)  # [G**3, 3]
+            self.register_buffer("grid_offsets_3d", grid_offsets)
+
         # camera self attention layers
         if self.use_camera_self_attention:
             self.camera_attns = nn.ModuleList([
@@ -702,7 +711,8 @@ class Decoder(nn.Module):
         
         # Final output heads
         head_dim = embed_dim
-        self.head_3d = nn.Linear(head_dim, 3)
+        head_3d_out = head_3d_grid_size ** 3 if output_mode == 'grid' else 3
+        self.head_3d = nn.Linear(head_dim, head_3d_out)
         self.head_2d = nn.Linear(head_dim, 2)
         self.head_vis = nn.Linear(head_dim, 1)
         self.head_conf = nn.Linear(head_dim, 1)
@@ -718,9 +728,17 @@ class Decoder(nn.Module):
         self.norm_conf_3d = nn.LayerNorm(embed_dim)
 
         # Regression heads: small but nonzero init for gradient flow
-        for head in [self.head_3d, self.head_2d, self.head_depth]:
+        for head in [self.head_2d, self.head_depth]:
             nn.init.normal_(head.weight, std=0.001)
             nn.init.zeros_(head.bias)
+
+        if output_mode == 'grid':
+            # Zero init so softmax starts uniform → expectation near zero
+            nn.init.zeros_(self.head_3d.weight)
+            nn.init.zeros_(self.head_3d.bias)
+        else:
+            nn.init.normal_(self.head_3d.weight, std=0.001)
+            nn.init.zeros_(self.head_3d.bias)
 
         # Classification/confidence heads: small init
         for head in [self.head_vis, self.head_conf, self.head_conf_3d]:
@@ -729,11 +747,14 @@ class Decoder(nn.Module):
 
         # Learnable output scales
         if self.output_mode == 'direct':
-            self.scale_3d = nn.Parameter(torch.tensor([500.0])) 
+            self.scale_3d = nn.Parameter(torch.tensor([500.0]))
             self.scale_2d = nn.Parameter(torch.tensor([128.0]))
-        else:
-            self.scale_3d = nn.Parameter(torch.tensor([1.0])) 
+        elif self.output_mode == 'residual':
+            self.scale_3d = nn.Parameter(torch.tensor([1.0]))
             self.scale_2d = nn.Parameter(torch.tensor([1.0]))
+        else:  # grid
+            self.scale_3d = nn.Parameter(torch.tensor([500.0]))
+            self.scale_2d = nn.Parameter(torch.tensor([128.0]))
             
         self.scale_depth = nn.Parameter(torch.tensor([500.0]))
 
@@ -784,7 +805,13 @@ class Decoder(nn.Module):
             x = x + mlp_out
         
         # Apply per-head norms and project to output
-        out_3d = self.head_3d(self.norm_3d(x)) * self.scale_3d
+        if self.output_mode == 'grid':
+            logits_3d = self.head_3d(self.norm_3d(x))           # [..., G**3]
+            prob_3d = F.softmax(logits_3d, dim=-1)              # [..., G**3]
+            out_3d = prob_3d @ self.grid_offsets_3d             # [..., 3]
+            out_3d = out_3d * self.scale_3d
+        else:
+            out_3d = self.head_3d(self.norm_3d(x)) * self.scale_3d
         out_2d = self.head_2d(self.norm_2d(x)) * self.scale_2d
         out_vis = self.head_vis(self.norm_vis(x))
         out_conf = self.head_conf(self.norm_conf(x))
