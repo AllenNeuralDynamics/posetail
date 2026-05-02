@@ -20,7 +20,7 @@ n_frames = 16
 min_res = 256
 max_res = 256
 cams_to_sample = [1, 8] 
-kpts_to_sample = [416, 416]
+kpts_to_sample = [128, 128]
 aug_prob = 0.25
 enable_kpt_filtering = false
 cam_thresh_for_vis = 1
@@ -31,14 +31,14 @@ speed_thresh = 1.0
 query_anytime = true
 query_edge_bias = 100.0
 prop_dynamic_kpts_to_sample = 0.95
-prob_2d_only = 0.25
+prob_2d_only = 0.2
 
 [dataset.val]
 split_dir = 'val'
 n_frames = 16
 max_res = 256
 cams_to_sample = 5
-kpts_to_sample = 32
+kpts_to_sample = 128
 aug_prob = 0.0
 crop_to_points = true
 speed_thresh = 1.0
@@ -75,7 +75,7 @@ use_volume_embedding = false
 corr_radius = 2
 
 # decoder
-latent_dim = 1024
+latent_dim = 512
 n_heads = 8
 n_time_space_blocks = 8
 embedding_factor = 4
@@ -91,19 +91,18 @@ seed = 3
 n_iterations = 500000
 # scheduler_type = 'multisteplr'
 scheduler_type = 'schedulefree'
-max_grad_norm = 200.0
+max_grad_norm = 50.0
 checkpoint_freq = 10240 # in iterations
-eval_metric_freq = 4 # in iterations
+eval_metric_freq = 16 # in iterations
 val_freq = 64 # in iterations
 print_freq = 1 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 1e-3
+learning_rate = 5e-4
 weight_decay = 0.01
-# weight_decay = 0
-warmup_steps = 200
-beta1 = 0.95
+warmup_steps = 1500
+beta1 = 0.9
 beta2 = 0.999
 
 [training.scheduler]
