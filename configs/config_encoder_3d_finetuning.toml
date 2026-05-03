@@ -9,8 +9,8 @@ batch_size = 1
 num_workers = 12
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/kubric-multiview-subset'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-tests/wrapped'
-prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility'
-# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
+# prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility'
+prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning-test'
 # datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
@@ -29,9 +29,10 @@ n_samples_per_dataset = -1
 crop_to_points = true
 speed_thresh = 1.0
 query_anytime = true
-query_edge_bias = 100.0
+query_edge_bias = 20.0
 prop_dynamic_kpts_to_sample = 0.95
 prob_2d_only = 0.2
+no_nan_coords = false
 
 [dataset.val]
 split_dir = 'val'
@@ -60,7 +61,7 @@ device = 'cuda'
 mode_3d = "encoder"
 
 video_encoder_version = 'large'
-video_encoder_requires_grad = false
+video_encoder_requires_grad = true
 video_encoder_hierarchical = true
 
 # processing
@@ -87,8 +88,9 @@ head_3d_grid_radius = 1.0
 
 [training]
 seed = 3
-# checkpoint_path = ''
-n_iterations = 400000
+checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-vjepa-new/wandb/run-20260502_091614-5ueban02/files/checkpoints/checkpoint_00450560.pth'
+n_iterations = 600000
+finetune = true
 # scheduler_type = 'multisteplr'
 scheduler_type = 'schedulefree'
 max_grad_norm = 50.0
@@ -127,7 +129,7 @@ use_huber_loss = false
 vis_loss_weight = 4
 conf_loss_weight = 0.0
 conf_2d_loss_weight = 0.0
-occluded_coords_loss_weight = 0.01
+occluded_coords_loss_weight = 0.05
 feature_loss_weight = 0.0
 
 coords_loss_weight = 1.0
