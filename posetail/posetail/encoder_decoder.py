@@ -456,9 +456,20 @@ class SceneRepresentation(nn.Module):
         return encoded
 
 
+class AdaptiveLayerNorm(nn.Module):
+    def __init__(self, dim, num_modes=2):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim, elementwise_affine=False)
+        self.gamma = nn.Embedding(num_modes, dim)
+        self.beta = nn.Embedding(num_modes, dim)
+
+    def forward(self, x, mode_idx):
+        return self.norm(x) * (1 + self.gamma(mode_idx)) + self.beta(mode_idx)
+
+
 class Decoder(nn.Module):
     def __init__(self, embed_dim=256, encoder_dim=1024,
-                 num_heads=8, num_layers=8, 
+                 num_heads=8, num_layers=8,
                  mlp_ratio=4.0, dropout=0.05,
                  use_camera_self_attention=True,
                  output_mode="direct",
@@ -479,7 +490,6 @@ class Decoder(nn.Module):
             grid_offsets = torch.cartesian_prod(grid_1d, grid_1d, grid_1d)  # [G**3, 3]
             self.register_buffer("grid_offsets_3d", grid_offsets)
 
-        # camera self attention layers
         if self.use_camera_self_attention:
             self.camera_attns = nn.ModuleList([
                 CameraSelfAttention(embed_dim=embed_dim,
@@ -489,7 +499,6 @@ class Decoder(nn.Module):
         else:
             self.camera_attns = None
 
-        # Cross-attention layers
         self.cross_attns = nn.ModuleList([
             nn.MultiheadAttention(
                 embed_dim=embed_dim,
@@ -500,8 +509,7 @@ class Decoder(nn.Module):
                 batch_first=True
             ) for _ in range(num_layers)
         ])
-        
-        # MLP layers (2-layer MLP with expansion)
+
         mlp_hidden_dim = int(embed_dim * mlp_ratio)
         self.mlps = nn.ModuleList([
             nn.Sequential(
@@ -512,49 +520,46 @@ class Decoder(nn.Module):
                 nn.Dropout(dropout)
             ) for _ in range(num_layers)
         ])
-        
-        # Layer norms
-        self.norm0s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
-        self.norm1s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
-        self.norm2s = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_layers)])
-        
-        # Final output heads
-        head_dim = embed_dim
+
+        # Adaptive layer norms — mode-conditioned throughout the transformer stack
+        self.norm0s = nn.ModuleList([AdaptiveLayerNorm(embed_dim) for _ in range(num_layers)])
+        self.norm1s = nn.ModuleList([AdaptiveLayerNorm(embed_dim) for _ in range(num_layers)])
+        self.norm2s = nn.ModuleList([AdaptiveLayerNorm(embed_dim) for _ in range(num_layers)])
+
+        # Per-mode output heads: index 0 = 2D, index 1 = 3D
         head_3d_out = head_3d_grid_size ** 3 if output_mode == 'grid' else 3
-        self.head_3d = nn.Linear(head_dim, head_3d_out)
-        self.head_2d = nn.Linear(head_dim, 2)
-        self.head_vis = nn.Linear(head_dim, 1)
-        self.head_conf = nn.Linear(head_dim, 1)
-        self.head_depth = nn.Linear(head_dim, 1)
-        self.head_conf_3d = nn.Linear(head_dim, 1)
 
-        # Per-head layer norms
-        self.norm_3d = nn.LayerNorm(embed_dim)
-        self.norm_2d = nn.LayerNorm(embed_dim)
-        self.norm_vis = nn.LayerNorm(embed_dim)
-        self.norm_conf = nn.LayerNorm(embed_dim)
-        self.norm_depth = nn.LayerNorm(embed_dim)
-        self.norm_conf_3d = nn.LayerNorm(embed_dim)
+        def _make_heads(out_dim):
+            return nn.ModuleList([
+                nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, out_dim))
+                for _ in range(2)
+            ])
 
-        # Regression heads: small but nonzero init for gradient flow
-        for head in [self.head_2d, self.head_depth]:
-            nn.init.normal_(head.weight, std=0.001)
-            nn.init.zeros_(head.bias)
+        self.heads_3d      = _make_heads(head_3d_out)
+        self.heads_2d      = _make_heads(2)
+        self.heads_vis     = _make_heads(1)
+        self.heads_conf    = _make_heads(1)
+        self.heads_depth   = _make_heads(1)
+        self.heads_conf_3d = _make_heads(1)
 
-        if output_mode == 'grid':
-            # Zero init so softmax starts uniform → expectation near zero
-            nn.init.zeros_(self.head_3d.weight)
-            nn.init.zeros_(self.head_3d.bias)
-        else:
-            nn.init.normal_(self.head_3d.weight, std=0.001)
-            nn.init.zeros_(self.head_3d.bias)
+        # Weight init — applied to both mode heads
+        for m in range(2):
+            for head in [self.heads_2d[m][1], self.heads_depth[m][1]]:
+                nn.init.normal_(head.weight, std=0.001)
+                nn.init.zeros_(head.bias)
 
-        # Classification/confidence heads: small init
-        for head in [self.head_vis, self.head_conf, self.head_conf_3d]:
-            nn.init.normal_(head.weight, mean=0.0, std=0.01)
-            nn.init.zeros_(head.bias)
+            if output_mode == 'grid':
+                nn.init.zeros_(self.heads_3d[m][1].weight)
+                nn.init.zeros_(self.heads_3d[m][1].bias)
+            else:
+                nn.init.normal_(self.heads_3d[m][1].weight, std=0.001)
+                nn.init.zeros_(self.heads_3d[m][1].bias)
 
-        # Learnable output scales
+            for head in [self.heads_vis[m][1], self.heads_conf[m][1], self.heads_conf_3d[m][1]]:
+                nn.init.normal_(head.weight, mean=0.0, std=0.01)
+                nn.init.zeros_(head.bias)
+
+        # Learnable output scales (shared across modes)
         if self.output_mode == 'direct':
             self.scale_3d = nn.Parameter(torch.tensor([500.0]))
             self.scale_2d = nn.Parameter(torch.tensor([128.0]))
@@ -564,72 +569,53 @@ class Decoder(nn.Module):
         else:  # grid
             self.scale_3d = nn.Parameter(torch.tensor([500.0]))
             self.scale_2d = nn.Parameter(torch.tensor([128.0]))
-            
+
         self.scale_depth = nn.Parameter(torch.tensor([500.0]))
 
-    def forward(self, scene_features, query_embeds, rays):
+    def forward(self, scene_features, query_embeds, rays, mode_idx):
         """
         Args:
-            scene_features: list of [B, N_tokens, encoder_dim] from SceneRepresentation
+            scene_features: [N_cams, B, N_tokens, encoder_dim] from SceneRepresentation
             query_embeds: [B, T_query, N_cams, embed_dim] from QueryEncoder
             rays: [B, T_query, N_cams, 4, 4]
+            mode_idx: LongTensor of shape [1] — 0 for 2D queries, 1 for 3D queries
         Returns:
-            outputs: [B, T_query, N_cams, 9] predictions (3d, 2d pos, depth, conf, vis, conf_3d)
+            outputs: [B, T_query, N_cams, 9]
         """
         B, T_query, N_cams, embed_dim = query_embeds.shape
         assert embed_dim == self.embed_dim
-        
-        # Stack scene features: [N_cams, B, N_tokens, encoder_dim]
-        # kv_stacked = torch.stack(scene_features, dim=0)
-        kv_stacked = scene_features # new code stacks them already
-        
-        kv = rearrange(kv_stacked, 'cams b tokens dim -> (cams b) tokens dim')
-        
-        query = rearrange(query_embeds, 'b t cams dim -> (cams b) t dim')
 
+        kv = rearrange(scene_features, 'cams b tokens dim -> (cams b) tokens dim')
+        x = rearrange(query_embeds, 'b t cams dim -> (cams b) t dim')
         rays_r = rearrange(rays, 'b t cams d e -> (b t) cams d e')
-        
-        # Apply cross-attention + MLP layers
-        x = query
+
         for layer_idx in range(self.num_layers):
-            # Camera self-attention with pre-norm
             if self.use_camera_self_attention:
                 x_cam = rearrange(x, '(cams b) t dim -> (b t) cams dim', b=B, cams=N_cams, t=T_query)
-                attn_out = self.camera_attns[layer_idx](self.norm0s[layer_idx](x_cam), rays_r)
+                attn_out = self.camera_attns[layer_idx](self.norm0s[layer_idx](x_cam, mode_idx), rays_r)
                 x_cam = x_cam + attn_out
                 x = rearrange(x_cam, '(b t) cams dim -> (cams b) t dim', b=B, cams=N_cams, t=T_query)
-            
-            # Cross-attention with pre-norm
-            x_normed = self.norm1s[layer_idx](x)
+
+            x_normed = self.norm1s[layer_idx](x, mode_idx)
             attn_out, _ = self.cross_attns[layer_idx](
-                query=x_normed,
-                key=kv,
-                value=kv,
-                need_weights=False
+                query=x_normed, key=kv, value=kv, need_weights=False
             )
             x = x + attn_out
-            
-            # MLP with pre-norm
-            mlp_out = self.mlps[layer_idx](self.norm2s[layer_idx](x))
-            x = x + mlp_out
-        
-        # Apply per-head norms and project to output
+
+            x = x + self.mlps[layer_idx](self.norm2s[layer_idx](x, mode_idx))
+
+        m = mode_idx.item()
         if self.output_mode == 'grid':
-            logits_3d = self.head_3d(self.norm_3d(x))           # [..., G**3]
-            prob_3d = F.softmax(logits_3d, dim=-1)              # [..., G**3]
-            out_3d = prob_3d @ self.grid_offsets_3d             # [..., 3]
-            out_3d = out_3d * self.scale_3d
+            logits_3d = self.heads_3d[m](x)
+            prob_3d = F.softmax(logits_3d, dim=-1)
+            out_3d = (prob_3d @ self.grid_offsets_3d) * self.scale_3d
         else:
-            out_3d = self.head_3d(self.norm_3d(x)) * self.scale_3d
-        out_2d = self.head_2d(self.norm_2d(x)) * self.scale_2d
-        out_vis = self.head_vis(self.norm_vis(x))
-        out_conf = self.head_conf(self.norm_conf(x))
-        out_depth = self.head_depth(self.norm_depth(x)) * self.scale_depth
-        out_conf_3d = self.head_conf_3d(self.norm_conf_3d(x))
+            out_3d = self.heads_3d[m](x) * self.scale_3d
+        out_2d      = self.heads_2d[m](x) * self.scale_2d
+        out_vis     = self.heads_vis[m](x)
+        out_conf    = self.heads_conf[m](x)
+        out_depth   = self.heads_depth[m](x) * self.scale_depth
+        out_conf_3d = self.heads_conf_3d[m](x)
         output = torch.cat([out_3d, out_2d, out_vis, out_conf, out_depth, out_conf_3d], dim=-1)
-        
-        # Reshape back: [B, T_query, N_cams, 9]
-        outputs = rearrange(output, '(cams b) t dim -> b t cams dim', 
-                           cams=N_cams, b=B)
-        
-        return outputs
+
+        return rearrange(output, '(cams b) t dim -> b t cams dim', cams=N_cams, b=B)

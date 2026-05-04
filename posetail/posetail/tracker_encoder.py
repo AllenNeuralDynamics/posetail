@@ -194,7 +194,8 @@ class TrackerEncoder(nn.Module):
         ])
         query_rays = rearrange(query_rays_flat, 'cams (b t n) d e -> b (t n) cams d e', b=B, t=T, n=N)
 
-        outputs = self.decoder(scene_features, query_embeds, query_rays)
+        mode_idx = torch.tensor([1 if R == 3 else 0], dtype=torch.long, device=query_embeds.device)
+        outputs = self.decoder(scene_features, query_embeds, query_rays, mode_idx)
         outputs = rearrange(outputs,
                             'b (t n) cams outdim -> cams b t n outdim',
                             t=T, n=N)
