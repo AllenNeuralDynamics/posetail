@@ -462,6 +462,8 @@ class AdaptiveLayerNorm(nn.Module):
         self.norm = nn.LayerNorm(dim, elementwise_affine=False)
         self.gamma = nn.Embedding(num_modes, dim)
         self.beta = nn.Embedding(num_modes, dim)
+        nn.init.zeros_(self.gamma.weight)
+        nn.init.zeros_(self.beta.weight)
 
     def forward(self, x, mode_idx):
         return self.norm(x) * (1 + self.gamma(mode_idx)) + self.beta(mode_idx)
