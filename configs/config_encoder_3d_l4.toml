@@ -19,7 +19,7 @@ split_dir = 'train'
 n_frames = 16
 min_res = 256
 max_res = 256
-cams_to_sample = [1, 8] 
+cams_to_sample = [1, 6] 
 kpts_to_sample = [128, 128]
 aug_prob = 0.25
 enable_kpt_filtering = false
@@ -31,7 +31,7 @@ speed_thresh = 1.0
 query_anytime = true
 query_edge_bias = 100.0
 prop_dynamic_kpts_to_sample = 0.95
-prob_2d_only = 0.2
+prob_2d_only = 0.0
 
 [dataset.val]
 split_dir = 'val'
@@ -75,12 +75,12 @@ use_volume_embedding = true
 corr_radius = 2
 
 # decoder
-latent_dim = 512
+latent_dim = 1024
 n_heads = 8
 n_time_space_blocks = 8
 embedding_factor = 4
-use_camera_self_attention = true
-output_mode = "direct" # direct, residual, grid
+use_camera_self_attention = false
+output_mode = "residual" # direct, residual, grid
 scene_encoder_proj = false
 head_3d_grid_size = 16
 head_3d_grid_radius = 1.0
