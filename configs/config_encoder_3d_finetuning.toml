@@ -1,7 +1,7 @@
 [wandb]
-project_name = 'posetail-vjepa-new'
+project_name = 'posetail-vjepa-finetuning'
 # path = '/data/results/lili/posetail'
-path = '/groups/karashchuk/home/karashchukl/results/posetail-vjepa-new'
+path = '/groups/karashchuk/home/karashchukl/results/posetail-vjepa-finetuning'
 mode = 'online' # 'online', 'offline', 'disabled'
 
 [dataset]
@@ -81,14 +81,14 @@ n_heads = 8
 n_time_space_blocks = 8
 embedding_factor = 4
 use_camera_self_attention = true
-output_mode = "direct" # direct, residual, grid
+output_mode = "residual" # direct, residual, grid
 scene_encoder_proj = false
 head_3d_grid_size = 16
 head_3d_grid_radius = 1.0
 
 [training]
 seed = 3
-checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-vjepa-new/wandb/run-20260502_091614-5ueban02/files/checkpoints/checkpoint_00450560.pth'
+checkpoint_path = '/groups/karashchuk/home/karashchukl/results/posetail-vjepa-new/wandb/run-20260504_111253-npcd6yc9/files/checkpoints/checkpoint_00399999.pth'
 finetune = true
 n_iterations = 800000
 # scheduler_type = 'multisteplr'

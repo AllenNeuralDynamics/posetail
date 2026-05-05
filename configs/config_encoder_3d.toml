@@ -31,7 +31,7 @@ speed_thresh = 1.0
 query_anytime = true
 query_edge_bias = 100.0
 prop_dynamic_kpts_to_sample = 0.95
-prob_2d_only = 0.2
+prob_2d_only = 0.0
 
 [dataset.val]
 split_dir = 'val'
@@ -60,7 +60,7 @@ device = 'cuda'
 mode_3d = "encoder"
 
 video_encoder_version = 'large'
-video_encoder_requires_grad = false
+video_encoder_requires_grad = true
 video_encoder_hierarchical = true
 
 # processing
@@ -71,7 +71,7 @@ query_patch_size = 9
 # query encoder
 max_freq = 10
 embedding_dim = 256
-use_volume_embedding = true
+use_volume_embedding = false
 corr_radius = 2
 
 # decoder
@@ -80,7 +80,7 @@ n_heads = 8
 n_time_space_blocks = 8
 embedding_factor = 4
 use_camera_self_attention = true
-output_mode = "direct" # direct, residual, grid
+output_mode = "residual" # direct, residual, grid
 scene_encoder_proj = false
 head_3d_grid_size = 16
 head_3d_grid_radius = 1.0
