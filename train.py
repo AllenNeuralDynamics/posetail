@@ -151,12 +151,14 @@ def run(config_path, fabric):
 
     model.print_summary()
 
+    base_lr = config.training.optimizer.learning_rate
+    lr = base_lr * (fabric.world_size ** 0.5)
+
     # set up optimizer
     if config.training.scheduler_type == 'schedulefree':
         warmup_steps = total_to_per_gpu(
             config.training.optimizer.get('warmup_steps', 0),
             fabric.world_size)
-        lr = config.training.optimizer.learning_rate
         optimizer = AdamWScheduleFree(
             model.parameters(),
             lr=lr,
@@ -166,7 +168,6 @@ def run(config_path, fabric):
                    config.training.optimizer.get('beta2', 0.999))
         )
     else:
-        lr = config.training.optimizer.learning_rate
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=lr,
@@ -246,7 +247,7 @@ def run(config_path, fabric):
     if config.training.scheduler_type == 'onecyclelr': 
         scheduler = optim.lr_scheduler.OneCycleLR(
             optimizer = optimizer,
-            max_lr = config.training.optimizer.learning_rate,
+            max_lr = lr,
             total_steps = iters_per_gpu,
             **config.training.scheduler)
 
