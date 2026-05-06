@@ -25,17 +25,21 @@ import imgaug.augmenters as iaa
 
 from concurrent.futures import ThreadPoolExecutor
 
-def load_image(cam_img_path, crop_coords=None, target_size=None):
+def load_image(cam_img_path, crop_coords=None, target_size=None, rotation=None):
     img = cv2.imread(cam_img_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    
+
+    if rotation is not None:
+        M_2x3, new_size = rotation
+        img = cv2.warpAffine(img, M_2x3, new_size)
+
     if crop_coords is not None:
         x1, y1, x2, y2 = crop_coords
         img = img[y1:y2, x1:x2]
-    
+
     if target_size is not None:
         img = cv2.resize(img, target_size)
-            
+
     return img
 
 def get_rows_trial(trial_path, n_frames, split, context,
@@ -409,7 +413,13 @@ class PosetailDataset(Dataset):
         # failed to sample coordinates, just get another random sample
         if coords.shape[1] < 2:
             return None
-        
+
+        # per-camera image-plane rotation augmentation (before cropping)
+        if should_augment:
+            cgroup, rotation_info = self.augment_image_rotation(cgroup)
+        else:
+            rotation_info = [None] * len(cam_names)
+
         # cropping around coordinates
         # helps for small animals in large arenas
         if self.crop_to_points:
@@ -485,13 +495,15 @@ class PosetailDataset(Dataset):
                 else:
                     crop_coords = None
 
+                rotation = rotation_info[cnum]
+
                 futures = []
                 # load images from paths and resize to desired resolution
-                for img_fname in img_fnames: 
+                for img_fname in img_fnames:
                     cam_img_path = os.path.join(img_path, cam_name, img_fname)
                     future = executor.submit(
                         load_image,
-                        cam_img_path, crop_coords, target_size)
+                        cam_img_path, crop_coords, target_size, rotation)
                     futures.append(future)
                 views_unloaded.append(futures)
 
@@ -701,7 +713,72 @@ class PosetailDataset(Dataset):
         return camera_group_scaled
 
 
-    def rotate_camera_group(self, cgroup, coords): 
+    def augment_image_rotation(self, cgroup):
+        rotation_info = []
+        cgroup_rotated = []
+
+        for cam in cgroup:
+            if np.random.random() >= self.aug_prob:
+                cgroup_rotated.append(cam)
+                rotation_info.append(None)
+                continue
+
+            angle = float(np.random.uniform(-45, 45))
+            angle_rad = np.radians(angle)
+            cos_a = np.cos(angle_rad)
+            sin_a = np.sin(angle_rad)
+            w, h = cam['size'].tolist()
+            cx = float(cam['mat'][0, 2].item())
+            cy = float(cam['mat'][1, 2].item())
+            off_x = float(cam['offset'][0].item())
+            off_y = float(cam['offset'][1].item())
+
+            # rotate around the cropped principal point so the image rotation
+            # matches the extrinsic Z-roll. equals (cx, cy) when offset is 0.
+            center_x = cx - off_x
+            center_y = cy - off_y
+            M_2x3 = cv2.getRotationMatrix2D((center_x, center_y), angle, 1.0)
+
+            corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float64)
+            corners_rot = corners @ M_2x3[:, :2].T + M_2x3[:, 2]
+            min_x, min_y = corners_rot.min(axis=0)
+            max_x, max_y = corners_rot.max(axis=0)
+            tx, ty = -min_x, -min_y
+            new_w = int(np.ceil(max_x - min_x))
+            new_h = int(np.ceil(max_y - min_y))
+            M_2x3[0, 2] += tx
+            M_2x3[1, 2] += ty
+
+            cam_rot = dict(cam)
+
+            # OpenCV y-down sign convention: R_roll[:2,:2] = [[c, s], [-s, c]]
+            R_roll = torch.eye(4, dtype=cam['ext'].dtype, device=cam['ext'].device)
+            R_roll[0, 0] = cos_a
+            R_roll[0, 1] = sin_a
+            R_roll[1, 0] = -sin_a
+            R_roll[1, 1] = cos_a
+            cam_rot['ext'] = R_roll @ cam['ext']
+            cam_rot['ext_inv'] = torch.linalg.inv(cam_rot['ext'])
+            cam_rot['center'] = -cam_rot['ext'][:3, :3].T @ cam_rot['ext'][:3, 3]
+
+            # mat[:2,:2] is unchanged (stays diagonal); only the principal point
+            # shifts to track canvas growth. offset is unchanged.
+            cam_rot['mat'] = cam['mat'].clone()
+            cam_rot['mat'][0, 2] = cam['mat'][0, 2] + tx
+            cam_rot['mat'][1, 2] = cam['mat'][1, 2] + ty
+
+            cam_rot['offset'] = cam['offset'].clone()
+
+            cam_rot['size'] = torch.tensor([new_w, new_h], dtype=torch.int32,
+                                           device=cam['size'].device)
+
+            cgroup_rotated.append(cam_rot)
+            rotation_info.append((M_2x3, (new_w, new_h)))
+
+        return cgroup_rotated, rotation_info
+
+
+    def rotate_camera_group(self, cgroup, coords):
                 
         rvec = np.random.uniform(-2*np.pi, 2*np.pi, size=3)
         rotmat, _ = cv2.Rodrigues(np.array(rvec))
