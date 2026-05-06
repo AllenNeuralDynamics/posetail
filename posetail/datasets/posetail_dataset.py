@@ -232,11 +232,12 @@ class PosetailDataset(Dataset):
             iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Contrast(severity=(1,2))),
             iaa.Sometimes(self.aug_prob, iaa.GammaContrast((0.5, 1.8))),
             iaa.Sometimes(self.aug_prob, iaa.AddToSaturation((-150, 10))),
+            iaa.Sometimes(self.aug_prob, iaa.AddToHue((-30, 30))),
             iaa.Sometimes(self.aug_prob, iaa.MotionBlur(k=(3,6))),
             iaa.Sometimes(self.aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.07*255))),
             # iaa.Sometimes(self.aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
-            iaa.Sometimes(self.aug_prob, iaa.Grayscale(alpha=1.0)),
             iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(30, 70))),
+            iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Pixelate(severity=(1,2))),
         ])
         
         # generate metadata for the provided data path (requires a specific format)
@@ -306,6 +307,7 @@ class PosetailDataset(Dataset):
 
         # only augment some of the samples
         should_augment = np.random.random() < 0.6
+        should_grayscale = np.random.random() < 0.15
             
         # sample a random subject with 0.5 probability if using a 
         # multi-subject dataset
@@ -439,6 +441,32 @@ class PosetailDataset(Dataset):
         else:
             p2d = None
 
+        # generate per-camera cutout rectangles for random erasing augmentation
+        cutout_rects = []
+        if should_augment:
+            p2d_aug = project_points_torch(cgroup, coords)  # (cams, t, n_kpts, 2)
+            for cnum_r in range(len(cam_names)):
+                cam_rects = []
+                if np.random.random() < self.aug_prob:
+                    img_w = cgroup[cnum_r]['size'][0].item()
+                    img_h = cgroup[cnum_r]['size'][1].item()
+                    n_rects = np.random.randint(1, 4)
+                    for _ in range(n_rects):
+                        rw = int(img_w * 0.15)
+                        rh = int(img_h * 0.15)
+                        rx = np.random.randint(0, max(img_w - rw, 1))
+                        ry = np.random.randint(0, max(img_h - rh, 1))
+                        fill_color = np.random.randint(0, 256, size=3).tolist()
+                        cam_rects.append((rx, ry, rx + rw, ry + rh, fill_color))
+                        if vis_2d is not None:
+                            pts = p2d_aug[cnum_r]  # (t, n_kpts, 2)
+                            inside = ((pts[..., 0] >= rx) & (pts[..., 0] <= rx + rw) &
+                                      (pts[..., 1] >= ry) & (pts[..., 1] <= ry + rh))
+                            vis_2d[:, :, cnum_r][inside] = 0
+                cutout_rects.append(cam_rects)
+        else:
+            cutout_rects = [[] for _ in cam_names]
+
         # apply augmentation
         with ThreadPoolExecutor(max_workers=24) as executor:
             views_unloaded = []
@@ -468,11 +496,20 @@ class PosetailDataset(Dataset):
                 views_unloaded.append(futures)
 
             views = []
-            for futures in views_unloaded:
+            for cnum, futures in enumerate(views_unloaded):
                 imgs = [f.result() for f in futures]
                 if should_augment:
                     aug_det = self.aug.to_deterministic()
                     imgs = [aug_det(image=img) for img in imgs]
+
+                for rect in cutout_rects[cnum]:
+                    rx1, ry1, rx2, ry2, fill_color = rect
+                    for img in imgs:
+                        img[ry1:ry2, rx1:rx2] = fill_color
+
+                if should_grayscale:
+                    imgs = [np.stack([cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)] * 3, axis=-1)
+                            for img in imgs]
 
                 imgs = torch.tensor(np.array(imgs), dtype = torch.float32, device='cpu')
                 imgs = imgs / 255.0
