@@ -19,7 +19,7 @@ split_dir = 'train'
 n_frames = 16
 min_res = 256
 max_res = 256
-cams_to_sample = [1, 8] 
+cams_to_sample = [1, 6] 
 kpts_to_sample = [128, 128]
 aug_prob = 0.25
 enable_kpt_filtering = false
@@ -60,7 +60,7 @@ device = 'cuda'
 mode_3d = "encoder"
 
 video_encoder_version = 'large'
-video_encoder_requires_grad = true
+video_encoder_requires_grad = false
 video_encoder_hierarchical = true
 
 # processing
