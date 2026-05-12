@@ -551,21 +551,24 @@ class PosetailDataset(Dataset):
             current_width = high[0] - low[0]
             current_height = high[1] - low[1]
 
-            min_dim = max(self.min_crop_dim, current_width, current_height)
+            # Each axis is capped at the image dimension so the crop never
+            # exceeds image bounds. Without the cap, a wide bbox (e.g. 700 px
+            # on a 540-tall image) forces min_dim=700 > size[1]=540, making
+            # torch.clamp(x, 0, size[1]-min_dim) return a negative max value
+            # and producing a negative cam['offset'] that breaks project_cam.
+            base = max(self.min_crop_dim, int(current_width), int(current_height))
+            min_dim_x = min(base, int(size[0]))
+            min_dim_y = min(base, int(size[1]))
 
-            if current_width < min_dim:
-                # Expand horizontally around center
+            if current_width < min_dim_x:
                 center_x = (low[0] + high[0]) // 2
-                low[0] = torch.clamp(center_x - min_dim // 2, 0, size[0] - min_dim)
-                high[0] = torch.clamp(low[0] + min_dim, 0, size[0])
-                low[0] = high[0] - min_dim  # Adjust if clamping moved the window
+                low[0] = torch.clamp(center_x - min_dim_x // 2, 0, size[0] - min_dim_x)
+                high[0] = low[0] + min_dim_x
 
-            if current_height < min_dim:
-                # Expand vertically around center
+            if current_height < min_dim_y:
                 center_y = (low[1] + high[1]) // 2
-                low[1] = torch.clamp(center_y - min_dim // 2, 0, size[1] - min_dim)
-                high[1] = torch.clamp(low[1] + min_dim, 0, size[1])
-                low[1] = high[1] - min_dim  # Adjust if clamping moved the window
+                low[1] = torch.clamp(center_y - min_dim_y // 2, 0, size[1] - min_dim_y)
+                high[1] = low[1] + min_dim_y
 
             crops.append(torch.cat([low, high]))
 
