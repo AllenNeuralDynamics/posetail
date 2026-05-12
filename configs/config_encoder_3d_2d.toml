@@ -32,7 +32,7 @@ speed_thresh = 1.0
 query_anytime = true
 query_edge_bias = 100.0
 prop_dynamic_kpts_to_sample = 0.95
-prob_2d_only = 0.0
+prob_2d_only = 0.25
 
 [dataset.val]
 split_dir = 'val'
@@ -81,7 +81,7 @@ n_heads = 8
 n_time_space_blocks = 8
 embedding_factor = 4
 use_camera_self_attention = true
-output_mode = "residual" # direct, residual, grid
+output_mode = "direct"
 scene_encoder_proj = false
 head_3d_grid_size = 16
 head_3d_grid_radius = 1.0
