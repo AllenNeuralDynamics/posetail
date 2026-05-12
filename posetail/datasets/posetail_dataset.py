@@ -25,6 +25,26 @@ import imgaug.augmenters as iaa
 
 from concurrent.futures import ThreadPoolExecutor
 
+
+def _rotated_rect_max_inscribed(w, h, angle_rad):
+    """Largest axis-aligned rectangle inscribed in a w×h rectangle rotated by angle_rad."""
+    sin_a = abs(np.sin(angle_rad))
+    cos_a = abs(np.cos(angle_rad))
+    width_is_longer = w >= h
+    long, short = (w, h) if width_is_longer else (h, w)
+    if short <= 2 * sin_a * cos_a * long or abs(sin_a - cos_a) < 1e-10:
+        x = 0.5 * short
+        if width_is_longer:
+            cw, ch = x / sin_a, x / cos_a
+        else:
+            cw, ch = x / cos_a, x / sin_a
+    else:
+        cos_2a = cos_a * cos_a - sin_a * sin_a
+        cw = (w * cos_a - h * sin_a) / cos_2a
+        ch = (h * cos_a - w * sin_a) / cos_2a
+    return cw, ch
+
+
 def load_image(cam_img_path, crop_coords=None, target_size=None, rotation=None):
     img = cv2.imread(cam_img_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -417,6 +437,22 @@ class PosetailDataset(Dataset):
         # per-camera image-plane rotation augmentation (before cropping)
         if should_augment:
             cgroup, rotation_info = self.augment_image_rotation(cgroup)
+            # Mark keypoints cropped out by the rotation as not visible.
+            if vis_2d is not None:
+                s, n, _ = coords.shape
+                coords_flat = rearrange(coords, 's n r -> (s n) r')
+                for cnum, cam in enumerate(cgroup):
+                    if rotation_info[cnum] is None:
+                        continue
+                    visible = rearrange(is_point_visible(cam, coords_flat),
+                                        '(s n) -> s n', s=s, n=n)
+                    vis_2d[:, :, cnum][~visible] = 0
+                # Re-aggregate vis across cameras (NaN treated as visible, matching the
+                # initial collapse at the top of this method).
+                if vis is not None:
+                    per_cam = vis_2d.clone()
+                    per_cam[torch.isnan(per_cam)] = 1
+                    vis = per_cam.bool().sum(dim=-1) >= self.cam_thresh_for_vis
         else:
             rotation_info = [None] * len(cam_names)
 
@@ -747,10 +783,18 @@ class PosetailDataset(Dataset):
             min_x, min_y = corners_rot.min(axis=0)
             max_x, max_y = corners_rot.max(axis=0)
             tx, ty = -min_x, -min_y
-            new_w = int(np.ceil(max_x - min_x))
-            new_h = int(np.ceil(max_y - min_y))
             M_2x3[0, 2] += tx
             M_2x3[1, 2] += ty
+
+            # Crop to the largest axis-aligned rectangle with no black borders.
+            # The crop is centered on the rotated image center in the expanded canvas.
+            cw, ch = _rotated_rect_max_inscribed(w, h, angle_rad)
+            cw_i, ch_i = int(np.floor(cw)), int(np.floor(ch))
+            img_ctr = M_2x3[:, :2] @ np.array([w / 2, h / 2]) + M_2x3[:, 2]
+            x1 = img_ctr[0] - cw_i / 2
+            y1 = img_ctr[1] - ch_i / 2
+            M_2x3[0, 2] -= x1
+            M_2x3[1, 2] -= y1
 
             cam_rot = dict(cam)
 
@@ -764,19 +808,19 @@ class PosetailDataset(Dataset):
             cam_rot['ext_inv'] = torch.linalg.inv(cam_rot['ext'])
             cam_rot['center'] = -cam_rot['ext'][:3, :3].T @ cam_rot['ext'][:3, 3]
 
-            # mat[:2,:2] is unchanged (stays diagonal); only the principal point
-            # shifts to track canvas growth. offset is unchanged.
+            # mat[:2,:2] is unchanged (stays diagonal); principal point tracks the
+            # canvas expansion (tx, ty) and the crop offset (x1, y1). offset unchanged.
             cam_rot['mat'] = cam['mat'].clone()
-            cam_rot['mat'][0, 2] = cam['mat'][0, 2] + tx
-            cam_rot['mat'][1, 2] = cam['mat'][1, 2] + ty
+            cam_rot['mat'][0, 2] = cam['mat'][0, 2] + tx - x1
+            cam_rot['mat'][1, 2] = cam['mat'][1, 2] + ty - y1
 
             cam_rot['offset'] = cam['offset'].clone()
 
-            cam_rot['size'] = torch.tensor([new_w, new_h], dtype=torch.int32,
+            cam_rot['size'] = torch.tensor([cw_i, ch_i], dtype=torch.int32,
                                            device=cam['size'].device)
 
             cgroup_rotated.append(cam_rot)
-            rotation_info.append((M_2x3, (new_w, new_h)))
+            rotation_info.append((M_2x3, (cw_i, ch_i)))
 
         return cgroup_rotated, rotation_info
 
