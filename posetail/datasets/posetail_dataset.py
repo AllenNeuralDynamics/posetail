@@ -460,7 +460,6 @@ class PosetailDataset(Dataset):
         if coords.shape[1] < 2:
             return None
 
-
         # cropping around coordinates
         # helps for small animals in large arenas
         if self.crop_to_points:
