@@ -12,7 +12,7 @@ num_workers = 12
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-pretraining-visibility'
 prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning-v2'
 # prefix = '/groups/karashchuk/karashchuklab/animal-datasets-processed/posetail-finetuning-test'
-datasets_to_exclude = ['anipose-fly', 'allen-mouse', 'cmupanoptic']
+datasets_to_exclude = ['anipose-fly', 'allen-mouse']
 
 [dataset.train]
 split_dir = 'train'
@@ -117,9 +117,9 @@ print_freq = 64 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 1e-4
-weight_decay = 0.01
-warmup_steps = 1500
+learning_rate = 2e-5
+weight_decay = 0.005
+warmup_steps = 3000
 beta1 = 0.9
 beta2 = 0.999
 
@@ -153,4 +153,4 @@ coords_loss_direct_weight = 1.0
 coords_loss_rays_weight = 0.1
 coords_loss_triangulate_weight = 0.0
 coords_loss_2d_weight = 1.0
-coords_loss_depth_weight = 1.0
+coords_loss_depth_weight = 0.1
