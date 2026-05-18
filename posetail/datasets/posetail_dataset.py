@@ -252,8 +252,8 @@ class PosetailDataset(Dataset):
         
         # augmentation
         self.aug = iaa.Sequential([
-            # iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
-            # iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Contrast(severity=(1,2))),
+            iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
+            iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Contrast(severity=(1,2))),
             iaa.Sometimes(self.aug_prob, iaa.GammaContrast((0.5, 1.8))),
             iaa.Sometimes(self.aug_prob, iaa.AddToSaturation((-50, 30))),
             iaa.Sometimes(self.aug_prob, iaa.AddToHue((-30, 30))),
@@ -261,7 +261,7 @@ class PosetailDataset(Dataset):
             iaa.Sometimes(self.aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.07*255))),
             # iaa.Sometimes(self.aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
             iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(60, 90))),
-            # iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Pixelate(severity=(1,2))),
+            iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Pixelate(severity=(1,2))),
         ])
         
         # generate metadata for the provided data path (requires a specific format)
@@ -766,7 +766,7 @@ class PosetailDataset(Dataset):
                 rotation_info.append(None)
                 continue
 
-            angle = float(np.random.uniform(-15, 15))
+            angle = float(np.random.uniform(-45, 45))
             angle_rad = np.radians(angle)
             cos_a = np.cos(angle_rad)
             sin_a = np.sin(angle_rad)

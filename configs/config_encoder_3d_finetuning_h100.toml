@@ -29,7 +29,7 @@ n_samples_per_dataset = -1
 crop_to_points = true
 speed_thresh = 1.0
 query_anytime = true
-query_edge_bias = 20.0
+query_edge_bias = 100.0
 prop_dynamic_kpts_to_sample = 0.95
 prob_2d_only = 0.0
 no_nan_coords = false
@@ -111,7 +111,7 @@ finetune = true
 n_iterations = 800000
 # scheduler_type = 'multisteplr'
 scheduler_type = 'schedulefree'
-max_grad_norm = 5.0
+max_grad_norm = 25.0
 checkpoint_freq = 10240 # in iterations
 eval_metric_freq = 16 # in iterations
 val_freq = 64 # in iterations
@@ -119,7 +119,7 @@ print_freq = 64 # in iterations
 debug_ix = -1 # only works for val 
 
 [training.optimizer]
-learning_rate = 2e-5
+learning_rate = 5e-5
 weight_decay = 0.005
 warmup_steps = 3000
 beta1 = 0.9
