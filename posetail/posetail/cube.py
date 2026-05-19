@@ -277,11 +277,10 @@ def is_point_visible(cam, p3d, margin=0):
 
 def fill_nan_with_batch_median(scale):
     """Fill NaN cells of a (cams, B) scale tensor with the per-batch median
-    over finite cells along the cams axis. Falls back to 1.0 if all cameras
-    for a batch element are NaN."""
+    over finite cells along the cams axis. If all cameras for a batch element
+    are NaN, the cell stays NaN and propagates downstream."""
     finite = torch.isfinite(scale)
-    per_batch = torch.nanmedian(scale, dim=0).values  # (B,)
-    per_batch = torch.nan_to_num(per_batch, nan=1.0)
+    per_batch = torch.nanmedian(scale, dim=0).values  # (B,) — NaN where all-NaN
     return torch.where(finite, scale, per_batch[None, :].expand_as(scale))
 
 

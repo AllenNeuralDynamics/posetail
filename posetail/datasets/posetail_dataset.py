@@ -255,12 +255,12 @@ class PosetailDataset(Dataset):
             iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.DefocusBlur(severity=(1,2))),
             iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Contrast(severity=(1,2))),
             iaa.Sometimes(self.aug_prob, iaa.GammaContrast((0.5, 1.8))),
-            iaa.Sometimes(self.aug_prob, iaa.AddToSaturation((-50, 30))),
+            iaa.Sometimes(self.aug_prob, iaa.AddToSaturation((-150, 10))),
             iaa.Sometimes(self.aug_prob, iaa.AddToHue((-30, 30))),
-            iaa.Sometimes(self.aug_prob, iaa.MotionBlur(k=(3,5))),
+            iaa.Sometimes(self.aug_prob, iaa.MotionBlur(k=(3,6))),
             iaa.Sometimes(self.aug_prob, iaa.AdditiveGaussianNoise(scale=(0, 0.07*255))),
             # iaa.Sometimes(self.aug_prob, iaa.UniformColorQuantizationToNBits(nb_bits=(3,7))),
-            iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(60, 90))),
+            iaa.Sometimes(self.aug_prob, iaa.JpegCompression(compression=(30, 70))),
             iaa.Sometimes(self.aug_prob, iaa.imgcorruptlike.Pixelate(severity=(1,2))),
         ])
         
