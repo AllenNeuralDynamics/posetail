@@ -400,29 +400,27 @@ class PosetailDataset(Dataset):
         else:
             rotation_info = [None] * len(cam_names)
 
+        # compute per-frame validity mask
+        valid_mask = torch.isfinite(coords[..., 0])  # (time, n_kpts)
+        if vis is not None:
+            valid_mask = valid_mask & vis
+        else:
+            t, n, _ = coords.shape
+            coords_flat = rearrange(coords, 't n r -> (t n) r')
+            cam_visible = torch.stack([is_point_visible(cam, coords_flat) for cam in cgroup])
+            proxy_vis = rearrange(cam_visible, 'c (t n) -> t n c', t=t, n=n).sum(dim=-1) >= self.cam_thresh_for_vis
+            valid_mask = valid_mask & proxy_vis
 
         # filter coords based on which coords are visible enough times
         if self.query_anytime:
-            valid_mask = torch.isfinite(coords[..., 0])  # (time, n_kpts)
-            if vis is not None:
-                valid_mask = valid_mask & vis
-            sum_good = torch.sum(valid_mask, dim=0) 
-
-            # some number visible and not nan 
-            mask = sum_good >= 2
-            coords = coords[:, mask]
-            if vis is not None: 
-                vis = vis[:, mask]
-                vis_2d = vis_2d[:, mask]
+            mask = valid_mask.sum(dim=0) >= 2
         else:
-            # filter in the first frame (will sample from these)
-            mask = torch.isfinite(coords[0, :, 0])  # (n_kpts)
-            if vis is not None:
-                mask = mask & vis[0].bool()
-            coords = coords[:, mask, :]
-            if vis is not None:
-                vis = vis[:, mask]
-                vis_2d = vis_2d[:, mask]
+            mask = valid_mask[0]
+
+        coords = coords[:, mask]
+        if vis is not None:
+            vis = vis[:, mask]
+            vis_2d = vis_2d[:, mask]                
 
         # filter coords that are not nan throughout
         if self.no_nan_coords:
