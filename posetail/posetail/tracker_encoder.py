@@ -158,6 +158,10 @@ class TrackerEncoder(nn.Module):
             med = torch.median(cube_scale, dim=0).values  # (B,)
             cube_scale = med[None, :].expand(n_cams, B).contiguous()
 
+        # Ray translations must share a scale across cameras so that PROPE-style
+        # CameraSelfAttention sees consistent inter-camera geometry.
+        cube_scale_shared = torch.median(cube_scale, dim=0).values  # (B,)
+
         if query_times is None:
             query_times = torch.zeros((B, N), dtype=torch.int32, device=device)
         
@@ -200,7 +204,7 @@ class TrackerEncoder(nn.Module):
             rays_per_b = []
             for b in range(B):
                 p2d_ib = rearrange(p2d_query[i, b], 't n r -> (t n) r')
-                rays_per_b.append(points_to_rays(camera_group[i], p2d_ib, cube_scale[i, b]))
+                rays_per_b.append(points_to_rays(camera_group[i], p2d_ib, cube_scale_shared[b]))
             query_rays_per_cam.append(torch.stack(rays_per_b, dim=0))  # (B, T*N, 4, 4)
         query_rays_flat = torch.stack(query_rays_per_cam, dim=0)  # (cams, B, T*N, 4, 4)
         query_rays = rearrange(query_rays_flat, 'cams b (t n) d e -> b (t n) cams d e', t=T, n=N)
