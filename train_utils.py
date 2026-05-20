@@ -19,7 +19,7 @@ from easydict import EasyDict
 from posetail.datasets.utils import safe_make
 from posetail.posetail.cube import get_camera_scale
 from posetail.posetail.eval_metrics import get_eval_metrics
-from posetail.posetail.losses import get_vis_true, unroll_batch
+from posetail.posetail.losses import get_vis_true, unroll_batch, normalize_by_mean_depth
 from posetail.posetail.tracker import Tracker 
 from posetail.posetail.tracker_encoder import TrackerEncoder
 
@@ -335,10 +335,11 @@ def train_iteration(config, model, fabric, batch,
  
     if evaluate:
         if p2d is not None:
-            B = coords.shape[0]
-            scale = get_camera_scale(cgroup, coords.reshape(B, -1, 3))  # (cams, B)
             C = cgroup[0]['center']
-            coords_pred = C + (coords_pred - C) * scale[0].reshape(B, 1, 1, 1)
+            vis_for_norm = vis.to(coords.device) if vis is not None else get_vis_true(coords)
+            _, pred_md = normalize_by_mean_depth(coords_pred, vis_for_norm, C)
+            _, tgt_md  = normalize_by_mean_depth(coords, vis_for_norm, C)
+            coords_pred = C + (coords_pred - C) * (tgt_md / pred_md)
 
         metrics_dict = get_eval_metrics(
             vis_pred = vis_pred,
@@ -473,10 +474,11 @@ def train_epoch(config, model, fabric, dataloader,
         
         if evaluate:
             if p2d is not None:
-                B = coords.shape[0]
-                scale = get_camera_scale(cgroup, coords.reshape(B, -1, 3))  # (cams, B)
                 C = cgroup[0]['center']
-                coords_pred = C + (coords_pred - C) * scale[0].reshape(B, 1, 1, 1)
+                vis_for_norm = vis.to(coords.device) if vis is not None else get_vis_true(coords)
+                _, pred_md = normalize_by_mean_depth(coords_pred, vis_for_norm, C)
+                _, tgt_md  = normalize_by_mean_depth(coords, vis_for_norm, C)
+                coords_pred = C + (coords_pred - C) * (tgt_md / pred_md)
 
             metrics_dict = get_eval_metrics(
                 vis_pred = vis_pred,
@@ -590,10 +592,11 @@ def test_epoch(config, model, dataloader, loss = None,
 
         if evaluate:
             if p2d is not None:
-                B = coords.shape[0]
-                scale = get_camera_scale(cgroup, coords.reshape(B, -1, 3))  # (cams, B)
                 C = cgroup[0]['center']
-                coords_pred = C + (coords_pred - C) * scale[0].reshape(B, 1, 1, 1)
+                vis_for_norm = vis.to(coords.device) if vis is not None else get_vis_true(coords)
+                _, pred_md = normalize_by_mean_depth(coords_pred, vis_for_norm, C)
+                _, tgt_md  = normalize_by_mean_depth(coords, vis_for_norm, C)
+                coords_pred = C + (coords_pred - C) * (tgt_md / pred_md)
 
             metrics_dict = get_eval_metrics(
                 vis_pred = vis_pred,

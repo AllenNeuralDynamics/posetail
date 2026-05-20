@@ -9,7 +9,27 @@ from posetail.posetail.cube import get_camera_scale, project_points_torch, is_po
 
 from collections import defaultdict
 
-class TotalLoss(nn.Module): 
+
+def normalize_by_mean_depth(x, vis, C, eps=1e-6):
+    """
+    x:    (..., 3) world/cam-frame points or (..., 1) raw depths
+    vis:  (..., 1) visibility mask, same leading dims
+    C:    broadcastable camera center (or 0.0 if x is already a depth scalar)
+    Returns (x_normalized, mean_depth):
+      mean_depth = (||x − C|| · vis).sum / vis.sum, pooled over (T, N) per (cam, B)
+      x_normalized = (x − C) / mean_depth   (or x / mean_depth for scalar depth)
+    """
+    if x.shape[-1] == 3:
+        d = torch.linalg.norm(x - C, dim=-1, keepdim=True)
+        offset = C
+    else:
+        d = x
+        offset = 0.0
+    mean_depth = (d * vis).sum(dim=(-3, -2), keepdim=True) / (vis.sum(dim=(-3, -2), keepdim=True) + eps)
+    return (x - offset) / (mean_depth + eps), mean_depth
+
+
+class TotalLoss(nn.Module):
 
     def __init__(self, gamma = 0.8, pixel_thresh = 12, delta = 6,
                  use_huber_loss = False, vis_loss_weight = 1,
@@ -200,17 +220,6 @@ class TotalLoss(nn.Module):
             med = scale.median(dim=0).values  # (B,)
             scale = med[None, :].expand_as(scale).contiguous()
 
-        if p2d is not None:
-            # for 2d prediction, the cube_scale is 1
-            scale_cb = rearrange(scale, 'cams b -> cams b 1 1 1')
-            depths_true = depths_true / scale_cb
-
-            # Scale 3D targets down relative to the camera center
-            # Since R=2 implies len(cgroup) == 1, we use the single camera center
-            C = centers[0]
-            coords_true_cams = C + (coords_true_cams - C) / scale_cb
-            coords_true = C + (coords_true - C) / scale[0].reshape(B, 1, 1, 1)
-            
         occluded_true = ~vis_true
 
         if p2d is None:
@@ -218,9 +227,18 @@ class TotalLoss(nn.Module):
             scale_cb = rearrange(scale, 'cams b -> cams b 1 1 1')
             scale_b  = scale.median(dim=0).values.reshape(B, 1, 1, 1)
         else:
-            # 2D mode: targets already normalized; leave MAE losses unnormalized
+            # 2D mode: mean-depth normalization applied per-loss below; cube_scale is 1
             scale_cb = 1.0
             scale_b  = 1.0
+
+        if p2d is not None:
+            coords_true_n, _ = normalize_by_mean_depth(coords_true, vis_true, centers[0])
+            coords_true_cams_n, _ = normalize_by_mean_depth(coords_true_cams, vis_true_cams, centers)
+            depths_true_n, _ = normalize_by_mean_depth(depths_true, vis_true_cams, 0.0)
+        else:
+            coords_true_n = coords_true
+            coords_true_cams_n = coords_true_cams
+            depths_true_n = depths_true
 
         training_iters = model.training and 'coords_pred_iters' in outputs
         
@@ -284,53 +302,97 @@ class TotalLoss(nn.Module):
                 device = device
             )
 
-        coords_loss = self.mae_loss_coords(
-            coords_pred = coords_pred_iters if training_iters else coords_pred,
-            coords_true = coords_true_unrolled if training_iters else coords_true,
-            vis_true = vis_true_unrolled if training_iters else vis_true,
-            scale = scale_b,
-            device = device
-        )
+        if p2d is not None:
+            if training_iters:
+                coords_true_unrolled_n = [
+                    normalize_by_mean_depth(tgt, vis, centers[0])[0]
+                    for tgt, vis in zip(coords_true_unrolled, vis_true_unrolled)
+                ]
+                coords_pred_iters_n = [
+                    [normalize_by_mean_depth(pred, vis_true_unrolled[i], centers[0])[0]
+                     for pred in stride]
+                    for i, stride in enumerate(coords_pred_iters)
+                ]
+                coords_loss = self.mae_loss_coords(
+                    coords_pred=coords_pred_iters_n, coords_true=coords_true_unrolled_n,
+                    vis_true=vis_true_unrolled, scale=1.0, device=device)
+            else:
+                pred_n, _ = normalize_by_mean_depth(coords_pred, vis_true, centers[0])
+                coords_loss = self.mae_loss_coords(
+                    coords_pred=pred_n, coords_true=coords_true_n,
+                    vis_true=vis_true, scale=1.0, device=device)
+        else:
+            coords_loss = self.mae_loss_coords(
+                coords_pred = coords_pred_iters if training_iters else coords_pred,
+                coords_true = coords_true_unrolled if training_iters else coords_true,
+                vis_true = vis_true_unrolled if training_iters else vis_true,
+                scale = scale_b,
+                device = device
+            )
 
         coords_loss_direct = torch.tensor(0.0, device=device)
         coords_loss_rays = torch.tensor(0.0, device=device)
         coords_loss_triangulate = torch.tensor(0.0, device=device)
 
         if '3d_pred_cams_direct' in outputs:
-            coords_loss_direct += self.mae_loss_coords_direct(
-                coords_pred = outputs['3d_pred_cams_direct'],
-                coords_true = coords_true_cams,
-                vis_true = vis_true_cams,
-                scale = scale_cb,
-                device = device
-            )
+            if p2d is not None:
+                pred_n, _ = normalize_by_mean_depth(outputs['3d_pred_cams_direct'], vis_true_cams, centers)
+                coords_loss_direct += self.mae_loss_coords_direct(
+                    coords_pred=pred_n, coords_true=coords_true_cams_n,
+                    vis_true=vis_true_cams, scale=1.0, device=device)
+            else:
+                coords_loss_direct += self.mae_loss_coords_direct(
+                    coords_pred = outputs['3d_pred_cams_direct'],
+                    coords_true = coords_true_cams,
+                    vis_true = vis_true_cams,
+                    scale = scale_cb,
+                    device = device
+                )
 
         if '3d_pred_direct' in outputs:
-            coords_loss_direct += self.mae_loss_coords_direct(
-                coords_pred = outputs['3d_pred_direct'],
-                coords_true = coords_true,
-                vis_true = vis_true,
-                scale = scale_b,
-                device = device
-            )
+            if p2d is not None:
+                pred_n, _ = normalize_by_mean_depth(outputs['3d_pred_direct'], vis_true, centers[0])
+                coords_loss_direct += self.mae_loss_coords_direct(
+                    coords_pred=pred_n, coords_true=coords_true_n,
+                    vis_true=vis_true, scale=1.0, device=device)
+            else:
+                coords_loss_direct += self.mae_loss_coords_direct(
+                    coords_pred = outputs['3d_pred_direct'],
+                    coords_true = coords_true,
+                    vis_true = vis_true,
+                    scale = scale_b,
+                    device = device
+                )
 
         if '3d_pred_cams_rays' in outputs:
-            coords_loss_rays += self.mae_loss_coords_rays(
-                coords_pred = outputs['3d_pred_cams_rays'],
-                coords_true = coords_true_cams,
-                vis_true = vis_true_cams,
-                scale = scale_cb,
-                device = device
-            )
+            if p2d is not None:
+                pred_n, _ = normalize_by_mean_depth(outputs['3d_pred_cams_rays'], vis_true_cams, centers)
+                coords_loss_rays += self.mae_loss_coords_rays(
+                    coords_pred=pred_n, coords_true=coords_true_cams_n,
+                    vis_true=vis_true_cams, scale=1.0, device=device)
+            else:
+                coords_loss_rays += self.mae_loss_coords_rays(
+                    coords_pred = outputs['3d_pred_cams_rays'],
+                    coords_true = coords_true_cams,
+                    vis_true = vis_true_cams,
+                    scale = scale_cb,
+                    device = device
+                )
 
         if '3d_pred_rays' in outputs:
-            coords_loss_rays += self.mae_loss_coords_rays(
-                coords_pred = outputs['3d_pred_rays'],
-                coords_true = coords_true,
-                vis_true = vis_true,
-                scale = scale_b,
-                device = device
-            )
+            if p2d is not None:
+                pred_n, _ = normalize_by_mean_depth(outputs['3d_pred_rays'], vis_true, centers[0])
+                coords_loss_rays += self.mae_loss_coords_rays(
+                    coords_pred=pred_n, coords_true=coords_true_n,
+                    vis_true=vis_true, scale=1.0, device=device)
+            else:
+                coords_loss_rays += self.mae_loss_coords_rays(
+                    coords_pred = outputs['3d_pred_rays'],
+                    coords_true = coords_true,
+                    vis_true = vis_true,
+                    scale = scale_b,
+                    device = device
+                )
 
         if '3d_pred_triangulate' in outputs and outputs['3d_pred_triangulate'] is not None:
             coords_loss_triangulate += self.mae_loss_coords_triangulate(
@@ -352,13 +414,19 @@ class TotalLoss(nn.Module):
             coords_loss_2d = torch.tensor(0.0, device=device)
 
         if depth_pred is not None:
-            coords_loss_depth = self.mae_loss_coords_depth(
-                coords_pred = depth_pred,
-                coords_true = depths_true,
-                vis_true = vis_true_cams,
-                scale = scale_cb,
-                device = device
-            )
+            if p2d is not None:
+                pred_n, _ = normalize_by_mean_depth(depth_pred, vis_true_cams, 0.0)
+                coords_loss_depth = self.mae_loss_coords_depth(
+                    coords_pred=pred_n, coords_true=depths_true_n,
+                    vis_true=vis_true_cams, scale=1.0, device=device)
+            else:
+                coords_loss_depth = self.mae_loss_coords_depth(
+                    coords_pred = depth_pred,
+                    coords_true = depths_true,
+                    vis_true = vis_true_cams,
+                    scale = scale_cb,
+                    device = device
+                )
         else:
             coords_loss_depth = torch.tensor(0.0, device=device)
 
