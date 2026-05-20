@@ -335,20 +335,21 @@ def train_iteration(config, model, fabric, batch,
  
     if evaluate:
         if p2d is not None:
-            scale = get_camera_scale(cgroup, coords.reshape(-1, 3))
+            B = coords.shape[0]
+            scale = get_camera_scale(cgroup, coords.reshape(B, -1, 3))  # (cams, B)
             C = cgroup[0]['center']
-            coords_pred = C + (coords_pred - C) * scale
+            coords_pred = C + (coords_pred - C) * scale[0].reshape(B, 1, 1, 1)
 
         metrics_dict = get_eval_metrics(
-            vis_pred = vis_pred, 
-            vis_true = vis, 
-            coords_pred = coords_pred, 
+            vis_pred = vis_pred,
+            vis_true = vis,
+            coords_pred = coords_pred,
             coords_true = coords,
             prefix = prefix
-        ) 
+        )
         metric_dicts.append(metrics_dict)
 
-    if scheduler: 
+    if scheduler:
         scheduler.step()
         learning_rate = scheduler.get_last_lr()[0]
 
@@ -472,17 +473,18 @@ def train_epoch(config, model, fabric, dataloader,
         
         if evaluate:
             if p2d is not None:
-                scale = get_camera_scale(cgroup, coords.reshape(-1, 3))
+                B = coords.shape[0]
+                scale = get_camera_scale(cgroup, coords.reshape(B, -1, 3))  # (cams, B)
                 C = cgroup[0]['center']
-                coords_pred = C + (coords_pred - C) * scale
+                coords_pred = C + (coords_pred - C) * scale[0].reshape(B, 1, 1, 1)
 
             metrics_dict = get_eval_metrics(
-                vis_pred = vis_pred, 
-                vis_true = vis, 
-                coords_pred = coords_pred, 
+                vis_pred = vis_pred,
+                vis_true = vis,
+                coords_pred = coords_pred,
                 coords_true = coords,
                 prefix = prefix
-            ) 
+            )
             metric_dicts.append(metrics_dict)
 
         n_batches += 1
@@ -588,17 +590,18 @@ def test_epoch(config, model, dataloader, loss = None,
 
         if evaluate:
             if p2d is not None:
-                scale = get_camera_scale(cgroup, coords.reshape(-1, 3))
+                B = coords.shape[0]
+                scale = get_camera_scale(cgroup, coords.reshape(B, -1, 3))  # (cams, B)
                 C = cgroup[0]['center']
-                coords_pred = C + (coords_pred - C) * scale
+                coords_pred = C + (coords_pred - C) * scale[0].reshape(B, 1, 1, 1)
 
             metrics_dict = get_eval_metrics(
-                vis_pred = vis_pred, 
-                vis_true = vis, 
-                coords_pred = coords_pred, 
+                vis_pred = vis_pred,
+                vis_true = vis,
+                coords_pred = coords_pred,
                 coords_true = coords,
                 prefix = prefix
-            ) 
+            )
             metric_dicts.append(metrics_dict)
 
         n_batches += 1
