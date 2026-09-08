@@ -1502,8 +1502,10 @@ def run_inference(
             subj_coords = subj_coords[:, vmask, :]                 # (T, K_s, 3)
             coords_true_parts.append(subj_coords)
 
-            if vis_gt_raw is not None:
-                subj_vis = vis_gt_raw[s_idx, frame_nums_gt]        # (T, n_kpts, n_cams)
+            if vis_gt_used is not None:
+                # OR over only the cameras actually fed to the model, so the global label is
+                # consistent with vis_true_cams / vis_pred under camera subsampling (n_views).
+                subj_vis = vis_gt_used[s_idx, frame_nums_gt]       # (T, n_kpts, n_cams_used)
                 subj_vis = subj_vis[:, vmask, :].any(axis=-1, keepdims=True)  # (T, K_s, 1)
             else:
                 subj_vis = np.all(np.isfinite(subj_coords), axis=-1, keepdims=True)
@@ -1529,9 +1531,13 @@ def run_inference(
         coords_flat_all = coords_flat_all[valid_flat]                         # (K_valid, n_time, R)
         coords_true = coords_flat_all[:, frame_nums_gt, :].transpose(1, 0, 2)[np.newaxis]  # (1, T, K_valid, R)
 
-        if vis_gt_raw is not None:
-            # vis_gt_raw is (n_subj, n_time, n_kpts, n_cams) — aggregate across cameras
-            vis_agg = vis_gt_raw.any(axis=-1)                                 # (n_subj, n_time, n_kpts)
+        if vis_gt_used is not None:
+            # OR over only the cameras actually fed to the model (vis_gt_used), not the full
+            # trial rig (vis_gt_raw) -- keeps the global label consistent with vis_true_cams /
+            # vis_pred under camera subsampling (n_views); otherwise vis_true stays pinned to
+            # the full-rig visible rate regardless of how many cameras the model actually sees.
+            # vis_gt_used is (n_subj, n_time, n_kpts, n_cams_used) — aggregate across cameras
+            vis_agg = vis_gt_used.any(axis=-1)                                # (n_subj, n_time, n_kpts)
             vis_flat_all = vis_agg.transpose(0, 2, 1)                        # (n_subj, n_kpts, n_time)
             vis_flat_all = vis_flat_all.reshape(n_subj * n_kpts_full, n_time_full)  # (S*K, n_time)
             vis_flat_all = vis_flat_all[valid_flat]                           # (K_valid, n_time)

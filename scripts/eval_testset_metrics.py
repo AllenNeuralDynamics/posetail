@@ -71,6 +71,15 @@ def find_test_trials(dataset):
     return [t for t in trials if os.path.exists(os.path.join(t, 'pose3d.npz'))]
 
 
+def _vis_true_from_cams(vis_true_cams):
+    """OR-fuse per-camera GT visibility (NaN = unknown, excluded) across the camera axis
+    (last dim) to get the global visible/occluded label for the cameras ACTUALLY USED at
+    inference. An all-unknown frame has no evidence of visibility and is treated as occluded."""
+    vtc = np.asarray(vis_true_cams).astype(np.float64)
+    known_visible = np.isfinite(vtc) & (vtc > 0.5)
+    return known_visible.any(axis=-1, keepdims=True)
+
+
 def eval_outputs(out, thresholds, survival):
     """Compute the full metric set from a predictions dict (an in-memory outputs dict or an
     np.load NpzFile -- both index by key and expose .files/keys)."""
@@ -78,7 +87,6 @@ def eval_outputs(out, thresholds, survival):
     cp = torch.as_tensor(np.asarray(out['coords_pred']), dtype=torch.float32)
     ct = torch.as_tensor(np.asarray(out['coords_true']), dtype=torch.float32)
     vp = torch.as_tensor(np.asarray(out['vis_pred']), dtype=torch.float32)
-    vt = torch.as_tensor(np.asarray(out['vis_true']), dtype=torch.bool)
     qt = torch.as_tensor(np.asarray(out['query_times']), dtype=torch.long) \
         if 'query_times' in keys else None
     # Per-camera occlusion: model logits vs per-camera GT (both saved by run_inference when the
@@ -86,6 +94,17 @@ def eval_outputs(out, thresholds, survival):
     # per-cam metric is left as NaN (regenerate with --force to populate it).
     vp2d = np.asarray(out['vis_pred_2d']) if 'vis_pred_2d' in keys else None
     vtc = np.asarray(out['vis_true_cams']) if 'vis_true_cams' in keys else None
+    # Global vis_true is recomputed on the fly from vis_true_cams (OR over the cameras actually
+    # used at inference) rather than trusting the cached 'vis_true' array: predictions cached
+    # before the inference_utils.py fix baked in a vis_true OR'd over the FULL camera rig,
+    # independent of --n-views subsampling -- which desyncs the global occlusion_acc from
+    # occlusion_acc_percam and from what the model actually saw. Recomputing here fixes stale
+    # cached predictions retroactively, with no need to rerun inference; it is a no-op for
+    # fresh predictions where the saved vis_true is already consistent.
+    if vtc is not None:
+        vt = torch.as_tensor(_vis_true_from_cams(vtc), dtype=torch.bool)
+    else:
+        vt = torch.as_tensor(np.asarray(out['vis_true']), dtype=torch.bool)
     m = get_eval_metrics(vp, vt, cp, ct, thresholds=thresholds,
                          survival_threshold=survival, prefix='', query_times=qt,
                          vis_pred_2d=vp2d, vis_true_cams=vtc)
